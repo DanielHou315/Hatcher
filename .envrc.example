@@ -1,14 +1,45 @@
-# Copy to .envrc (gitignored), fill in, then `direnv allow`.
+# Copy to .envrc (gitignored), fill in, then `direnv allow`. See docs/deployment.md.
 
-# Directory of MDX content the site reads at request time. Default: ./content
-export CONTENT_DIR="$PWD/content"
+# Root of the live data, outside the repo. The repo's content/ is only the committed seed.
+export MARGINALIA_HOME="$HOME/Databases/marginalia"
 
-# Directory holding the SQLite progress database. Default: ./data
-export DATA_DIR="$PWD/data"
+# Live MDX content the site serves and the agent writes. Default (compose): ./content
+export CONTENT_DIR="$MARGINALIA_HOME/content"
+
+# Directory holding the SQLite progress database. Default (compose): ./data
+export DATA_DIR="$MARGINALIA_HOME/database"
+
+# Agent-owned state: queue.md, logs/, Claude Code config, caches. Default (compose): ./data/agent
+export AGENT_DIR="$MARGINALIA_HOME/agent"
+
+# Checkout of the paper-to-guided-learning plugin, mounted read-only into the agent.
+export PLUGIN_DIR="$HOME/Code/paper-to-guided-learning-plugin"
 
 # Port the site listens on.
 export PORT=3000
 
-# Set to 1 when the content directory is a Docker bind mount or network share and
-# native file events do not fire.
+# Set to 1 when the content directory is a bind mount or network share and native file events
+# do not fire. The site outside Docker uses 0; compose forces 1 inside the container.
 export CHOKIDAR_USEPOLLING=0
+
+# Claude Code credential for the agent, from `claude setup-token` on the host. Never commit it.
+# (ANTHROPIC_API_KEY also works instead, billed to the API account.)
+export CLAUDE_CODE_OAUTH_TOKEN=""
+
+# When the agent runs: a cron expression in the container's local time (AGENT_TZ).
+export AGENT_SCHEDULE="0 6 * * *"
+
+# Time zone for the schedule, logs, and queue dates.
+export AGENT_TZ="America/Los_Angeles"
+
+# Upper bound on agent turns per run (each run also times out after two hours).
+export AGENT_MAX_TURNS=80
+
+# Model for agent runs. Empty uses the Claude Code default; otherwise e.g. claude-opus-5-5.
+export AGENT_MODEL=""
+
+# Optional: xAI key that enables the X source in `p2gl scout`.
+export XAI_API_KEY=""
+
+# Optional: Semantic Scholar key for higher rate limits.
+export S2_API_KEY=""

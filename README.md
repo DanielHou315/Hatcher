@@ -10,8 +10,9 @@ a daily streak, and suggests the next page from the primary roadmap.
 ## Quick start
 
 ```sh
-cp .envrc.example .envrc && direnv allow   # CONTENT_DIR, DATA_DIR, PORT, CHOKIDAR_USEPOLLING
+cp .envrc.example .envrc && direnv allow   # CONTENT_DIR, DATA_DIR, PORT, ... (see the file)
 npm install
+npm run content:seed                       # copy content/ into CONTENT_DIR once
 npm run dev                                # http://localhost:3000
 ```
 
@@ -22,14 +23,17 @@ error (run it after writing content).
 ## Docker
 
 ```sh
-npm run docker:up     # mkdir -p data && docker compose up -d --build
-npm run docker:logs
+npm run docker:up     # seed the live content dir, then docker compose up -d --build
+npm run docker:logs   # site; npm run agent:logs for the agent
 npm run docker:down
 ```
 
-`./content` is mounted read-only and `./data` read-write. Create `./data` before the first
-`docker compose up` (the npm script does this) so it is owned by you rather than root. Edits to
-files in `./content` show up in the open browser within about two seconds, with no rebuild.
+Compose runs the site and an `agent` service: Claude Code with the paper-to-guided-learning
+plugin, which writes draft pages on a schedule from a queue. Live data lives outside the repo,
+under `~/Databases/marginalia/` (`content/`, `database/`, `agent/`), set by the variables in
+`.envrc.example`; the repo's `content/` is the committed seed. Pages written into the live
+content directory show up in the open browser within about two seconds, with no rebuild. See
+[docs/deployment.md](docs/deployment.md) for setup, the queue, logs, and promoting agent pages.
 
 ## Content
 
@@ -45,6 +49,6 @@ decompose a paper into concept and paper pages that follow the content format an
 ## Progress
 
 Reading progress, notes, and a reading log are stored in SQLite at `$DATA_DIR/progress.db`
-(default `./data`, gitignored), using Node's built-in `node:sqlite`. Delete the file to start over.
+(default `./data`, gitignored; `~/Databases/marginalia/database` with the example `.envrc`), using Node's built-in `node:sqlite`. Delete the file to start over.
 
 See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
