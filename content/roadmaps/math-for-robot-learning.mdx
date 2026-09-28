@@ -1,0 +1,71 @@
+---
+title: "Math for robot learning"
+kind: roadmap
+summary: "From engineering calculus and one probability course to reading Schrödinger bridge, flow matching, and regularized RL papers with the proofs in hand."
+tags: [roadmap, diffusion-models, flow-matching, reinforcement-learning, optimal-transport]
+track: papers
+level: 1
+prerequisites: []
+estimated_minutes: 30
+status: ready
+primary: true
+created: 2026-09-23
+updated: 2026-09-23
+stages:
+  - title: "Probability you can compute with"
+    goal: "Treat expectations as integrals, conditional expectation as a projection, and Gaussians as objects you can manipulate on paper."
+    items: [matrix-calculus, gaussian-computations, measure-theoretic-probability, conditional-expectation, integration-by-parts-and-stein]
+  - title: "Information and concentration"
+    goal: "Know what KL divergence does under marginalization and conditioning, and how to bound a sample average."
+    items: [kl-divergence-and-variational-bounds, concentration-inequalities]
+  - title: "Decision making"
+    goal: "Bellman operators as contractions, the policy gradient theorem as a computation, and regularized RL as a KL projection."
+    items: [mdp-and-bellman-operators, policy-gradient-theorem, stochastic-approximation-and-td, kl-regularized-rl]
+  - title: "Brownian motion and Itô calculus"
+    goal: "Differentiate along a Brownian path and solve linear SDEs, which is every forward process in a diffusion model."
+    items: [brownian-motion, stochastic-integral, ito-lemma, linear-sde-and-ou]
+  - title: "Densities in motion"
+    goal: "Move from paths to densities: Fokker–Planck, changes of drift, and running a diffusion backwards."
+    items: [continuity-equation, fokker-planck, girsanov-theorem, time-reversal-of-diffusions]
+  - title: "Score-based generative modeling"
+    goal: "Read Song et al. 2021 line by line."
+    items: [score-matching, diffusion-sde-framework, score-sde-song-2021]
+  - title: "Transport and flows"
+    goal: "Wasserstein geometry, its dynamic form, and flow matching as its regression version."
+    items: [wasserstein-distance, benamou-brenier, flow-matching, flow-matching-lipman-2022]
+  - title: "Bridges"
+    goal: "Entropic transport, the Schrödinger system, and the Diffusion Schrödinger Bridge paper."
+    items: [entropic-ot-and-sinkhorn, schrodinger-bridge, diffusion-schrodinger-bridge-2021]
+  - title: "Geometry for robot actions"
+    goal: "Rotations and poses as Lie groups, perturbations in the tangent space, and generative models on manifolds."
+    items: [lie-groups-so3-se3, lie-algebra-and-perturbations, riemannian-manifolds-basics]
+---
+
+## How to use this roadmap
+
+Read one page a day. Each page is sized for a single sitting of thirty to sixty minutes and
+ends with two to four exercises. Do the worked example with pen and paper before reading the
+proof; the point of the site is to make the computations routine, not to admire them.
+
+Stages are ordered so that no page appears before its prerequisites. Within a stage the items
+are ordered by level. The three paper pages sit at the end of the stage that supplies their
+mathematics, and each paper page's reading order section lists exactly which earlier pages it
+draws on.
+
+## What you should be able to do at the end
+
+- Take an SDE from a paper, write its Fokker–Planck equation, reverse it in time, and derive
+  the probability-flow ODE without looking anything up.
+- Derive the flow matching objective from the continuity equation and explain why the
+  conditional and marginal losses share a gradient.
+- State the Schrödinger bridge problem as a KL projection, explain why Sinkhorn solves its
+  static form, and follow the convergence argument for iterative proportional fitting.
+- Read a KL-regularized RL objective and recognize the Boltzmann policy, the soft Bellman
+  operator, and the control-as-inference derivation behind it.
+- Handle rotations and poses as group elements and know what a gradient on SE(3) means.
+
+## When a paper needs something that is not here
+
+Use the plugin's paper scout and decomposer to pull the paper apart. Every prerequisite it
+names that is missing from the site becomes a new concept page, and the roadmap curator places
+it in the stage where its own prerequisites already live.

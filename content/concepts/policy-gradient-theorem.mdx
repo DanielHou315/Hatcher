@@ -1,0 +1,296 @@
+---
+title: "The policy gradient theorem"
+kind: concept
+summary: "Why the gradient of expected return needs no gradient of the state distribution, where the score function comes from, and why baselines are free."
+tags: [reinforcement-learning, policy-gradient, reinforce, ppo, variance-reduction]
+track: reinforcement-learning
+level: 2
+prerequisites: [mdp-and-bellman-operators, conditional-expectation]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Reinforcement Learning: An Introduction"
+    author: "Sutton & Barto"
+    where: "Ch. 13"
+  - type: web
+    title: "Policy Gradient Methods for Reinforcement Learning with Function Approximation (NeurIPS 1999)"
+    author: "Sutton, McAllester, Singh & Mansour"
+  - type: web
+    title: "Simple Statistical Gradient-Following Algorithms for Connectionist Reinforcement Learning (Machine Learning, 1992)"
+    author: "Ronald J. Williams"
+  - type: arxiv
+    id: "1707.06347"
+    title: "Proximal Policy Optimization Algorithms"
+  - type: arxiv
+    id: "1506.02438"
+    title: "High-Dimensional Continuous Control Using Generalized Advantage Estimation"
+  - type: arxiv
+    id: "2402.03300"
+    title: "DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models"
+  - type: arxiv
+    id: "2305.13301"
+    title: "Training Diffusion Models with Reinforcement Learning"
+---
+
+## Why you need this
+
+REINFORCE, PPO <Cite id="1707.06347" />, GRPO <Cite id="2402.03300" />, RLHF, and the RL
+fine-tuning of diffusion models in DDPO <Cite id="2305.13301" /> all update a policy with some
+version of $\nabla_\theta\log\pi_\theta(a\mid s)\cdot(\text{something like a return})$. The policy
+gradient theorem is the statement that this is an unbiased estimate of the gradient of expected
+return, even though the distribution of visited states depends on $\theta$ and nobody
+differentiates it. The proof is short once you have the Bellman equation in matrix form; the
+rest of the page is about which "something" to multiply by, which is where the variance lives
+and where PPO's advantage and GRPO's group baseline come from.
+
+## Setup
+
+Take a finite MDP $(\mathcal S,\mathcal A,P,r,\gamma)$ as on the
+[MDP page](/concepts/mdp-and-bellman-operators), an initial distribution $\rho_0$ over states,
+and a policy $\pi_\theta(a\mid s)$ that is differentiable in $\theta\in\mathbb{R}^p$ and strictly
+positive. The objective is
+
+$$
+J(\theta) = \sum_s\rho_0(s)\,V^{\pi_\theta}(s)
+= \mathbb{E}_\tau\Big[\sum_{t\ge0}\gamma^t r(s_t,a_t)\Big],
+$$
+
+where the trajectory $\tau=(s_0,a_0,s_1,a_1,\dots)$ has probability
+$p_\theta(\tau)=\rho_0(s_0)\prod_{t\ge0}\pi_\theta(a_t\mid s_t)P(s_{t+1}\mid s_t,a_t)$. Write
+$G_t=\sum_{t'\ge t}\gamma^{t'-t}r(s_{t'},a_{t'})$ for the reward-to-go, so that
+$Q^\pi(s,a)=\mathbb{E}[G_t\mid s_t=s,a_t=a]$ by the Markov property.
+
+<Definition name="Discounted state occupancy">
+$$
+d^\pi(s) = (1-\gamma)\sum_{t\ge0}\gamma^t\,\mathbb{P}(s_t = s\mid s_0\sim\rho_0,\pi)
+= (1-\gamma)\big(\rho_0^\top\textstyle\sum_{t\ge0}\gamma^tP_\pi^t\big)(s).
+$$
+
+It is a probability distribution on $\mathcal S$ (the weights $(1-\gamma)\gamma^t$ sum to one):
+the distribution of the state at a geometric random time with mean $\gamma/(1-\gamma)$.
+</Definition>
+
+## The idea
+
+<Lemma name="Log-derivative (score function) trick">
+Let $p_\theta$ be a family of probability mass functions on a finite set, differentiable in
+$\theta$ and positive, and $f$ any function. Then
+
+$$
+\nabla_\theta\,\mathbb{E}_{X\sim p_\theta}[f(X)] = \mathbb{E}_{X\sim p_\theta}\big[f(X)\,\nabla_\theta\log p_\theta(X)\big].
+$$
+
+In particular ($f\equiv1$): $\mathbb{E}_{p_\theta}[\nabla_\theta\log p_\theta(X)]=0$.
+</Lemma>
+
+<Proof>
+$\nabla\sum_x p_\theta(x)f(x)=\sum_x f(x)\nabla p_\theta(x)=\sum_x p_\theta(x)f(x)\frac{\nabla p_\theta(x)}{p_\theta(x)}$,
+and $\nabla p/p=\nabla\log p$. For densities on $\mathbb{R}^n$ the same computation needs the
+gradient to pass through an integral; a sufficient condition is that
+$\sup_\theta|f\,\nabla_\theta p_\theta|$ is integrable (dominated convergence). $\blacksquare$
+</Proof>
+
+<Theorem name="Policy gradient theorem, state-occupancy form" label="Thm 1">
+$$
+\nabla_\theta J(\theta) = \frac{1}{1-\gamma}\;\mathbb{E}_{s\sim d^\pi,\;a\sim\pi_\theta(\cdot\mid s)}
+\big[\nabla_\theta\log\pi_\theta(a\mid s)\,Q^\pi(s,a)\big],
+\qquad \pi=\pi_\theta .
+$$
+
+No derivative of $d^\pi$ or of $Q^\pi$ with respect to $\theta$ appears.
+</Theorem>
+
+<Proof>
+Fix one coordinate of $\theta$ and write $\nabla$ for the derivative in it, so $\nabla V^\pi$ is a
+vector in $\mathbb{R}^{|\mathcal S|}$. From $V^\pi(s)=\sum_a\pi(a\mid s)Q^\pi(s,a)$ and the product
+rule,
+
+$$
+\nabla V^\pi(s) = \underbrace{\sum_a\nabla\pi(a\mid s)\,Q^\pi(s,a)}_{=:g(s)}
++ \sum_a\pi(a\mid s)\,\nabla Q^\pi(s,a).
+$$
+
+Since $r$ and $P$ do not depend on $\theta$, $\nabla Q^\pi(s,a)=\gamma\sum_{s'}P(s'\mid s,a)\nabla V^\pi(s')$,
+and the second sum is $\gamma(P_\pi\nabla V^\pi)(s)$. In vector form
+$\nabla V^\pi = g+\gamma P_\pi\nabla V^\pi$, which is the Bellman equation with reward $g$, so
+
+$$
+\nabla V^\pi = (I-\gamma P_\pi)^{-1}g = \sum_{t\ge0}\gamma^tP_\pi^t g .
+$$
+
+Multiply by $\rho_0^\top$: $\nabla J = \rho_0^\top\sum_t\gamma^tP_\pi^t g=\frac{1}{1-\gamma}\sum_s d^\pi(s)g(s)$
+by the definition of $d^\pi$. Finally $\nabla\pi(a\mid s)=\pi(a\mid s)\nabla\log\pi(a\mid s)$
+turns $g(s)$ into $\mathbb{E}_{a\sim\pi(\cdot\mid s)}[\nabla\log\pi(a\mid s)Q^\pi(s,a)]$. $\blacksquare$
+</Proof>
+
+<Intuition>
+Perturbing $\theta$ changes what the policy does at every state, and each such change has two
+effects: a direct one on the action chosen there, and an indirect one on where the process goes
+next. The proof shows the indirect effects are already accounted for by $Q^\pi$: the sum
+$\sum_t\gamma^tP_\pi^t$ simply visits every state at the rate the current policy visits it and
+credits the direct effect there. That is why the occupancy $d^\pi$ appears as a *weight* but is
+never differentiated.
+</Intuition>
+
+<Theorem name="Trajectory (REINFORCE) form" label="Thm 2">
+$$
+\nabla_\theta J(\theta)=\mathbb{E}_\tau\Big[\sum_{t\ge0}\gamma^t\,\nabla_\theta\log\pi_\theta(a_t\mid s_t)\,G_t\Big]
+=\mathbb{E}_\tau\Big[\sum_{t\ge0}\gamma^t\,\nabla_\theta\log\pi_\theta(a_t\mid s_t)\,Q^\pi(s_t,a_t)\Big].
+$$
+</Theorem>
+
+<Proof>
+Unpacking $d^\pi$ in Thm 1 gives the second expression: $\frac{1}{1-\gamma}d^\pi(s)\pi(a\mid s)$
+is $\sum_t\gamma^t\mathbb{P}(s_t=s,a_t=a)$, and exchanging the sum over $t$ with the expectation
+is allowed because $\nabla\log\pi$ is bounded on a finite set and the weights are geometric. For
+the first expression use the [tower property](/concepts/conditional-expectation): with
+$\mathcal F_t=\sigma(s_0,a_0,\dots,s_t,a_t)$,
+
+$$
+\mathbb{E}\big[\nabla\log\pi(a_t\mid s_t)\,G_t\big]
+=\mathbb{E}\big[\nabla\log\pi(a_t\mid s_t)\,\mathbb{E}[G_t\mid\mathcal F_t]\big]
+=\mathbb{E}\big[\nabla\log\pi(a_t\mid s_t)\,Q^\pi(s_t,a_t)\big],
+$$
+
+because $\nabla\log\pi(a_t\mid s_t)$ is $\mathcal F_t$-measurable ("take out what is known") and
+$\mathbb{E}[G_t\mid\mathcal F_t]=Q^\pi(s_t,a_t)$ by the Markov property. $\blacksquare$
+</Proof>
+
+The same tower argument shows that rewards *earlier* than $t$ contribute nothing: for $t'$
+strictly less than $t$, condition on $\mathcal G_t=\sigma(s_0,a_0,\dots,s_t)$, which contains
+$r(s_{t'},a_{t'})$ but not $a_t$, and use
+$\mathbb{E}[\nabla\log\pi(a_t\mid s_t)\mid\mathcal G_t]=\sum_a\pi(a\mid s_t)\nabla\log\pi(a\mid s_t)=\nabla\sum_a\pi(a\mid s_t)=0$.
+So multiplying $\nabla\log\pi(a_t\mid s_t)$ by the *whole* return $\sum_{t'}\gamma^{t'}r_{t'}$ instead
+of the reward-to-go is also unbiased, just noisier.
+
+<Proposition name="Baselines">
+For any function $b:\mathcal S\to\mathbb{R}$,
+$\mathbb{E}_{a\sim\pi(\cdot\mid s)}[\nabla\log\pi(a\mid s)\,b(s)]=0$, so $Q^\pi$ in Thm 1 and Thm 2 may
+be replaced by $Q^\pi-b$ without changing the expectation. With $b=V^\pi$ this is the advantage
+$A^\pi(s,a)=Q^\pi(s,a)-V^\pi(s)$. The per-state baseline minimizing the variance of the
+single-sample estimate $\hat g=\nabla\log\pi(a\mid s)(Q^\pi(s,a)-b(s))$ is
+
+$$
+b^\star(s)=\frac{\mathbb{E}_{a\sim\pi}\big[\|\nabla\log\pi(a\mid s)\|^2Q^\pi(s,a)\big]}{\mathbb{E}_{a\sim\pi}\big[\|\nabla\log\pi(a\mid s)\|^2\big]}.
+$$
+</Proposition>
+
+<Proof>
+The first claim is the lemma with $f\equiv b(s)$ constant in $a$. For the second, the mean of
+$\hat g$ does not depend on $b$, so minimizing variance is minimizing
+$\mathbb{E}\|\hat g\|^2=\mathbb{E}[\|\nabla\log\pi\|^2(Q-b)^2]$, a quadratic in $b$ whose minimizer
+is the stated weighted mean. $\blacksquare$
+</Proof>
+
+<Warning>
+$V^\pi$ is *not* the variance-optimal baseline; it is the convenient one, because $Q^\pi-V^\pi$
+is what temporal-difference methods estimate. The worked example shows a case where the
+$V^\pi$ baseline increases variance. Also: implementations drop the $\gamma^t$ in front of
+$\nabla\log\pi(a_t\mid s_t)$ in Thm 2. The resulting estimator is not the gradient of $J$; it is
+closer to the gradient of an undiscounted objective in which $\gamma$ only shapes the credit
+assignment. This is a deliberate choice, not a typo.
+</Warning>
+
+## Worked example by hand
+
+<Example title="REINFORCE on a two-armed bandit, with three baselines">
+A bandit is an MDP with one state and $\gamma=0$, so $Q^\pi(a)=r(a)$ and $d^\pi$ is trivial.
+Two arms with deterministic rewards $r(1)=1$, $r(2)=0$, and the sigmoid policy
+$\pi_\theta(1)=\sigma(\theta)=1/(1+e^{-\theta})$, $\pi_\theta(2)=1-\sigma(\theta)$. Then
+$J(\theta)=\sigma(\theta)$ and, exactly, $\nabla J=\sigma(1-\sigma)$.
+
+Scores: $\nabla\log\pi(1)=\nabla\log\sigma=1-\sigma$ and $\nabla\log\pi(2)=\nabla\log(1-\sigma)=-\sigma$.
+Check the zero-mean property: $\sigma(1-\sigma)+(1-\sigma)(-\sigma)=0$.
+
+Take $\theta=\ln3$, so $\sigma=\tfrac34$, $\nabla J=\tfrac34\cdot\tfrac14=\tfrac{3}{16}$, and the
+scores are $\tfrac14$ (arm 1) and $-\tfrac34$ (arm 2).
+
+**No baseline.** $\hat g=r(a)\nabla\log\pi(a)$ equals $1\cdot\tfrac14$ with probability $\tfrac34$
+and $0\cdot(-\tfrac34)=0$ with probability $\tfrac14$. Mean $\tfrac34\cdot\tfrac14=\tfrac3{16}$,
+matching $\nabla J$. Second moment $\tfrac34\cdot\tfrac1{16}=\tfrac{3}{64}$, so
+$\operatorname{Var}=\tfrac{3}{64}-\tfrac{9}{256}=\tfrac{3}{256}\approx0.0117$.
+
+**Value baseline** $b=J(\theta)=\tfrac34$. Arm 1: $(1-\tfrac34)\cdot\tfrac14=\tfrac1{16}$. Arm 2:
+$(0-\tfrac34)\cdot(-\tfrac34)=\tfrac9{16}$. Mean $\tfrac34\cdot\tfrac1{16}+\tfrac14\cdot\tfrac9{16}=\tfrac{12}{64}=\tfrac3{16}$,
+still unbiased. Second moment $\tfrac34\cdot\tfrac1{256}+\tfrac14\cdot\tfrac{81}{256}=\tfrac{84}{1024}$, so
+$\operatorname{Var}=\tfrac{84}{1024}-\tfrac{36}{1024}=\tfrac{48}{1024}=\tfrac{3}{64}\approx0.047$: four times
+*larger* than without a baseline. The rare arm has the large score, and subtracting the mean
+reward makes its term big.
+
+**Optimal baseline.** By the proposition,
+$b^\star=\dfrac{\tfrac34\cdot\tfrac1{16}\cdot1+\tfrac14\cdot\tfrac9{16}\cdot0}{\tfrac34\cdot\tfrac1{16}+\tfrac14\cdot\tfrac9{16}}=\dfrac{3/64}{12/64}=\tfrac14$.
+Arm 1: $(1-\tfrac14)\cdot\tfrac14=\tfrac3{16}$. Arm 2: $(0-\tfrac14)\cdot(-\tfrac34)=\tfrac3{16}$. The
+estimator is the constant $\tfrac3{16}$: zero variance.
+
+**Sanity check.** For a general two-armed bandit with deterministic rewards, setting the two
+possible values of $\hat g$ equal, $(r_1-b)(1-\sigma)=-(r_2-b)\sigma$, gives $b=(1-\sigma)r_1+\sigma r_2$,
+which is $b^\star$ from the formula (both numerator and denominator carry a common factor
+$\sigma(1-\sigma)$). The value baseline is $\sigma r_1+(1-\sigma)r_2$: the same two numbers with the
+weights swapped. They coincide only at $\sigma=\tfrac12$, i.e. $\theta=0$, where all three
+estimators above have variance $\tfrac1{16}$, $0$, and $0$ respectively (try it). With $\gamma>0$
+and stochastic rewards zero variance is no longer attainable, but the mechanism is the same:
+the baseline should weight actions by how large their score is, not by how likely they are.
+</Example>
+
+## Where it shows up
+
+- **REINFORCE** (Williams 1992) is Thm 2 with the sampled return $G_t$ and, usually, a moving
+  average of returns as baseline.
+- **PPO** <Cite id="1707.06347" />. The surrogate
+  $L(\theta)=\mathbb{E}_{s\sim d^{\pi_{\mathrm{old}}},a\sim\pi_{\mathrm{old}}}\big[\tfrac{\pi_\theta(a\mid s)}{\pi_{\mathrm{old}}(a\mid s)}A^{\pi_{\mathrm{old}}}(s,a)\big]$
+  satisfies $\nabla_\theta L(\theta_{\mathrm{old}})=(1-\gamma)\nabla J(\theta_{\mathrm{old}})$, because
+  $\nabla_\theta(\pi_\theta/\pi_{\mathrm{old}})=(\pi_\theta/\pi_{\mathrm{old}})\nabla\log\pi_\theta$ and the ratio
+  is $1$ at $\theta_{\mathrm{old}}$. PPO's clipped objective (their eq. 7) agrees with $L$ to first
+  order and only removes the incentive to move the ratio far from $1$. The advantage is
+  estimated by GAE <Cite id="1506.02438" />, a $\lambda$-weighted sum of TD residuals, which is
+  where the value baseline $b=V$ enters.
+- **GRPO** <Cite id="2402.03300" />, eq. (3): a bandit over whole responses; the baseline is the
+  mean reward of a group of samples from the same prompt, normalized by the group standard
+  deviation. That is a value baseline estimated by Monte Carlo, with the caveat of the warning.
+- **RLHF** is the same objective plus a KL penalty to a reference policy; the penalty changes
+  the reward, not the gradient formula. See [KL-regularized RL](/concepts/kl-regularized-rl).
+- **DDPO** <Cite id="2305.13301" /> and **DPPO**. Each denoising step is an action drawn from a
+  Gaussian $\pi_\theta(x_{t-1}\mid x_t)=\mathcal N(\mu_\theta(x_t,t),\sigma_t^2I)$, so
+  $\nabla_\theta\log\pi_\theta$ is $\nabla_\theta\mu_\theta^\top(x_{t-1}-\mu_\theta)/\sigma_t^2$, and
+  Thm 2 with a terminal reward gives their eq. (4). DPPO applies the PPO version to Diffusion
+  Policy, using the same likelihood.
+- **SAC** does *not* use the score-function estimator: it differentiates through the sample via
+  reparameterization. Both estimate the same gradient of an entropy-regularized objective; the
+  pathwise one has lower variance but needs a differentiable critic.
+
+## Exercises
+
+<Exercise hint="Differentiate the Gaussian log-density in mu; the covariance is fixed.">
+For $\pi(a\mid s)=\mathcal N(\mu_\theta(s),\sigma^2I)$ show
+$\nabla_\theta\log\pi(a\mid s)=\big(\partial_\theta\mu_\theta(s)\big)^\top\,(a-\mu_\theta(s))/\sigma^2$,
+and verify $\mathbb{E}_a[\nabla_\theta\log\pi(a\mid s)]=0$ directly. This is the per-step score used
+by DDPO.
+</Exercise>
+
+<Exercise hint="Condition on the history up to and including s_t but not a_t; the score has zero conditional mean.">
+Prove $\mathbb{E}\big[\nabla\log\pi(a_t\mid s_t)\,r(s_{t'},a_{t'})\big]=0$ for $t'$ strictly less than $t$,
+using only the tower property.
+</Exercise>
+
+<Exercise hint="At theta = 0 the scores are 1/2 and −1/2 and the value baseline equals the optimal one.">
+Redo the worked example at $\theta=0$ and confirm the three variances $\tfrac1{16}$, $0$, $0$
+quoted there. Then take $\theta=-\ln3$ and find which baseline wins.
+</Exercise>
+
+<Exercise hint="Expand the ratio to first order around theta_old and compare with Thm 1; do not forget the factor 1/(1 − gamma).">
+Show that $\nabla_\theta L(\theta_{\mathrm{old}})=(1-\gamma)\nabla J(\theta_{\mathrm{old}})$ for the PPO
+surrogate $L$ defined above, and explain why the factor $1-\gamma$ is harmless.
+</Exercise>
+
+## Going deeper
+
+Sutton, McAllester, Singh and Mansour (1999) is the original statement of Thm 1, together with
+the compatible-function-approximation result (if the critic is linear in $\nabla\log\pi$, replacing
+$Q^\pi$ by the fitted critic leaves the gradient exact). Sutton and Barto Ch. 13 covers the
+episodic and average-reward variants. For the variance of score-function estimators and the
+optimal baseline, see Greensmith, Bartlett and Baxter (JMLR 2004). Schulman et al.'s GAE paper
+<Cite id="1506.02438" /> is the clearest account of the bias–variance trade-off in estimating
+$A^\pi$, and of what dropping $\gamma^t$ does to the objective.

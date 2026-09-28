@@ -1,0 +1,419 @@
+---
+title: "Linear SDEs and the Ornstein–Uhlenbeck process"
+kind: concept
+summary: "When an SDE has a unique solution, how to solve linear ones with an integrating factor, the mean and covariance ODEs of the Ornstein–Uhlenbeck process and its stationary law, and why the DDPM forward process is an OU process discretized by Euler–Maruyama."
+tags: [sde, ornstein-uhlenbeck, linear-sde, euler-maruyama, diffusion-models, ddpm]
+track: stochastic-analysis
+level: 2
+prerequisites: [ito-lemma, gaussian-computations]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 5"
+  - type: book
+    title: "Brownian Motion and Stochastic Calculus"
+    author: "Karatzas & Shreve"
+    where: "Ch. 5.2, 5.6"
+  - type: book
+    title: "Applied Stochastic Differential Equations"
+    author: "Särkkä & Solin"
+    where: "Ch. 6, 8"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+---
+
+## Why you need this
+
+The DDPM forward chain of <Cite id="2006.11239" />, the VP-SDE of <Cite id="2011.13456" />,
+the closed-form perturbation kernel
+$q(x_t\mid x_0) = \mathcal N(\sqrt{\bar\alpha_t}\,x_0,(1-\bar\alpha_t)I)$, and the Gaussian
+score $-\epsilon/\sqrt{1-\bar\alpha_t}$ that the network is trained to predict are all one
+object: an Ornstein–Uhlenbeck (OU) process, the simplest linear SDE. Diffusion Policy inherits
+the same schedule for action sequences, the reverse-time SDE for Gaussian data is again linear,
+and the Kalman filter's prediction step is the mean and covariance ODE derived below. Before
+any of that, the existence and uniqueness theorem is what licenses writing
+$\mathrm{d}X = f\,\mathrm{d}t + g\,\mathrm{d}W$ and calling $X$ "the" process; it is the
+hypothesis you are silently assuming when you plug a learned score into a reverse SDE.
+
+## Setup
+
+An SDE in $\mathbb{R}^d$ driven by an $m$-dimensional Brownian motion $W$ is
+
+$$
+\mathrm{d}X_t = b(X_t,t)\,\mathrm{d}t + \sigma(X_t,t)\,\mathrm{d}W_t,
+\qquad X_0 \text{ given, independent of } W,
+$$
+
+with $b:\mathbb{R}^d\times[0,T]\to\mathbb{R}^d$ and $\sigma:\mathbb{R}^d\times[0,T]\to\mathbb{R}^{d\times m}$.
+A (strong) solution is an adapted continuous process $X$ with
+$X_t = X_0 + \int_0^t b(X_s,s)\,\mathrm{d}s + \int_0^t\sigma(X_s,s)\,\mathrm{d}W_s$ almost surely
+for every $t$, the second integral being the Itô integral. We use the vector
+[Itô's lemma](/concepts/ito-lemma) and, for Gaussian bookkeeping, affine maps of Gaussians and
+the KL between Gaussians from [Gaussian computations](/concepts/gaussian-computations).
+Two facts from the stochastic integral page are used without further comment: an Itô
+integral has mean zero, and an Itô integral of a deterministic integrand is Gaussian with
+variance given by the Itô isometry.
+
+<Definition name="Lipschitz and linear growth">
+The coefficients satisfy a global Lipschitz condition if there is an $L$ with
+$\|b(x,t)-b(y,t)\| + \|\sigma(x,t)-\sigma(y,t)\|_F\le L\|x-y\|$ for all $x,y,t$, and linear
+growth if $\|b(x,t)\| + \|\sigma(x,t)\|_F\le L(1+\|x\|)$. Linear coefficients
+$b = A(t)x + a(t)$, $\sigma = B(t)$ with bounded continuous $A,a,B$ satisfy both.
+</Definition>
+
+## The idea
+
+<Theorem name="Existence and uniqueness (Itô)" label="Thm 1">
+If $b,\sigma$ are continuous, globally Lipschitz, and of linear growth, and
+$\mathbb{E}\|X_0\|^2 < \infty$, then the SDE has a strong solution on $[0,T]$ with
+$\mathbb{E}\sup_{t\le T}\|X_t\|^2 < \infty$, and any two such solutions agree for all $t$
+almost surely.
+</Theorem>
+
+<Proof>
+This is a sketch; the two tools we quote without proof are Doob's $L^2$ maximal inequality,
+$\mathbb{E}\sup_{s\le t}M_s^2\le 4\,\mathbb{E}M_t^2$ for a continuous martingale $M$, and the
+Itô isometry.
+
+(Picard iteration.) Set $X^{(0)}_t = X_0$ and
+$X^{(n+1)}_t = X_0 + \int_0^t b(X^{(n)}_s,s)\,\mathrm{d}s + \int_0^t\sigma(X^{(n)}_s,s)\,\mathrm{d}W_s$.
+Let $D_n(t) = \mathbb{E}\sup_{s\le t}\|X^{(n+1)}_s - X^{(n)}_s\|^2$. The difference of two
+consecutive iterates is a drift integral plus a stochastic integral; using
+$\|u+v\|^2\le2\|u\|^2+2\|v\|^2$, then Cauchy–Schwarz on the drift term and Doob plus the
+isometry on the martingale term, and finally the Lipschitz bound,
+
+$$
+D_n(t)\;\le\;2\,t\,L^2\!\int_0^t \mathbb{E}\|X^{(n)}_s-X^{(n-1)}_s\|^2\,\mathrm{d}s
+\;+\;2\cdot4\,L^2\!\int_0^t\mathbb{E}\|X^{(n)}_s-X^{(n-1)}_s\|^2\,\mathrm{d}s
+\;\le\;C\int_0^t D_{n-1}(s)\,\mathrm{d}s ,
+$$
+
+with $C = 2L^2(T+4)$. Iterating, $D_n(t)\le D_0(T)\,(Ct)^n/n!$, and $D_0(T)$ is finite by
+linear growth. The right side is summable in $n$, so
+$\sum_n\sup_{s\le T}\|X^{(n+1)}_s-X^{(n)}_s\|$ converges in $L^2$ and (by Chebyshev and
+Borel–Cantelli) almost surely: $X^{(n)}$ converges uniformly on $[0,T]$ to a continuous adapted
+$X$. Passing to the limit inside both integrals uses the Lipschitz bound once more (for the
+stochastic integral, through the isometry). So $X$ solves the SDE.
+
+(Uniqueness.) If $X$ and $Y$ are two solutions, the same estimate applied to their difference
+gives $\varphi(t)\le C\int_0^t\varphi(s)\,\mathrm{d}s$ for
+$\varphi(t) = \mathbb{E}\sup_{s\le t}\|X_s-Y_s\|^2$, which is finite and bounded on $[0,T]$ by
+the hypothesis on the solution class. Iterating this inequality $n$ times gives
+$\varphi(t)\le (Ct)^n/n!\cdot\sup\varphi\to0$, which is Grönwall's lemma in its simplest form.
+Hence $\varphi\equiv0$. $\blacksquare$
+</Proof>
+
+Skipped: the proof of Doob's inequality and the measurability details of the limit. The
+Lipschitz assumption is used only through the two integral estimates; local Lipschitz plus
+linear growth suffices (Øksendal Thm 5.2.1, Karatzas–Shreve 5.2.9), which is what a reverse
+SDE with a smooth learned score needs.
+
+<Theorem name="Linear SDEs by integrating factor" label="Thm 2">
+Let $A:[0,T]\to\mathbb{R}^{d\times d}$, $a:[0,T]\to\mathbb{R}^d$, $B:[0,T]\to\mathbb{R}^{d\times m}$
+be continuous and consider
+
+$$
+\mathrm{d}X_t = \big(A(t)X_t + a(t)\big)\mathrm{d}t + B(t)\,\mathrm{d}W_t .
+$$
+
+Let $\Phi$ be the fundamental matrix, $\Phi'(t) = A(t)\Phi(t)$, $\Phi(0) = I$. The unique
+solution is
+
+$$
+X_t = \Phi(t)\Big(X_0 + \int_0^t\Phi(s)^{-1}a(s)\,\mathrm{d}s + \int_0^t\Phi(s)^{-1}B(s)\,\mathrm{d}W_s\Big).
+$$
+
+If $A$ is constant, or more generally if $A(t)$ and $\int_0^tA$ commute, then
+$\Phi(t) = \exp\!\big(\int_0^tA(s)\,\mathrm{d}s\big)$.
+</Theorem>
+
+<Proof>
+Differentiating $\Phi^{-1}\Phi = I$ gives $(\Phi^{-1})' = -\Phi^{-1}A$. Apply Itô's lemma to
+$f(x,t) = \Phi(t)^{-1}x$, which is linear in $x$, so its Hessian vanishes and there is no
+correction term:
+
+$$
+\mathrm{d}\big(\Phi_t^{-1}X_t\big)
+= -\Phi_t^{-1}A_tX_t\,\mathrm{d}t + \Phi_t^{-1}\big(A_tX_t + a_t\big)\mathrm{d}t + \Phi_t^{-1}B_t\,\mathrm{d}W_t
+= \Phi_t^{-1}a_t\,\mathrm{d}t + \Phi_t^{-1}B_t\,\mathrm{d}W_t .
+$$
+
+Integrate from $0$ to $t$ and multiply by $\Phi(t)$. Uniqueness is Thm 1, whose hypotheses
+hold since the coefficients are affine with bounded slopes. $\blacksquare$
+</Proof>
+
+<Corollary name="Gaussian solutions and the moment ODEs" label="Cor 3">
+If $X_0\sim\mathcal N(m_0,P_0)$ (possibly degenerate, so a deterministic $X_0$ is allowed) is
+independent of $W$, then $X_t$ is Gaussian for every $t$, with mean $m(t)$ and covariance
+$P(t)$ solving
+
+$$
+m'(t) = A(t)m(t) + a(t),
+\qquad
+P'(t) = A(t)P(t) + P(t)A(t)^\top + B(t)B(t)^\top .
+$$
+
+Moreover $(X_t)_{t\ge0}$ is a Gaussian process.
+</Corollary>
+
+<Proof>
+In Thm 2, $X_t$ is an affine image of $X_0$ plus $\Phi(t)$ times a Wiener integral with a
+deterministic integrand; the two are independent Gaussians, so $X_t$ is Gaussian. The same
+holds jointly for any finite set of times. Taking expectations in the integral form of the
+SDE, the stochastic integral has mean zero, so
+$m(t) = m_0 + \int_0^t(A m + a)\,\mathrm{d}s$; differentiate. For the covariance let
+$Z_t = X_t - m(t)$, so $\mathrm{d}Z = AZ\,\mathrm{d}t + B\,\mathrm{d}W$. The vector Itô product
+rule gives
+
+$$
+\mathrm{d}(ZZ^\top) = (\mathrm{d}Z)Z^\top + Z(\mathrm{d}Z)^\top + (\mathrm{d}Z)(\mathrm{d}Z)^\top
+= \big(AZZ^\top + ZZ^\top A^\top + BB^\top\big)\mathrm{d}t + \big(B\,\mathrm{d}W\,Z^\top + Z\,\mathrm{d}W^\top B^\top\big),
+$$
+
+where $(\mathrm{d}Z)(\mathrm{d}Z)^\top = B\,\mathrm{d}W\,\mathrm{d}W^\top B^\top = BB^\top\mathrm{d}t$
+is the Itô correction. Taking expectations kills the last bracket and yields the ODE for
+$P = \mathbb{E}[ZZ^\top]$. $\blacksquare$
+</Proof>
+
+<Definition name="Ornstein–Uhlenbeck process">
+For $\theta$ positive, $\mu\in\mathbb{R}$, $\sigma$ positive, the scalar OU process is
+
+$$
+\mathrm{d}X_t = -\theta\,(X_t-\mu)\,\mathrm{d}t + \sigma\,\mathrm{d}W_t .
+$$
+
+It is Thm 2 with $A = -\theta$, $a = \theta\mu$, $B = \sigma$, so $\Phi(t) = e^{-\theta t}$ and
+
+$$
+X_t = \mu + e^{-\theta t}(X_0-\mu) + \sigma\int_0^te^{-\theta(t-s)}\,\mathrm{d}W_s .
+$$
+</Definition>
+
+<Proposition name="OU moments and stationary law" label="Prop 4">
+With $X_0\sim\mathcal N(m_0,v_0)$,
+
+$$
+m(t) = \mu + e^{-\theta t}(m_0-\mu),
+\qquad
+v(t) = e^{-2\theta t}v_0 + \frac{\sigma^2}{2\theta}\big(1-e^{-2\theta t}\big).
+$$
+
+The law $\mathcal N\big(\mu,\sigma^2/(2\theta)\big)$ is stationary: if $X_0$ has this law then
+$X_t$ has it for all $t$. From any $X_0$ the law of $X_t$ converges to it.
+</Proposition>
+
+<Proof>
+Cor 3 gives $m' = -\theta(m-\mu)$ and $v' = -2\theta v + \sigma^2$. The first is solved by
+inspection. For the second, the integrating factor $e^{2\theta t}$ gives
+$(e^{2\theta t}v)' = \sigma^2e^{2\theta t}$, hence
+$e^{2\theta t}v(t) = v_0 + \sigma^2(e^{2\theta t}-1)/(2\theta)$. Setting $m_0 = \mu$ and
+$v_0 = \sigma^2/(2\theta)$ makes both right-hand sides vanish, so $m,v$ are constant, and
+since $X_t$ is Gaussian its law is determined by them. Convergence: $m(t)\to\mu$ and
+$v(t)\to\sigma^2/(2\theta)$ exponentially, and the Gaussian KL formula then gives
+$\mathrm{KL} = O(e^{-2\theta t})$. $\blacksquare$
+</Proof>
+
+<Proposition name="The VP-SDE is a time-inhomogeneous OU process" label="Prop 5">
+Let $\beta:[0,T]\to(0,\infty)$ be continuous and consider, in $\mathbb{R}^d$,
+
+$$
+\mathrm{d}X_t = -\tfrac12\beta(t)X_t\,\mathrm{d}t + \sqrt{\beta(t)}\,\mathrm{d}W_t ,
+\qquad X_0 = x_0 .
+$$
+
+Then, with $\bar\alpha_t := \exp\big(-\int_0^t\beta(s)\,\mathrm{d}s\big)$,
+
+$$
+X_t\mid x_0\;\sim\;\mathcal N\big(\sqrt{\bar\alpha_t}\,x_0,\;(1-\bar\alpha_t)\,I\big),
+\qquad
+\nabla_x\log q_t(x\mid x_0) = -\frac{x-\sqrt{\bar\alpha_t}\,x_0}{1-\bar\alpha_t} .
+$$
+
+$\mathcal N(0,I)$ is stationary for every choice of $\beta$.
+</Proposition>
+
+<Proof>
+Here $A = -\tfrac12\beta(t)I$, $a = 0$, $B = \sqrt{\beta(t)}I$, all scalar multiples of $I$,
+so $\Phi(t) = \exp(-\tfrac12\int_0^t\beta)I = \sqrt{\bar\alpha_t}\,I$ and Cor 3 gives
+$m(t) = \sqrt{\bar\alpha_t}\,x_0$. The covariance ODE is $P' = -\beta P + \beta I$ with
+$P(0) = 0$; the candidate $P(t) = (1-\bar\alpha_t)I$ satisfies $P(0) = 0$ and
+$P' = \beta\bar\alpha_t I = \beta(I - P)$, and by uniqueness of the ODE solution it is the
+answer. The score is the gradient of the log-density of the Gaussian. Stationarity of
+$\mathcal N(0,I)$: $m\equiv0$ and $P\equiv I$ make both right-hand sides zero. $\blacksquare$
+</Proof>
+
+Writing $X_t = \sqrt{\bar\alpha_t}\,x_0 + \sqrt{1-\bar\alpha_t}\,\epsilon$ with
+$\epsilon\sim\mathcal N(0,I)$, the score is $-\epsilon/\sqrt{1-\bar\alpha_t}$: DDPM's
+$\epsilon$-prediction and score prediction are the same regression target up to a known
+scalar.
+
+<Definition name="Euler–Maruyama scheme">
+On a grid $t_k = k\Delta t$, with independent $Z_k\sim\mathcal N(0,I_m)$,
+
+$$
+\hat X_{k+1} = \hat X_k + b(\hat X_k,t_k)\,\Delta t + \sigma(\hat X_k,t_k)\,\sqrt{\Delta t}\,Z_k .
+$$
+
+Under the hypotheses of Thm 1 it has strong order $\tfrac12$,
+$\mathbb{E}\|X_T-\hat X_N\|\le C\sqrt{\Delta t}$, and weak order $1$,
+$|\mathbb{E}f(X_T)-\mathbb{E}f(\hat X_N)|\le C_f\,\Delta t$ for smooth $f$ (Kloeden–Platen
+Thms 10.2.2 and 14.1.5; not proved here).
+</Definition>
+
+For the VP-SDE with $\beta_k := \beta(t_k)\Delta t$ the scheme reads
+$\hat X_{k+1} = (1-\tfrac12\beta_k)\hat X_k + \sqrt{\beta_k}\,Z_k$. DDPM's forward step,
+<Cite id="2006.11239" /> Eq. (2), is $\sqrt{1-\beta_k}\,\hat X_k + \sqrt{\beta_k}\,Z_k$; since
+$\sqrt{1-\beta} = 1-\tfrac12\beta + O(\beta^2)$ the two agree to first order in $\Delta t$,
+which is <Cite id="2011.13456" /> Appendix B. DDPM's version has the advantage of preserving
+unit variance exactly (Exercise 3).
+
+<Warning>
+Euler–Maruyama is a scheme for the Itô SDE. If a model is written with a Stratonovich
+$\circ\,\mathrm{d}W$, convert the drift first (add $\tfrac12\sigma\sigma'$); applying the
+scheme to the Stratonovich coefficients simulates a different process.
+</Warning>
+
+## Worked example by hand
+
+<Example title="An OU process: exact law versus four Euler–Maruyama steps">
+Take $\theta = 2$, $\mu = 0$, $\sigma = 1$, $X_0 = 1$, and ask about $X_{0.5}$.
+
+Exact law (Prop 4 with $m_0 = 1$, $v_0 = 0$):
+
+$$
+m(0.5) = e^{-1} = 0.3679,
+\qquad
+v(0.5) = \tfrac14\big(1-e^{-2}\big) = 0.25\cdot0.8647 = 0.2162 ,
+$$
+
+so $X_{0.5}\sim\mathcal N(0.3679,\,0.2162)$; the stationary variance is $\sigma^2/(2\theta) = 0.25$.
+ODE check: the formula gives $v'(t) = \sigma^2e^{-2\theta t}$, so $v'(0.5) = e^{-2} = 0.1353$,
+while the ODE demands $-2\theta v + \sigma^2 = -4\cdot0.2162 + 1 = 0.1353$. Agreed.
+
+Euler–Maruyama with $\Delta t = 0.125$ (four steps), $\sqrt{\Delta t} = 0.35355$, using the
+same standard normal draws as on the Brownian motion page,
+$(Z_1,Z_2,Z_3,Z_4) = (0.8,-1.2,0.3,1.5)$. Each step is
+$\hat X_{k+1} = (1-\theta\Delta t)\hat X_k + \sigma\sqrt{\Delta t}\,Z_{k+1} = 0.75\,\hat X_k + 0.35355\,Z_{k+1}$:
+
+$$
+\begin{aligned}
+\hat X_1 &= 0.75\cdot1 + 0.35355\cdot0.8 = 0.75 + 0.28284 = 1.03284,\\
+\hat X_2 &= 0.75\cdot1.03284 + 0.35355\cdot(-1.2) = 0.77463 - 0.42426 = 0.35037,\\
+\hat X_3 &= 0.75\cdot0.35037 + 0.35355\cdot0.3 = 0.26278 + 0.10607 = 0.36885,\\
+\hat X_4 &= 0.75\cdot0.36885 + 0.35355\cdot1.5 = 0.27663 + 0.53033 = 0.80696 .
+\end{aligned}
+$$
+
+Is $0.807$ a plausible draw? The scheme is affine in the $Z_k$, so $\hat X_4$ is exactly
+Gaussian with
+
+$$
+\mathbb{E}\hat X_4 = 0.75^4 = 0.3164,
+\qquad
+\operatorname{Var}\hat X_4 = \sigma^2\Delta t\sum_{j=0}^{3}0.75^{2j} = 0.125\cdot(1+0.5625+0.3164+0.1780) = 0.2571 .
+$$
+
+The z-score of the draw is $(0.807-0.316)/\sqrt{0.2571} = 0.97$, unremarkable. Compare with the
+exact moments $0.3679$ and $0.2162$: with $\theta\Delta t = 0.25$ the scheme is coarse, the
+mean decays too fast ($0.75^4$ versus $e^{-1}$) and the variance overshoots. Both errors are
+first order in $\Delta t$: with $n\Delta t = t$ fixed, $(1-\theta\Delta t)^n\to e^{-\theta t}$
+and the geometric sum $\sigma^2\Delta t\,(1-(1-\theta\Delta t)^{2n})/(2\theta-\theta^2\Delta t)$
+tends to $v(t)$. That is the weak-order-one statement made concrete for the two moments that
+determine a Gaussian.
+</Example>
+
+<Example title="The VP schedule of Song et al. at t = 0.5">
+Take $\beta(t) = \beta_{\min} + (\beta_{\max}-\beta_{\min})\,t$ on $[0,1]$ with
+$\beta_{\min} = 0.1$, $\beta_{\max} = 20$, the values used in <Cite id="2011.13456" />. Then
+$\int_0^t\beta = \beta_{\min}t + \tfrac12(\beta_{\max}-\beta_{\min})t^2$, so at $t = 0.5$
+
+$$
+\int_0^{0.5}\beta = 0.05 + \tfrac12\cdot19.9\cdot0.25 = 2.5375,
+\qquad
+\bar\alpha_{0.5} = e^{-2.5375} = 0.0790,
+\qquad
+\sqrt{\bar\alpha_{0.5}} = 0.281 .
+$$
+
+By Prop 5, a scalar data point $x_0 = 1$ has been carried to
+$X_{0.5}\sim\mathcal N(0.281,\,0.921)$. How far is that from the prior $\mathcal N(0,1)$? With
+$m^2 + v = \bar\alpha + (1-\bar\alpha) = 1$ exactly (because $x_0^2 = 1$), the Gaussian KL
+formula collapses to
+
+$$
+\mathrm{KL}\big(\mathcal N(m,v)\,\|\,\mathcal N(0,1)\big) = \tfrac12\big[v + m^2 - 1 - \ln v\big]
+= -\tfrac12\ln(1-\bar\alpha_{0.5}) = -\tfrac12\ln 0.921 = 0.041 \text{ nats}.
+$$
+
+At $t = 1$, $\int_0^1\beta = 0.1 + 9.95 = 10.05$, $\bar\alpha_1 = e^{-10.05} = 4.3\times10^{-5}$,
+and the KL is $-\tfrac12\ln(1-4.3\times10^{-5})\approx 2\times10^{-5}$ nats: the forward
+process has reached the prior to within the precision anyone cares about, which is what
+justifies starting the reverse SDE from $\mathcal N(0,I)$.
+</Example>
+
+## Where it shows up
+
+- <Cite id="2006.11239" /> Eq. (2) is the DDPM step, Eq. (4) is the kernel of Prop 5 with
+  $\bar\alpha_t = \prod_{k\le t}(1-\beta_k)$, the discrete analogue of $e^{-\int\beta}$. The
+  $\epsilon$-prediction loss of their Eq. (14) regresses the Gaussian score of Prop 5.
+- <Cite id="2011.13456" /> Eq. (11) is the VP-SDE; Appendix B shows the DDPM chain is its
+  Euler–Maruyama discretization. Their VE-SDE is the case $A = 0$, a time-changed Brownian
+  motion with no stationary law; see [Brownian motion](/concepts/brownian-motion).
+- Diffusion Policy (Chi et al. 2023) runs the DDPM chain over action sequences with the
+  same $\bar\alpha_t$ schedule; the OU kernel is why its training target is closed form.
+  $\pi_0$ replaces the OU path by the deterministic linear path of
+  [flow matching](/concepts/flow-matching), whose conditional Gaussian paths are the
+  zero-noise analogue of Cor 3.
+- [Time reversal](/concepts/time-reversal-of-diffusions): if the data are Gaussian, the score
+  of $q_t$ is affine, so the reverse SDE is itself linear and Thm 2 solves it exactly. The
+  Gaussian [Schrödinger bridge](/concepts/schrodinger-bridge) is likewise a linear SDE with a
+  time-dependent drift, and Cor 3 reduces it to matrix ODEs.
+- The mean and covariance ODEs of Cor 3 are the continuous-time Kalman prediction step
+  (Särkkä–Solin Ch. 8); the [Fokker–Planck](/concepts/fokker-planck) equation of a linear SDE
+  is solved by the same Gaussian.
+
+## Exercises
+
+<Exercise hint="Apply the scalar Itô lemma to f(x) = x^2 and take expectations; the correction term is sigma squared.">
+For the scalar OU process, derive the variance ODE $v' = -2\theta v + \sigma^2$ directly from
+Itô's lemma applied to $X_t^2$, without using Thm 2.
+</Exercise>
+
+<Exercise hint="For s below t write X_t as an affine function of X_s plus noise independent of X_s, then compute the covariance.">
+Show that in the stationary regime the OU process has
+$\operatorname{Cov}(X_s,X_t) = \dfrac{\sigma^2}{2\theta}e^{-\theta|t-s|}$. What is the
+analogous statement for the VP-SDE, in terms of $\bar\alpha_s$ and $\bar\alpha_t$?
+</Exercise>
+
+<Exercise hint="Compute the variance of an affine map of a unit-variance Gaussian in both cases.">
+Suppose $\hat X_k\sim\mathcal N(0,I)$. Show that the DDPM step
+$\sqrt{1-\beta}\,\hat X_k + \sqrt\beta\,Z$ again has covariance $I$, while the Euler–Maruyama step
+$(1-\tfrac12\beta)\hat X_k + \sqrt\beta\,Z$ has covariance $(1+\beta^2/4)I$. For a schedule with
+$1000$ steps and $\beta_k$ up to $0.02$, how far can the variance drift over the whole chain?
+</Exercise>
+
+<Exercise hint="The matrix exponential of A is a decaying rotation; for the stationary covariance try P = pI in the Lyapunov equation.">
+Consider the planar OU process $\mathrm{d}X = AX\,\mathrm{d}t + \sigma\,\mathrm{d}W$ with
+$A = \begin{pmatrix}-\theta & \omega\\ -\omega & -\theta\end{pmatrix}$ and a 2-dimensional $W$.
+Compute $\Phi(t) = e^{At}$ (see [matrix calculus](/concepts/matrix-calculus) for the
+$2\times2$ exponential), the mean trajectory from $X_0 = (1,0)^\top$, and the stationary
+covariance from $AP + PA^\top + \sigma^2 I = 0$.
+</Exercise>
+
+## Going deeper
+
+Øksendal Ch. 5 proves Thm 1 in full and solves the standard linear examples. Karatzas–Shreve
+5.2 covers strong versus weak solutions and the local-Lipschitz extension; 5.6 treats linear
+equations and their Gaussian laws. Särkkä–Solin "Applied Stochastic Differential Equations"
+Ch. 6 is the most computational account of linear SDEs, with the matrix-fraction method for
+$P(t)$ and the Kalman connection, and Ch. 8 covers Euler–Maruyama and higher-order schemes.
+Kloeden–Platen is the reference for the strong and weak convergence orders.

@@ -1,0 +1,48 @@
+import 'server-only';
+import path from 'node:path';
+import { watch, type FSWatcher } from 'chokidar';
+import { contentDir } from './content';
+
+export interface ChangeEvent {
+  path: string;
+  type: string;
+}
+
+type Listener = (event: ChangeEvent) => void;
+
+interface Hub {
+  dir: string;
+  watcher: FSWatcher;
+  listeners: Set<Listener>;
+}
+
+const g = globalThis as unknown as { __marginaliaWatchHub?: Hub };
+
+function hub(): Hub {
+  const dir = contentDir();
+  if (g.__marginaliaWatchHub && g.__marginaliaWatchHub.dir === dir) return g.__marginaliaWatchHub;
+  if (g.__marginaliaWatchHub) void g.__marginaliaWatchHub.watcher.close();
+  const listeners = new Set<Listener>();
+  const watcher = watch(dir, {
+    ignoreInitial: true,
+    usePolling: process.env.CHOKIDAR_USEPOLLING === '1',
+    interval: 1000,
+    awaitWriteFinish: { stabilityThreshold: 300 },
+  });
+  watcher.on('all', (type, file) => {
+    const event = { path: path.relative(dir, file), type };
+    for (const listener of listeners) listener(event);
+  });
+  watcher.on('error', (err) => console.error('[watch]', err));
+  g.__marginaliaWatchHub = { dir, watcher, listeners };
+  return g.__marginaliaWatchHub;
+}
+
+/** Subscribe to content changes; returns an unsubscribe function. */
+export function subscribe(listener: Listener): () => void {
+  const h = hub();
+  h.listeners.add(listener);
+  return () => {
+    h.listeners.delete(listener);
+  };
+}

@@ -1,0 +1,14 @@
+# Copy to .envrc (gitignored), fill in, then `direnv allow`.
+
+# Directory of MDX content the site reads at request time. Default: ./content
+export CONTENT_DIR="$PWD/content"
+
+# Directory holding the SQLite progress database. Default: ./data
+export DATA_DIR="$PWD/data"
+
+# Port the site listens on.
+export PORT=3000
+
+# Set to 1 when the content directory is a Docker bind mount or network share and
+# native file events do not fire.
+export CHOKIDAR_USEPOLLING=0

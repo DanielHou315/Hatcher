@@ -2,7 +2,11 @@
 
 ## Repo Introduction
 
-<fill in on setup>
+Marginalia, a personal reading site for the mathematics behind ML and robotics papers. Pages are MDX
+files in `content/` (format: `docs/content-format.md`), rendered by a Next.js 15 app in `src/` that
+reads content at request time and live-reloads on change. Reading progress lives in SQLite under
+`DATA_DIR`. After writing content, run `npm run validate:content`; see `README.md` and
+`docs/architecture.md`.
 
 ## Workflow Rules
 

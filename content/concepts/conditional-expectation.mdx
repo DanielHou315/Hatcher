@@ -1,0 +1,344 @@
+---
+title: "Conditional expectation"
+kind: concept
+summary: "E[X | G] as the L^2 projection onto what G can see, the tower property, conditioning on a random variable, Gaussian conditioning done by hand, and the martingale definition."
+tags: [probability, conditional-expectation, projection, martingale, denoising, regression]
+track: foundations
+level: 2
+prerequisites: [measure-theoretic-probability]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Probability with Martingales"
+    author: "David Williams"
+    where: "Ch. 9-10"
+  - type: book
+    title: "Probability: Theory and Examples"
+    author: "Rick Durrett"
+    where: "Ch. 4.1, 4.2"
+  - type: web
+    title: "A Connection Between Score Matching and Denoising Autoencoders"
+    author: "Pascal Vincent (Neural Computation, 2011)"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+---
+
+## Why you need this
+
+Every denoiser is a conditional expectation. The DDPM network $\varepsilon_\theta(x_t,t)$
+trained with $\mathbb{E}\|\varepsilon - \varepsilon_\theta(x_t,t)\|^2$ (Ho et al. 2020,
+eq. 14) is an estimate of $\mathbb{E}[\varepsilon\mid x_t]$; Vincent's 2011 result that
+denoising score matching has the same minimizer as explicit score matching, and Theorem 2 of
+Lipman et al. 2022 that the conditional flow matching loss has the same gradient as the
+marginal one, are both the statement that regressing on a noisy target recovers the conditional
+expectation of that target. The Bellman equation
+$Q^\pi(s,a) = r(s,a) + \gamma\,\mathbb{E}[V^\pi(S')\mid S = s, A = a]$ is a conditional
+expectation, and the martingale property, defined through conditional expectation, is what
+makes the Itô integral and Girsanov's density process work. This page gives the definition
+that covers all of these at once and the one computation (Gaussian conditioning) you will
+repeat most.
+
+## Setup
+
+Fix $(\Omega,\mathcal F,\mathbb{P})$ and a sub-$\sigma$-algebra $\mathcal G\subset\mathcal F$,
+read as partial information (see
+[measure-theoretic probability](/concepts/measure-theoretic-probability)). Let $L^2$ be the
+space of random variables with $\mathbb{E}X^2$ finite, with inner product
+$\langle X,Y\rangle = \mathbb{E}[XY]$ and norm $\|X\|_2 = \sqrt{\mathbb{E}X^2}$; two random
+variables that agree almost surely are identified. Let $L^2(\mathcal G)\subset L^2$ be the
+$\mathcal G$-measurable ones.
+
+Two Hilbert-space facts are used. $L^2$ is complete (Riesz–Fischer), and $L^2(\mathcal G)$ is a
+closed subspace: an $L^2$ limit of $\mathcal G$-measurable variables has an a.s.-convergent
+subsequence, and a.s. limits of $\mathcal G$-measurable variables are $\mathcal G$-measurable.
+Hence the projection theorem applies: for every $X\in L^2$ there is a unique $Y\in L^2(\mathcal G)$
+minimizing $\|X - Y\|_2$, characterized by $\langle X - Y, Z\rangle = 0$ for all
+$Z\in L^2(\mathcal G)$. (Proof in two lines: a minimizing sequence is Cauchy by the
+parallelogram law; completeness gives the limit; if the residual were not orthogonal to some
+$Z$, moving a little along $Z$ would reduce the distance.)
+
+## The idea
+
+<Definition name="Conditional expectation">
+For integrable $X$, a conditional expectation of $X$ given $\mathcal G$ is any integrable
+random variable $Y$ such that
+
+1. $Y$ is $\mathcal G$-measurable, and
+2. $\mathbb{E}[Y 1_A] = \mathbb{E}[X 1_A]$ for every $A\in\mathcal G$.
+
+It is written $\mathbb{E}[X\mid\mathcal G]$. Condition 1 says $Y$ uses only the information in
+$\mathcal G$; condition 2 says $Y$ has the same averages as $X$ on every event $\mathcal G$ can
+see.
+</Definition>
+
+<Theorem name="Existence, uniqueness, and the projection characterization" label="Thm 1">
+For every integrable $X$ a conditional expectation exists and is unique almost surely. For
+$X\in L^2$ it is the orthogonal projection of $X$ onto $L^2(\mathcal G)$, and it is the unique
+minimizer of $\mathbb{E}(X - Y)^2$ over $Y\in L^2(\mathcal G)$; moreover, for every such $Y$,
+
+$$
+\mathbb{E}(X - Y)^2 = \mathbb{E}\big(X - \mathbb{E}[X\mid\mathcal G]\big)^2 + \mathbb{E}\big(\mathbb{E}[X\mid\mathcal G] - Y\big)^2 .
+$$
+</Theorem>
+
+<Proof>
+$L^2$ case. Let $Y$ be the projection of $X$ onto $L^2(\mathcal G)$. It is
+$\mathcal G$-measurable and integrable, and orthogonality with $Z = 1_A$ for $A\in\mathcal G$
+reads $\mathbb{E}[(X - Y)1_A] = 0$, which is condition 2. For the identity, take any
+$Z\in L^2(\mathcal G)$ and expand $X - Z = (X - Y) + (Y - Z)$: the cross term
+$\mathbb{E}[(X-Y)(Y-Z)]$ vanishes because $Y - Z\in L^2(\mathcal G)$. This is Pythagoras, and it
+shows $Y$ is the unique minimizer.
+
+Uniqueness in general. If $Y,Y'$ both satisfy the definition, then $A = \{Y > Y'\}\in\mathcal G$
+and $\mathbb{E}[(Y - Y')1_A] = \mathbb{E}[X1_A] - \mathbb{E}[X1_A] = 0$ with a nonnegative
+integrand that is positive on $A$, so $\mathbb{P}(A) = 0$; symmetrically for $\{Y' > Y\}$.
+
+Extension to $L^1$. First positivity: if $X\ge 0$ then $Y = \mathbb{E}[X\mid\mathcal G]\ge 0$
+a.s., because $A = \{Y \lt 0\}\in\mathcal G$ gives $\mathbb{E}[Y1_A] = \mathbb{E}[X1_A]\ge 0$
+while the left side is at most $0$, forcing $\mathbb{P}(A) = 0$. By linearity of the defining
+condition, $X\le X'$ implies $\mathbb{E}[X\mid\mathcal G]\le\mathbb{E}[X'\mid\mathcal G]$. Now
+for integrable $X\ge 0$ let $X_n = \min(X,n)\in L^2$ and $Y_n = \mathbb{E}[X_n\mid\mathcal G]$,
+an increasing sequence; set $Y = \lim Y_n$, which is $\mathcal G$-measurable. Monotone
+convergence on both sides of $\mathbb{E}[Y_n1_A] = \mathbb{E}[X_n1_A]$ gives
+$\mathbb{E}[Y1_A] = \mathbb{E}[X1_A]$, and with $A = \Omega$ that $Y$ is integrable. For
+general $X$ apply this to $X^+$ and $X^-$ and subtract. $\blacksquare$
+</Proof>
+
+<Intuition>
+$\mathbb{E}[X\mid\mathcal G]$ is the best guess of $X$ using only the information in
+$\mathcal G$, where "best" means least squares. The Pythagorean identity says the error of any
+other $\mathcal G$-measurable guess splits into an irreducible part (how much $X$ varies beyond
+what $\mathcal G$ knows) and the distance of the guess from the best one. Training a network on
+noisy targets therefore does not chase noise: the irreducible part is a constant.
+</Intuition>
+
+<Proposition name="Rules of calculation" label="Prop 2">
+Let $X, X'$ be integrable and $\mathcal G\subset\mathcal H\subset\mathcal F$.
+
+1. Linearity: $\mathbb{E}[aX + bX'\mid\mathcal G] = a\,\mathbb{E}[X\mid\mathcal G] + b\,\mathbb{E}[X'\mid\mathcal G]$.
+2. Total expectation: $\mathbb{E}\big[\mathbb{E}[X\mid\mathcal G]\big] = \mathbb{E}[X]$.
+3. Tower: $\mathbb{E}\big[\mathbb{E}[X\mid\mathcal H]\,\big|\,\mathcal G\big] = \mathbb{E}[X\mid\mathcal G]$
+   (the coarser information wins).
+4. Taking out what is known: if $Z$ is $\mathcal G$-measurable and $ZX$ is integrable,
+   $\mathbb{E}[ZX\mid\mathcal G] = Z\,\mathbb{E}[X\mid\mathcal G]$.
+5. Independence: if $X$ is independent of $\mathcal G$, $\mathbb{E}[X\mid\mathcal G] = \mathbb{E}[X]$.
+6. Conditional Jensen: for convex $\varphi$ with $\varphi(X)$ integrable,
+   $\varphi(\mathbb{E}[X\mid\mathcal G])\le\mathbb{E}[\varphi(X)\mid\mathcal G]$.
+</Proposition>
+
+<Proof>
+(1) The defining conditions are linear in $X$. (2) Condition 2 with $A = \Omega$.
+(3) $Y = \mathbb{E}[X\mid\mathcal G]$ is $\mathcal G$-measurable. For $A\in\mathcal G\subset\mathcal H$,
+$\mathbb{E}[Y1_A] = \mathbb{E}[X1_A] = \mathbb{E}\big[\mathbb{E}[X\mid\mathcal H]1_A\big]$,
+the last equality because $A\in\mathcal H$. So $Y$ satisfies the definition of
+$\mathbb{E}[\mathbb{E}[X\mid\mathcal H]\mid\mathcal G]$, and uniqueness finishes.
+(4) For $Z = 1_B$ with $B\in\mathcal G$ and any $A\in\mathcal G$:
+$\mathbb{E}[1_B\,\mathbb{E}[X\mid\mathcal G]\,1_A] = \mathbb{E}[\mathbb{E}[X\mid\mathcal G]1_{A\cap B}]
+= \mathbb{E}[X1_{A\cap B}] = \mathbb{E}[(1_BX)1_A]$ since $A\cap B\in\mathcal G$. Linearity
+extends this to simple $Z$, monotone convergence to $Z\ge 0$, and splitting to general $Z$.
+(5) $\mathbb{E}[X1_A] = \mathbb{E}[X]\,\mathbb{P}(A) = \mathbb{E}[\mathbb{E}[X]\,1_A]$ for
+$A\in\mathcal G$, and the constant $\mathbb{E}[X]$ is $\mathcal G$-measurable.
+(6) Write $\varphi$ as the supremum of the countably many affine functions below it and use
+(1) and positivity; Williams 9.7(h) has the details. $\blacksquare$
+</Proof>
+
+<Proposition name="Conditioning on a random variable" label="Prop 3">
+For a random vector $Z$, define $\mathbb{E}[X\mid Z] := \mathbb{E}[X\mid\sigma(Z)]$. By the
+Doob–Dynkin lemma there is a measurable $g$ with $\mathbb{E}[X\mid Z] = g(Z)$, and one writes
+$\mathbb{E}[X\mid Z = z] := g(z)$. If $(X,Z)$ has a joint density $p(x,z)$ with marginal
+$p_Z(z) > 0$, then
+
+$$
+g(z) = \int x\,p(x\mid z)\,\mathrm{d}x,\qquad p(x\mid z) = \frac{p(x,z)}{p_Z(z)} .
+$$
+</Proposition>
+
+<Proof>
+Events in $\sigma(Z)$ are of the form $\{Z\in B\}$. With $g$ as displayed,
+
+$$
+\mathbb{E}[g(Z)1_B(Z)] = \int_B g(z)p_Z(z)\,\mathrm{d}z = \int_B\!\int x\,p(x,z)\,\mathrm{d}x\,\mathrm{d}z
+= \mathbb{E}[X\,1_B(Z)],
+$$
+
+so $g(Z)$ satisfies the definition; it is $\sigma(Z)$-measurable by Doob–Dynkin. $\blacksquare$
+</Proof>
+
+<Theorem name="Regression on a noisy target" label="Thm 4">
+Let $X\in L^2$ (a random vector, componentwise) and $Z$ a random vector, and let
+$g^\star(z) = \mathbb{E}[X\mid Z = z]$. Then for every measurable $g$ with $g(Z)\in L^2$,
+
+$$
+\mathbb{E}\|X - g(Z)\|^2 = \mathbb{E}\|X - g^\star(Z)\|^2 + \mathbb{E}\|g^\star(Z) - g(Z)\|^2 .
+$$
+
+In particular, minimizing $\mathbb{E}\|X - g_\theta(Z)\|^2$ over a parametric family and
+minimizing $\mathbb{E}\|g^\star(Z) - g_\theta(Z)\|^2$ give the same loss up to an additive
+constant, the same gradients in $\theta$, and the same minimizers.
+</Theorem>
+
+<Proof>
+Apply the identity of Thm 1 to each component of $X$ with $\mathcal G = \sigma(Z)$, noting
+that $g(Z)$ is $\sigma(Z)$-measurable, and add. $\blacksquare$
+</Proof>
+
+<Definition name="Martingale">
+Let $(\mathcal F_t)$ be a filtration (indexed by $t\in\{0,1,2,\dots\}$ or $t\ge 0$). An
+adapted, integrable process $M$ is a martingale if
+$\mathbb{E}[M_t\mid\mathcal F_s] = M_s$ for all $s\le t$; a submartingale if $\ge$, a
+supermartingale if $\le$. Equivalently, $\mathbb{E}[M_t - M_s\mid\mathcal F_s] = 0$: given
+the past, the future increment has mean zero.
+</Definition>
+
+<Proposition name="Three facts about martingales" label="Prop 5">
+1. $\mathbb{E}[M_t] = \mathbb{E}[M_0]$ for all $t$.
+2. (Doob martingale) For integrable $X$, $M_t = \mathbb{E}[X\mid\mathcal F_t]$ is a martingale.
+3. (Orthogonal increments) If $M$ is a square-integrable martingale and $r\le s\le t$, then
+   $\mathbb{E}[(M_t - M_s)(M_s - M_r)] = 0$, so
+   $\mathbb{E}[(M_t - M_0)^2] = \sum_k\mathbb{E}[(M_{t_{k+1}} - M_{t_k})^2]$ over any partition.
+</Proposition>
+
+<Proof>
+(1) Prop 2(2). (2) Tower: $\mathbb{E}[M_t\mid\mathcal F_s] = \mathbb{E}[\mathbb{E}[X\mid\mathcal F_t]\mid\mathcal F_s]
+= \mathbb{E}[X\mid\mathcal F_s] = M_s$ since $\mathcal F_s\subset\mathcal F_t$.
+(3) $\mathbb{E}[(M_t - M_s)(M_s - M_r)] = \mathbb{E}\big[\mathbb{E}[M_t - M_s\mid\mathcal F_s](M_s - M_r)\big] = 0$,
+using Prop 2(2), then (4) to pull the $\mathcal F_s$-measurable factor $M_s - M_r$ inside, then
+the martingale property. Expanding the square of the telescoping sum, all cross terms vanish.
+$\blacksquare$
+</Proof>
+
+Fact 3 is the reason the Itô isometry holds: the
+[Itô integral](/concepts/stochastic-integral) of a simple process is a martingale transform,
+and its second moment is a sum of second moments of increments with no cross terms.
+
+## Worked example by hand
+
+<Example title="Gaussian conditioning as a projection">
+Let $(X,Z)$ be jointly Gaussian with $\mathbb{E}X = 1$, $\mathbb{E}Z = 2$,
+$\operatorname{Var}X = 4$, $\operatorname{Var}Z = 3$, $\operatorname{Cov}(X,Z) = 2$. We
+compute $\mathbb{E}[X\mid Z]$ directly from Thm 1, without the conditional density.
+
+Step 1: project onto the span of $\{1, Z\}$. Look for $Y = a + bZ$ with residual
+$R = X - a - bZ$ orthogonal to $1$ and to $Z$:
+
+$$
+\mathbb{E}[R] = 1 - a - 2b = 0,\qquad
+\mathbb{E}[RZ] = \mathbb{E}[XZ] - a\,\mathbb{E}Z - b\,\mathbb{E}Z^2 = 4 - 2a - 7b = 0,
+$$
+
+using $\mathbb{E}[XZ] = \operatorname{Cov}(X,Z) + \mathbb{E}X\,\mathbb{E}Z = 2 + 2 = 4$ and
+$\mathbb{E}Z^2 = 3 + 4 = 7$. Substituting $a = 1 - 2b$ into the second equation:
+$4 - 2 + 4b - 7b = 0$, so $b = 2/3$ and $a = -1/3$. Thus $Y = -\tfrac13 + \tfrac23 Z = 1 + \tfrac23(Z - 2)$.
+
+Step 2: show $Y$ is the projection onto all of $L^2(\sigma(Z))$, not just the span of $\{1,Z\}$.
+The pair $(R,Z)$ is an affine image of $(X,Z)$, hence jointly Gaussian, and
+$\operatorname{Cov}(R,Z) = \mathbb{E}[RZ] - \mathbb{E}R\,\mathbb{E}Z = 0$ by construction. For
+Gaussians, uncorrelated means independent
+([Gaussian computations](/concepts/gaussian-computations), Prop 2). So for every measurable
+$h$ with $h(Z)\in L^2$, $\mathbb{E}[R\,h(Z)] = \mathbb{E}[R]\,\mathbb{E}[h(Z)] = 0$. The residual is
+orthogonal to everything $\sigma(Z)$-measurable, so by Thm 1
+
+$$
+\mathbb{E}[X\mid Z] = 1 + \tfrac23(Z - 2),\qquad
+\mathbb{E}\big[(X - \mathbb{E}[X\mid Z])^2\big] = \mathbb{E}R^2 = 4 - b^2\cdot 3 = 4 - \tfrac43 = \tfrac83 .
+$$
+
+Checks. This agrees with the Schur complement formula
+$\mu_X + \Sigma_{XZ}\Sigma_{ZZ}^{-1}(z - \mu_Z)$ and $\Sigma_{XX} - \Sigma_{XZ}\Sigma_{ZZ}^{-1}\Sigma_{ZX} = 4 - 4/3$.
+Pythagoras with $Y = \mathbb{E}X$ constant:
+$\operatorname{Var}X = 4 = \mathbb{E}R^2 + \operatorname{Var}(\mathbb{E}[X\mid Z]) = \tfrac83 + \tfrac49\cdot 3 = \tfrac83 + \tfrac43$. Good.
+For a non-Gaussian pair Step 1 still gives the best linear predictor, but Step 2 fails and
+$\mathbb{E}[X\mid Z]$ is in general nonlinear; this is why Kalman filtering is exact only for
+Gaussian noise.
+</Example>
+
+<Example title="The optimal denoiser and its irreducible loss">
+Data $X\sim\mathcal N(0,1)$, noise $\varepsilon\sim\mathcal N(0,1)$ independent, observation
+$Z = X + \sigma\varepsilon$ with $\sigma = 1$. Then $\operatorname{Cov}(X,Z) = 1$,
+$\operatorname{Var}Z = 2$, and Step 1 above gives $\mathbb{E}[X\mid Z] = Z/2$ (the means are
+zero, so $a = 0$). The optimal noise predictor is
+$\mathbb{E}[\varepsilon\mid Z] = (Z - \mathbb{E}[X\mid Z])/\sigma = Z/2$ too.
+
+Tweedie's formula says $\mathbb{E}[X\mid Z = z] = z + \sigma^2\nabla_z\log p_Z(z)$. Here
+$p_Z = \mathcal N(0,2)$, so $\nabla\log p_Z(z) = -z/2$ and $z + 1\cdot(-z/2) = z/2$. Agreed.
+
+The minimal loss is $\mathbb{E}(X - Z/2)^2 = \operatorname{Var}X - \operatorname{Cov}(X,Z)^2/\operatorname{Var}Z = 1 - \tfrac12 = \tfrac12$.
+A perfectly trained DDPM at this noise level reports a mean squared error of $\tfrac12$ on
+$\varepsilon$, not $0$: by Thm 4 the loss of the best network is the irreducible term
+$\mathbb{E}\|\varepsilon - \mathbb{E}[\varepsilon\mid x_t]\|^2$, and the network's distance from
+$\mathbb{E}[\varepsilon\mid x_t]$ is what training actually drives to zero.
+</Example>
+
+<Example title="Two coin flips: tower and martingale">
+$\Omega = \{HH,HT,TH,TT\}$ uniform, $X$ = number of heads, $\mathcal F_1 = \sigma(\text{first flip})$,
+$\mathcal F_0$ trivial, $\mathcal F_2$ everything. Guess $\mathbb{E}[X\mid\mathcal F_1] = 1_{\{\text{first} = H\}} + \tfrac12$.
+Check condition 2 on $A = \{HH,HT\}$: $\mathbb{E}[X1_A] = (2 + 1)/4 = 3/4$ and
+$\mathbb{E}[(1 + \tfrac12)1_A] = \tfrac32\cdot\tfrac12 = 3/4$; on $A^c$ both sides are $1/4$.
+Tower: $\mathbb{E}[\mathbb{E}[X\mid\mathcal F_1]] = \tfrac12 + \tfrac12 = 1 = \mathbb{E}X$.
+The Doob martingale is $M_0 = 1$, $M_1 = \tfrac12 + 1_{\{\text{first} = H\}}$, $M_2 = X$: the
+running best estimate of the final count, whose increments $\pm\tfrac12$ have mean zero given
+the past.
+</Example>
+
+## Where it shows up
+
+- DDPM, <Cite id="2006.11239" />: the simplified loss (eq. 14) is Thm 4 with $X = \varepsilon$
+  and $Z = (x_t,t)$. Vincent 2011 proves denoising score matching equals explicit score
+  matching up to a constant; that is the Pythagorean identity of Thm 4 with $X = \nabla_{x_t}\log q(x_t\mid x_0)$,
+  whose conditional expectation given $x_t$ is $\nabla\log q_t(x_t)$. See
+  [score matching](/concepts/score-matching).
+- Flow matching, <Cite id="2210.02747" />: the marginal vector field
+  $u_t(x) = \int u_t(x\mid x_1)\frac{p_t(x\mid x_1)q(x_1)}{p_t(x)}\mathrm{d}x_1$ (their eq. 8)
+  is Prop 3: $u_t(x) = \mathbb{E}[u_t(X_t\mid X_1)\mid X_t = x]$. Their Theorem 2 (the CFM and
+  FM losses have equal gradients) is Thm 4 with $Z = X_t$. Worked in full on
+  [flow matching](/concepts/flow-matching).
+- Bellman operators on [MDPs](/concepts/mdp-and-bellman-operators):
+  $(T^\pi V)(s) = \mathbb{E}[r + \gamma V(S')\mid S = s]$ is a conditional expectation, and TD
+  learning is a stochastic approximation of it; the TD error has conditional mean zero at the
+  fixed point, which is a martingale-difference statement.
+- The Itô integral is a martingale, and Girsanov's density
+  $\exp(\int\theta\,\mathrm{d}W - \tfrac12\int\theta^2\mathrm{d}t)$ is a martingale; both use
+  Prop 5. See [Girsanov](/concepts/girsanov-theorem). -
+The Kalman filter state estimate is $\mathbb{E}[x_t\mid y_{1:t}]$, computed recursively by
+  the Gaussian example above.
+
+## Exercises
+
+<Exercise hint="Apply Prop 2(2) to the square of X minus E[X | G], expand, and use Prop 2(4) on the cross term.">
+Prove the law of total variance: $\operatorname{Var}X = \mathbb{E}[\operatorname{Var}(X\mid\mathcal G)] + \operatorname{Var}(\mathbb{E}[X\mid\mathcal G])$,
+where $\operatorname{Var}(X\mid\mathcal G) = \mathbb{E}[(X - \mathbb{E}[X\mid\mathcal G])^2\mid\mathcal G]$.
+</Exercise>
+
+<Exercise hint="Write W_t as W_s plus an independent increment; use Prop 2(4) for the W_s terms and Prop 2(5) for the increment.">
+Let $W$ be Brownian motion with its natural filtration. Show directly from the definition and
+Prop 2 that $W_t$ and $W_t^2 - t$ are martingales.
+</Exercise>
+
+<Exercise hint="Thm 4 with Z = X_t and X = u_t(X_t | X_1); the constant is the irreducible term.">
+In flow matching, $X_1\sim q$, $X_t\mid X_1\sim p_t(\cdot\mid X_1)$, and
+$u_t(x\mid x_1)$ is a given conditional vector field. Show that for any $v$,
+$\mathbb{E}\|v(X_t) - u_t(X_t\mid X_1)\|^2 = \mathbb{E}\|v(X_t) - u_t(X_t)\|^2 + C$ with
+$u_t(x) = \mathbb{E}[u_t(X_t\mid X_1)\mid X_t = x]$ and $C$ independent of $v$.
+</Exercise>
+
+<Exercise hint="Compute E[X | Z] from the joint density by Prop 3; the answer is not affine in z.">
+Let $X$ be uniform on $\{-1, +1\}$ and $Z = X + \varepsilon$ with $\varepsilon\sim\mathcal N(0,1)$
+independent. Show $\mathbb{E}[X\mid Z = z] = \tanh(z)$, and compare with the best linear
+predictor $\operatorname{Cov}(X,Z)Z/\operatorname{Var}Z = z/2$ at $z = 3$.
+</Exercise>
+
+## Going deeper
+
+Williams Ch. 9 is the source of the proof above (the $L^2$ projection followed by the
+monotone extension) and lists every rule of Prop 2 with proofs; Ch. 10-12 develop martingales,
+optional stopping, and the convergence theorems that stochastic approximation proofs rely on.
+Durrett Ch. 4.1 gives the alternative existence proof via Radon–Nikodym, which is worth seeing
+once: $A\mapsto\mathbb{E}[X1_A]$ is a measure on $\mathcal G$ absolutely continuous with
+respect to $\mathbb{P}|_{\mathcal G}$, and $\mathbb{E}[X\mid\mathcal G]$ is its density.

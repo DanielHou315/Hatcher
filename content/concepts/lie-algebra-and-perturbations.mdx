@@ -1,0 +1,357 @@
+---
+title: "Lie algebra and perturbations"
+kind: concept
+summary: "Calculus on SO(3) and SE(3): left and right perturbations, the adjoint, the first-order BCH formula, the Jacobians of the exponential map, and how pose errors, covariances and gradients are defined in the tangent space."
+tags: [lie-groups, lie-algebra, jacobians, state-estimation, robotics]
+track: geometry-and-robotics
+level: 2
+prerequisites: [lie-groups-so3-se3]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "1812.01537"
+    title: "A micro Lie theory for state estimation in robotics"
+  - type: book
+    title: "State Estimation for Robotics"
+    author: "Timothy Barfoot"
+    where: "Ch. 7.1"
+  - type: arxiv
+    id: "1512.02363"
+    title: "On-Manifold Preintegration for Real-Time Visual-Inertial Odometry"
+  - type: arxiv
+    id: "2209.03855"
+    title: "SE(3)-DiffusionFields: Learning smooth cost functions for joint grasp and motion optimization through diffusion"
+---
+
+## Why you need this
+
+You cannot write $R + \delta$ for a rotation, so every method that estimates, regresses, or
+denoises a pose has to say what a small change of pose *is*. Bundle adjustment and IMU
+preintegration (Forster et al. <Cite id="1512.02363" />) linearize residuals as
+$r(R\exp(\delta^\wedge)) \approx r(R) + J\delta$ and need the Jacobian $J$ in closed form.
+SE(3)-DiffusionFields (<Cite id="2209.03855" />) defines the score of a distribution on poses
+as the gradient with respect to exactly such a $\delta$, and its Langevin step is
+$T\leftarrow T\exp((\eta\,\nabla\log p)^\wedge)$. Riemannian flow matching on $SO(3)$ moves
+samples with $R_{t+h} = R_t\exp((h\,v_\theta)^\wedge)$. All of these are one idea: do calculus
+in the Lie algebra $\mathbb{R}^3$ or $\mathbb{R}^6$ and map back with $\exp$. This page gives
+the four tools that make that idea precise: perturbations, the adjoint, the BCH formula, and
+the Jacobians of $\exp$.
+
+## Setup
+
+Notation is from [Lie groups SO(3) and SE(3)](/concepts/lie-groups-so3-se3): $\omega^\wedge$
+is the skew matrix of $\omega\in\mathbb{R}^3$, $\exp$ is the matrix exponential, and
+$\operatorname{Log}:SO(3)\to\mathbb{R}^3$ is its inverse on the ball $\|\omega\| < \pi$. We work
+on $SO(3)$ throughout and state the $SE(3)$ versions at the end; all proofs go through verbatim
+with twists $\xi=(\omega,v)\in\mathbb{R}^6$ in place of $\omega$.
+
+<Definition name="Tangent space at R">
+The tangent space of $SO(3)$ at $R$ is the set of velocities of curves through $R$:
+
+$$
+T_R SO(3) = \{ R\,\omega^\wedge : \omega\in\mathbb{R}^3 \} = \{ \omega^\wedge R : \omega\in\mathbb{R}^3\}.
+$$
+
+The two descriptions coincide as sets because $R\omega^\wedge = (R\omega)^\wedge R$ (Lemma 1
+below), but the coordinate $\omega$ they assign to a given tangent vector differs.
+</Definition>
+
+<Definition name="Right and left perturbations">
+For $R\in SO(3)$ and $\delta\in\mathbb{R}^3$, the **right** (body-frame, local) perturbation and
+the **left** (world-frame, global) perturbation are
+
+$$
+R\oplus\delta = R\exp(\delta^\wedge),
+\qquad
+\delta\oplus R = \exp(\delta^\wedge)\,R .
+$$
+
+The matching differences are $R_2\ominus R_1 = \operatorname{Log}(R_1^{\top}R_2)$ (right) and
+$\operatorname{Log}(R_2R_1^{\top})$ (left), so that $R_1\oplus(R_2\ominus R_1) = R_2$.
+</Definition>
+
+A right perturbation rotates about an axis expressed in the body frame of $R$; a left
+perturbation rotates about an axis expressed in the world frame. They give different matrices
+for the same $\delta$ (the worked example shows this), and mixing them is the most common bug
+in pose-estimation code.
+
+## The idea
+
+<Lemma name="Adjoint" label="Lemma 1">
+For $R\in SO(3)$ and $\omega\in\mathbb{R}^3$, $R\,\omega^\wedge R^{\top} = (R\omega)^\wedge$.
+Consequently $R\exp(\omega^\wedge) = \exp((R\omega)^\wedge)\,R$, and
+$\operatorname{Ad}_R := R$ converts a right perturbation into the left perturbation with the
+same effect: $R\oplus\delta = (R\delta)\oplus R$.
+</Lemma>
+
+<Proof>
+For any $p$, $R\omega^\wedge R^\top p = R(\omega\times R^\top p) = (R\omega)\times(RR^\top p)
+= (R\omega)^\wedge p$, using that a rotation preserves cross products
+($R(u\times w) = Ru\times Rw$, which holds because $\det R = 1$). For the exponential,
+$R\,A^kR^\top = (RAR^\top)^k$ term by term in the series, so
+$R\exp(A)R^\top = \exp(RAR^\top)$; put $A = \omega^\wedge$ and multiply by $R$ on the right.
+$\blacksquare$
+</Proof>
+
+<Theorem name="First-order BCH on SO(3)" label="Thm 1">
+For $a, b\in\mathbb{R}^3$,
+
+$$
+\operatorname{Log}\big(\exp(a^\wedge)\exp(b^\wedge)\big)
+= a + b + \tfrac12\,a\times b + O\big((\|a\|+\|b\|)^3\big).
+$$
+
+In particular $\exp(a^\wedge)\exp(b^\wedge)\neq\exp((a+b)^\wedge)$ unless $a\parallel b$.
+</Theorem>
+
+<Proof>
+Write $A = a^\wedge$, $B = b^\wedge$, and expand to second order:
+$e^{A}e^{B} = (I + A + \tfrac12A^2)(I + B + \tfrac12B^2) + O(3)
+= I + (A+B) + \tfrac12A^2 + AB + \tfrac12B^2 + O(3)$.
+Set $X = e^Ae^B - I$ and use $\log(I+X) = X - \tfrac12X^2 + O(X^3)$ with
+$X^2 = (A+B)^2 + O(3) = A^2 + AB + BA + B^2 + O(3)$:
+
+$$
+\log(e^Ae^B) = (A+B) + \tfrac12A^2 + AB + \tfrac12B^2 - \tfrac12(A^2 + AB + BA + B^2) + O(3)
+= A + B + \tfrac12(AB - BA) + O(3).
+$$
+
+Finally $[A,B] = AB - BA = (a\times b)^\wedge$, which is the Jacobi-identity form of the cross
+product: check $(AB-BA)p = a\times(b\times p) - b\times(a\times p) = (a\times b)\times p$ by the
+triple-product expansion. Apply $\vee$. $\blacksquare$
+</Proof>
+
+The BCH formula answers "what single rotation vector represents two successive small
+rotations?" The Jacobians of $\exp$ answer the complementary question, "what small rotation
+represents a change in the rotation vector?", and they are what appears in every linearization.
+
+<Theorem name="Right and left Jacobians of exp" label="Thm 2">
+For $\omega\in\mathbb{R}^3$ with $\theta = \|\omega\|$ define
+
+$$
+J_r(\omega) = I - \frac{1-\cos\theta}{\theta^2}\,\omega^\wedge + \frac{\theta-\sin\theta}{\theta^3}\,(\omega^\wedge)^2,
+\qquad
+J_l(\omega) = J_r(-\omega) = I + \frac{1-\cos\theta}{\theta^2}\,\omega^\wedge + \frac{\theta-\sin\theta}{\theta^3}\,(\omega^\wedge)^2 .
+$$
+
+Then for small $\delta$,
+
+$$
+\exp\big((\omega+\delta)^\wedge\big) = \exp(\omega^\wedge)\exp\big((J_r(\omega)\delta)^\wedge\big) + O(\|\delta\|^2)
+= \exp\big((J_l(\omega)\delta)^\wedge\big)\exp(\omega^\wedge) + O(\|\delta\|^2).
+$$
+
+Moreover $J_l(\omega) = \exp(\omega^\wedge)J_r(\omega)$, $J_l$ is the matrix $V(\omega)$ from the
+$SE(3)$ exponential, and both are invertible for $\theta < 2\pi$ with
+
+$$
+J_r(\omega)^{-1} = I + \tfrac12\omega^\wedge + \Big(\frac1{\theta^2} - \frac{1+\cos\theta}{2\theta\sin\theta}\Big)(\omega^\wedge)^2 .
+$$
+
+</Theorem>
+
+<Proof>
+The main step is the derivative of the matrix exponential along a curve $A(s)$, which for
+non-commuting matrices is not $\dot A e^{A}$ but
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}s}e^{A(s)} = e^{A(s)}\int_0^1 e^{-uA(s)}\,\dot A(s)\,e^{uA(s)}\,\mathrm{d}u .
+$$
+
+To see it, differentiate the identity $e^{A} = (e^{A/n})^n$ with the product rule, obtaining a
+sum of $n$ terms $e^{kA/n}(\dot A/n)e^{(n-k)A/n}$, which is a Riemann sum for the integral
+after factoring $e^{A}$ out on the left. Take $A(s) = (\omega + s\delta)^\wedge$ and $s = 0$.
+By Lemma 1, $e^{-u\omega^\wedge}\delta^\wedge e^{u\omega^\wedge} = (e^{-u\omega^\wedge}\delta)^\wedge$,
+so
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}s}\Big|_{s=0} e^{(\omega+s\delta)^\wedge} = e^{\omega^\wedge}\Big(\int_0^1 e^{-u\omega^\wedge}\,\mathrm{d}u\ \delta\Big)^{\wedge}
+= e^{\omega^\wedge}\big(J_r(\omega)\delta\big)^\wedge ,
+\qquad
+J_r(\omega) := \int_0^1 e^{-u\omega^\wedge}\,\mathrm{d}u = \sum_{k\ge0}\frac{(-\omega^\wedge)^k}{(k+1)!}.
+$$
+
+The right side is the $s$-derivative of $e^{\omega^\wedge}e^{(sJ_r\delta)^\wedge}$ at $0$, which
+proves the right-Jacobian statement to first order. The series is the one summed for
+$V(\omega)$ on the previous page, with $\omega\to-\omega$: cycling powers of $\omega^\wedge$
+with Rodrigues gives the closed form. For the left version, factor $e^{A}$ out on the right
+instead of the left, which replaces $e^{-u\omega^\wedge}$ by $e^{u\omega^\wedge}$ and gives
+$J_l(\omega) = \int_0^1 e^{u\omega^\wedge}\mathrm{d}u = V(\omega)$. The relation
+$J_l = e^{\omega^\wedge}J_r$ is Lemma 1 applied to the two exponentials. We omit the algebra for
+$J_r^{-1}$ (Barfoot Ch. 7.1); it is verified by multiplying out with
+$(\omega^\wedge)^3 = -\theta^2\omega^\wedge$. $\blacksquare$
+</Proof>
+
+<Intuition>
+$J_r(\omega)\approx I - \tfrac12\omega^\wedge$ for small $\omega$, so the correction is
+second-order and vanishes when $\delta\parallel\omega$: changing the angle while keeping the
+axis needs no correction, but tilting the axis of a large rotation moves you by less than
+$\delta$ (the factor $\sin\theta/\theta$ along the two directions orthogonal to $\omega$).
+</Intuition>
+
+Now the definitions that use these tools. Fix a smooth loss $L:SO(3)\to\mathbb{R}$.
+
+<Definition name="Gradient, error and covariance on SO(3)">
+The (right) gradient $\nabla L(R)\in\mathbb{R}^3$ is the vector with
+
+$$
+L\big(R\exp(\delta^\wedge)\big) = L(R) + \langle\nabla L(R),\delta\rangle + O(\|\delta\|^2),
+$$
+
+and a gradient step is $R\leftarrow R\exp\big((-\eta\nabla L(R))^\wedge\big)$, which stays on
+the group. If $L$ is written as $\ell(R)$ for a function $\ell$ of the nine matrix entries,
+the chain rule gives $\nabla L(R)_i = \langle\nabla_R\ell,\ R\,e_i^\wedge\rangle_F$: contract
+the Euclidean gradient with the three tangent directions. The **pose error** between an
+estimate $R$ and ground truth $R^\star$ is $e = \operatorname{Log}(R^{\star\top}R)$, and a
+**Gaussian on $SO(3)$** with mean $\bar R$ and covariance $\Sigma$ means
+$R = \bar R\exp(\varepsilon^\wedge)$ with $\varepsilon\sim\mathcal N(0,\Sigma)$ (a concentrated
+Gaussian; Barfoot Ch. 7.3). If $R$ is parameterized as $R = \exp(\omega^\wedge)$, then by Thm 2
+the Euclidean gradient in $\omega$ is $\partial L/\partial\omega = J_r(\omega)^{\top}\nabla L(R)$.
+</Definition>
+
+<Warning>
+The right gradient and the left gradient are different vectors related by
+$\nabla^{\text{left}}L = R\,\nabla^{\text{right}}L$ (Lemma 1). A covariance $\Sigma$ defined
+with a right perturbation transforms as $R\Sigma R^\top$ when re-expressed with a left one.
+Papers rarely say which they use; Solà et al. (<Cite id="1812.01537" />) use right by default,
+while the SLAM literature is split.
+</Warning>
+
+For $SE(3)$ everything holds with $\xi = (\omega,v)$ and
+$\operatorname{Ad}_T = \begin{pmatrix}R & 0\\ t^\wedge R & R\end{pmatrix}$ in place of $R$; the
+$6\times6$ Jacobians have $J_r(\omega)$ on the diagonal blocks and a $Q(\xi)$ block coupling
+translation to rotation (Barfoot Ch. 7.1), which for small $\omega$ is $-\tfrac12 v^\wedge$.
+
+## Worked example by hand
+
+<Example title="Left versus right, the adjoint, and the Jacobian, with numbers">
+Let $R = \exp(\omega^\wedge)$ with $\omega = (0,0,\pi/2)$, so
+$R = \begin{pmatrix}0&-1&0\\1&0&0\\0&0&1\end{pmatrix}$, and take $\delta = (0.01, 0, 0)$: a
+small tilt about the $x$-axis. To first order $\exp(\delta^\wedge) = I + \delta^\wedge$ with
+$\delta^\wedge$ having $-0.01$ at $(2,3)$ and $+0.01$ at $(3,2)$.
+
+*Right perturbation.* $R\exp(\delta^\wedge)\approx R + R\delta^\wedge$. The product $R\delta^\wedge$
+takes the rows of $\delta^\wedge$ and mixes them by $R$: row 1 of $R\delta^\wedge$ is
+$-(\text{row 2 of }\delta^\wedge) = (0,0,0.01)$, row 2 is row 1 $= 0$, row 3 is row 3 $= (0,0.01,0)$:
+
+$$
+R\exp(\delta^\wedge) \approx \begin{pmatrix} 0 & -1 & 0.01 \\ 1 & 0 & 0 \\ 0 & 0.01 & 1\end{pmatrix},
+\qquad
+\exp(\delta^\wedge)R \approx \begin{pmatrix} 0 & -1 & 0 \\ 1 & 0 & -0.01 \\ 0.01 & 0 & 1\end{pmatrix}.
+$$
+
+Different matrices. The right version tilts about the body's $x$-axis, which after the
+$90^\circ$ yaw points along world $y$; the left version tilts about world $x$.
+
+*Adjoint.* Lemma 1 predicts $R\exp(\delta^\wedge) = \exp((R\delta)^\wedge)R$ with
+$R\delta = (0, 0.01, 0)$: a left tilt about world $y$. Check:
+$(R\delta)^\wedge$ has $+0.01$ at $(1,3)$ and $-0.01$ at $(3,1)$, and
+$(I + (R\delta)^\wedge)R$ adds $0.01\times(\text{row 3 of }R) = (0,0,0.01)$ to row 1 and
+$-0.01\times(\text{row 1 of }R) = (0,0.01,0)$ to row 3. That reproduces the right-perturbed
+matrix exactly.
+
+*Jacobian.* What rotation is $\exp((\omega+\delta)^\wedge)$? With $\theta = \pi/2$,
+$\tfrac{1-\cos\theta}{\theta^2}\theta = \tfrac{2}{\pi} = 0.6366$ and
+$\tfrac{\theta-\sin\theta}{\theta^3}\theta^2 = 0.3634$ (computed on the previous page), so with
+$K = e_3^\wedge$, $K^2 = \operatorname{diag}(-1,-1,0)$:
+
+$$
+J_r(\omega) = I - 0.6366\,K + 0.3634\,K^2 = \begin{pmatrix} 0.6366 & 0.6366 & 0 \\ -0.6366 & 0.6366 & 0 \\ 0 & 0 & 1\end{pmatrix},
+\qquad
+J_r(\omega)\delta = \begin{pmatrix} 0.0064 \\ -0.0064 \\ 0\end{pmatrix}.
+$$
+
+Thm 2 says $\exp((\omega+\delta)^\wedge)\approx R\exp((J_r\delta)^\wedge)\approx R + R(J_r\delta)^\wedge$.
+The matrix $(J_r\delta)^\wedge$ has entries $-0.0064$ at $(1,3)$ and $(2,3)$, $+0.0064$ at
+$(3,1)$ and $(3,2)$; multiplying by $R$ on the left swaps and negates rows 1 and 2 as before:
+
+$$
+\exp((\omega+\delta)^\wedge)\approx\begin{pmatrix} 0 & -1 & 0.0064 \\ 1 & 0 & -0.0064 \\ 0.0064 & 0.0064 & 1\end{pmatrix}.
+$$
+
+Verify directly with Rodrigues. $\omega + \delta = (0.01, 0, 1.5708)$ has norm
+$\theta' = \sqrt{0.0001 + 2.4674} = 1.5708$, unchanged to four decimals, and unit axis
+$a' = (0.0064, 0, 1.0000)$. With $\sin\theta' = 1$, $\cos\theta' = 0$ the rotation is
+$a'a'^\top + a'^\wedge$; the term $a'a'^\top$ contributes $0.0064$ at $(1,3)$ and $(3,1)$, and
+$a'^\wedge$ contributes $-1, +1$ in the top-left block and $-0.0064$ at $(2,3)$, $+0.0064$ at
+$(3,2)$. Same matrix. The naive guess $R\exp(\delta^\wedge)$ from the first display is off by
+$0.0064$ in four entries, while the exact error of the Jacobian approximation is $1.2\times10^{-5}$,
+i.e. $O(\|\delta\|^2)$ as claimed.
+</Example>
+
+<Example title="A gradient on SO(3) and one descent step">
+Let $L(R) = \tfrac12\|Rp - q\|^2$, the loss for aligning a body vector $p$ to a target $q$.
+Perturb: $R\exp(\delta^\wedge)p \approx Rp + R\,\delta^\wedge p = Rp - R\,p^\wedge\delta$. Then
+
+$$
+L(R\oplus\delta) - L(R) \approx \langle Rp - q,\ -Rp^\wedge\delta\rangle
+= \big\langle (-Rp^\wedge)^\top(Rp - q),\ \delta\big\rangle
+= \big\langle p^\wedge R^\top(Rp - q),\ \delta\big\rangle,
+$$
+
+so $\nabla L(R) = p^\wedge(p - R^\top q) = -\,p\times R^\top q = (R^\top q)\times p$, using
+$p\times p = 0$. It vanishes exactly when $Rp\parallel q$, as it should.
+
+Numbers: $p = e_1$, $q = e_2$, $R = I$. Then $\nabla L(I) = e_2\times e_1 = -e_3$. A central
+finite difference of $L(\exp((\epsilon e_3)^\wedge))$ with $\epsilon = 10^{-6}$ gives
+$-1.0000$ for the third component and $0$ for the others. The descent direction $+e_3$ is a
+positive rotation about $z$, which carries $e_1$ toward $e_2$: correct. One step with
+$\eta = 0.5$ gives $R = \exp((0.5\,e_3)^\wedge)$, $Rp = (\cos0.5,\sin0.5,0) = (0.8776, 0.4794, 0)$,
+and $L = \tfrac12(0.8776^2 + 0.5206^2) = \tfrac12(0.7702 + 0.2710) = 0.5206$, down from
+$L(I) = 1$. The exact minimizer is $\eta = \pi/2$ with $L = 0$.
+</Example>
+
+## Where it shows up
+
+- **IMU preintegration** (<Cite id="1512.02363" />, Sec. V and its appendix) linearizes
+  $\Delta R_{ij}\exp(\delta\phi^\wedge)$ using $J_r$ to propagate gyroscope-noise covariance
+  and to correct for a changed bias estimate without re-integrating.
+- **Score and Langevin dynamics on poses.** SE(3)-DiffusionFields (<Cite id="2209.03855" />,
+  Sec. 3) trains $s_\theta(T,k)\in\mathbb{R}^6$ as the gradient in the sense of the Definition
+  above and samples with $T\leftarrow T\exp\big((\alpha s_\theta + \sqrt{2\alpha}\,\varepsilon)^\wedge\big)$,
+  a right perturbation; the noise $\varepsilon\sim\mathcal N(0,I_6)$ is a concentrated Gaussian.
+- **Flow matching on $SO(3)$.** In Riemannian flow matching and FoldFlow the vector field
+  lives in $T_R SO(3)$, written as $R\,v^\wedge$ with $v\in\mathbb{R}^3$, and the target field
+  along the geodesic from $R_0$ to $R_1$ is $\operatorname{Log}(R_t^\top R_1)/(1-t)$, a
+  $\ominus$ divided by time. See [Riemannian manifolds](/concepts/riemannian-manifolds-basics).
+- **Rotation losses in policy learning.** Any loss $\|\operatorname{Log}(R^{\star\top}R)\|^2$
+  (geodesic loss) has gradient $J_r(e)^{-\top}\cdot 2e$ in the right perturbation with
+  $e = \operatorname{Log}(R^{\star\top}R)$; autograd through a 6-D or quaternion
+  parameterization computes the same thing composed with that parameterization's Jacobian.
+
+## Exercises
+
+<Exercise hint="Compute Log of the product with Rodrigues, or just compare with a + b + (a x b)/2 = (0.1, 0.1, 0.005); the exact answer is (0.0999, 0.0999, 0.0050).">
+Let $a = (0.1,0,0)$ and $b = (0,0.1,0)$. Compute $\operatorname{Log}(\exp(a^\wedge)\exp(b^\wedge))$
+to four decimals and compare with the first-order BCH prediction. Which term of BCH explains the
+$0.0001$ discrepancy in the first two components?
+</Exercise>
+
+<Exercise hint="Differentiate J_r's defining integral, or use the series: J_r = I - w^/2 + (w^)^2/6 - ...">
+Show $J_r(\omega) = I - \tfrac12\omega^\wedge + \tfrac16(\omega^\wedge)^2 + O(\theta^3)$ directly
+from the series in the proof of Thm 2, and check it matches the closed form's Taylor expansion.
+</Exercise>
+
+<Exercise hint="Write L = 1/2 |e|^2, perturb R on the right, and use Thm 2 in the form Log(exp(e^) exp(d^)) = e + J_r(e)^{-1} d + O(d^2).">
+For the geodesic loss $L(R) = \tfrac12\|\operatorname{Log}(R^{\star\top}R)\|^2$ show that the
+right gradient is $\nabla L(R) = J_r(e)^{-\top}e$ with $e = \operatorname{Log}(R^{\star\top}R)$,
+and that $J_r(e)^{-\top}e = e$ (so the gradient is simply $e$). Why does the Jacobian drop out?
+</Exercise>
+
+<Exercise hint="Set T = (R, t), compute T exp(xi^) T^{-1} to first order in xi, and read off the 6x6 matrix acting on (w, v).">
+Derive $\operatorname{Ad}_T = \begin{pmatrix}R&0\\t^\wedge R&R\end{pmatrix}$ for $SE(3)$ and
+use it to convert a right-perturbation covariance $\Sigma$ of a pose $T$ into the covariance
+of the same pose under left perturbations.
+</Exercise>
+
+## Going deeper
+
+Solà, Deray and Atchuthan (<Cite id="1812.01537" />) tabulate every Jacobian on this page,
+including the ones of $\oplus$, $\ominus$, composition and inverse, in a form that composes by
+the chain rule. Barfoot Ch. 7.1–7.3 proves the $SE(3)$ Jacobians with the $Q$ block and
+develops the concentrated-Gaussian view of uncertainty. Forster et al.
+(<Cite id="1512.02363" />) is the cleanest worked application: read its Appendix A after
+this page and every step should be recognizable.

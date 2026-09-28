@@ -1,0 +1,320 @@
+---
+title: "The continuity equation"
+kind: concept
+summary: "How a velocity field moves a probability density, why the answer is a first-order PDE, and the instantaneous change-of-variables formula behind flow matching and neural ODEs."
+tags: [optimal-transport, flows, continuity-equation, flow-matching, pde]
+track: optimal-transport
+level: 2
+prerequisites: [matrix-calculus, integration-by-parts-and-stein]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Gradient Flows in Metric Spaces and in the Space of Probability Measures"
+    author: "Ambrosio, Gigli & Savaré"
+    where: "Ch. 8.1"
+  - type: book
+    title: "Optimal Transport for Applied Mathematicians"
+    author: "Filippo Santambrogio"
+    where: "Ch. 4.1"
+  - type: arxiv
+    id: "1806.07366"
+    title: "Neural Ordinary Differential Equations"
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+---
+
+## Why you need this
+
+Flow matching (Lipman et al. 2022) trains a vector field $v_\theta(x,t)$ and then claims that
+integrating $\dot x = v_\theta(x,t)$ from noise produces samples of the data. The claim rests on
+one PDE: the density $p_t$ of the moving samples satisfies
+$\partial_t p_t + \nabla\cdot(p_t v_t) = 0$, and Theorem 1 of that paper is a statement about
+which $v_t$ solves it. The same equation, with $v_t = f - \tfrac12 g^2\nabla\log p_t$, is the
+probability-flow ODE of Song et al. 2021; with $\nabla\cdot v$ as the integrand it is the
+instantaneous change-of-variables formula of continuous normalizing flows (Chen et al. 2018,
+FFJORD); and with the kinetic energy $\int\|v\|^2 p$ as an objective it is the
+[Benamou–Brenier](/concepts/benamou-brenier) form of optimal transport. Every one of those is
+this page plus one extra idea.
+
+## Setup
+
+A *velocity field* is a map $v:\mathbb{R}^d\times[0,T]\to\mathbb{R}^d$, written $v_t(x)$. We
+assume throughout that $v$ is continuous, and Lipschitz in $x$ uniformly in $t$, so that the ODE
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\,\phi_t(x) = v_t\big(\phi_t(x)\big), \qquad \phi_0(x) = x ,
+$$
+
+has a unique solution for every starting point $x$ (Picard–Lindelöf). The map
+$\phi_t:\mathbb{R}^d\to\mathbb{R}^d$ is called the *flow map*; it tells you where the particle
+that started at $x$ is at time $t$. Uniqueness implies $\phi_t$ is a bijection with inverse
+obtained by running the ODE backwards, and $\phi_t$ is $C^1$ in $x$ when $v$ is.
+
+<Definition name="Push-forward">
+Let $X_0$ be a random vector with law $\mu_0$ and let $T:\mathbb{R}^d\to\mathbb{R}^d$ be
+measurable. The *push-forward* $T_\#\mu_0$ is the law of $T(X_0)$, that is,
+$(T_\#\mu_0)(A) = \mu_0(T^{-1}(A))$. Equivalently, for every bounded test function $f$,
+$$
+\int f\,\mathrm{d}(T_\#\mu_0) = \int f\circ T\,\mathrm{d}\mu_0 = \mathbb{E}[f(T(X_0))].
+$$
+If $\mu_0$ has a density $\rho_0$ and $T$ is a $C^1$ bijection, the push-forward has density
+$\rho_0(T^{-1}(y))\,|\det DT^{-1}(y)|$, the change-of-variables formula from
+[matrix calculus](/concepts/matrix-calculus).
+</Definition>
+
+We write $\rho_t = (\phi_t)_\#\rho_0$ for the density obtained by moving a cloud of particles
+with initial density $\rho_0$ along $v$. The question of the page: which PDE does $\rho_t$ solve?
+
+<Definition name="Weak solution of the continuity equation">
+A family of densities $(\rho_t)_{t\in[0,T]}$ solves the *continuity equation*
+$$
+\partial_t\rho_t + \nabla\cdot(\rho_t v_t) = 0
+$$
+in the weak sense if for every $f\in C_c^\infty(\mathbb{R}^d)$ (smooth with compact support)
+the function $t\mapsto\int f\rho_t$ is absolutely continuous and
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\int f(x)\,\rho_t(x)\,\mathrm{d}x
+= \int \langle \nabla f(x),\, v_t(x)\rangle\,\rho_t(x)\,\mathrm{d}x .
+$$
+</Definition>
+
+The weak form is the one you actually use: it never differentiates $\rho_t$, so it makes sense
+for point masses and for the non-smooth densities that appear at $t=0$ in generative models.
+When $\rho_t$ and $v_t$ are $C^1$, integrate by parts on the right (the boundary term vanishes
+because $f$ has compact support; see
+[integration by parts](/concepts/integration-by-parts-and-stein)) to get
+$\int f\,\partial_t\rho_t = -\int f\,\nabla\cdot(\rho_t v_t)$ for all $f$, which is the
+pointwise PDE.
+
+## The idea
+
+<Theorem name="Transport of a density" label="Thm 1">
+Let $v$ be continuous and uniformly Lipschitz in $x$, with flow map $\phi_t$, and let $\rho_0$
+be any probability density. Then $\rho_t = (\phi_t)_\#\rho_0$ is a weak solution of the
+continuity equation with velocity $v$ and initial condition $\rho_0$.
+</Theorem>
+
+<Proof>
+Fix a test function $f\in C_c^\infty$. Let $X_0\sim\rho_0$ and set $X_t = \phi_t(X_0)$, so
+$X_t\sim\rho_t$ by definition of push-forward. Then
+
+$$
+\int f\rho_t = \mathbb{E}\big[f(\phi_t(X_0))\big].
+$$
+
+For a fixed starting point $x$, the classical chain rule gives
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t} f(\phi_t(x))
+= \big\langle \nabla f(\phi_t(x)),\, \tfrac{\mathrm{d}}{\mathrm{d}t}\phi_t(x)\big\rangle
+= \big\langle \nabla f(\phi_t(x)),\, v_t(\phi_t(x))\big\rangle .
+$$
+
+This derivative is zero whenever $\phi_t(x)$ lies outside $\operatorname{supp} f$, and
+otherwise bounded by $\|\nabla f\|_\infty\cdot\sup\{\|v_s(y)\| : s\in[0,T],\,
+y\in\operatorname{supp} f\}$, which is finite because $v$ is continuous and
+$\operatorname{supp} f$ is compact. A bounded derivative is exactly what dominated
+convergence needs to move $\frac{\mathrm{d}}{\mathrm{d}t}$ through $\mathbb{E}$:
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\int f\rho_t
+= \mathbb{E}\big[\langle \nabla f(X_t), v_t(X_t)\rangle\big]
+= \int \langle \nabla f, v_t\rangle\,\rho_t ,
+$$
+
+which is exactly the weak form. Absolute continuity of $t\mapsto\int f\rho_t$ follows from
+the derivative being bounded. $\blacksquare$
+</Proof>
+
+<Intuition>
+The weak form says: the rate of change of the average of $f$ over the cloud equals the average
+of $\nabla f\cdot v$, that is, the average of how fast $f$ changes along each particle's
+motion. Nothing about densities was needed; that is why the proof is five lines. The PDE form
+$\partial_t\rho = -\nabla\cdot(\rho v)$ is the same statement read as: density decreases where
+the flux $\rho v$ spreads out (positive divergence) and increases where it converges.
+</Intuition>
+
+The converse matters just as much: if someone hands you a solution of the continuity equation
+(as flow matching does, by construction), is it the push-forward along $v$?
+
+<Theorem name="Uniqueness" label="Thm 2">
+Under the same hypotheses on $v$, the push-forward $(\phi_t)_\#\rho_0$ is the *only* weak
+solution of the continuity equation with initial condition $\rho_0$ among families of
+probability densities that are narrowly continuous in $t$.
+</Theorem>
+
+We do not prove this; it is Proposition 8.1.7 in Ambrosio–Gigli–Savaré, and the proof runs the
+equation backwards along characteristics with a duality argument. The consequence you use
+is this: to show a vector field $v$ transports $p_0$ to $p_1$, it suffices to exhibit *any*
+density path $p_t$ from $p_0$ to $p_1$ with $\partial_t p_t + \nabla\cdot(p_t v_t) = 0$. That
+is precisely how Theorem 1 of Lipman et al. is used.
+
+<Theorem name="Instantaneous change of variables" label="Thm 3">
+Let $v$ be $C^1$ in $x$, and let $\rho_t = (\phi_t)_\#\rho_0$ with $\rho_0$ a $C^1$ density.
+Then along each trajectory,
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\log\rho_t\big(\phi_t(x)\big) = -\,(\nabla\cdot v_t)\big(\phi_t(x)\big),
+\qquad\text{so}\qquad
+\log\rho_t(\phi_t(x)) = \log\rho_0(x) - \int_0^t (\nabla\cdot v_s)(\phi_s(x))\,\mathrm{d}s .
+$$
+</Theorem>
+
+<Proof>
+Two proofs, because both are used in practice.
+
+*Via the PDE.* Assume $\rho$ is $C^1$ so the pointwise equation
+$\partial_t\rho = -\nabla\cdot(\rho v) = -\langle\nabla\rho, v\rangle - \rho\,\nabla\cdot v$
+holds. By the chain rule along the trajectory,
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\rho_t(\phi_t(x))
+= \partial_t\rho_t + \langle\nabla\rho_t, v_t\rangle
+= -\rho_t\,\nabla\cdot v_t ,
+$$
+
+all evaluated at $\phi_t(x)$. Divide by $\rho_t(\phi_t(x))$.
+
+*Via the Jacobian.* Let $J_t(x) = D\phi_t(x)$ be the Jacobian of the flow map. Differentiating
+the ODE in $x$ gives $\dot J_t = Dv_t(\phi_t(x))\,J_t$ with $J_0 = I$. Jacobi's formula
+(from [matrix calculus](/concepts/matrix-calculus)) says
+$\frac{\mathrm{d}}{\mathrm{d}t}\log\det J_t = \operatorname{tr}(J_t^{-1}\dot J_t)
+= \operatorname{tr}(Dv_t) = \nabla\cdot v_t$, evaluated at $\phi_t(x)$; note $\det J_t > 0$
+because it starts at $1$ and never vanishes. The change-of-variables formula for the
+push-forward reads $\rho_t(\phi_t(x))\,\det J_t(x) = \rho_0(x)$; take logs and differentiate.
+$\blacksquare$
+</Proof>
+
+The second proof shows what the formula buys you: a normalizing flow needs
+$\log\det D\phi_t$, which costs $O(d^3)$ per evaluation, and Thm 3 replaces it with a time
+integral of a divergence, which costs $O(d)$ with a Hutchinson trace estimator. That is the
+entire idea of FFJORD.
+
+<Warning>
+The continuity equation is not the Fokker–Planck equation, but the Fokker–Planck equation
+*is* a continuity equation. For $\mathrm{d}X_t = f\,\mathrm{d}t + g\,\mathrm{d}W_t$ the
+density obeys $\partial_t p = -\nabla\cdot(fp) + \tfrac12 g^2\Delta p$, and writing
+$\tfrac12 g^2\Delta p = \nabla\cdot(\tfrac12 g^2 p\,\nabla\log p)$ turns this into
+$\partial_t p + \nabla\cdot\big(p\,(f - \tfrac12 g^2\nabla\log p)\big) = 0$. So the same
+marginals $p_t$ are produced by the *deterministic* flow with velocity
+$v_t = f - \tfrac12 g^2\nabla\log p_t$. That deterministic flow is the probability-flow ODE.
+Individual trajectories differ completely; only the densities agree.
+</Warning>
+
+## Worked example by hand
+
+<Example title="A contracting flow in one dimension">
+Take $d=1$, $v_t(x) = -x$, and $\rho_0 = \mathcal N(0,1)$.
+
+*Flow map.* Solve $\dot\phi = -\phi$, $\phi_0(x) = x$: $\phi_t(x) = x e^{-t}$.
+
+*Push-forward.* $X_t = e^{-t}X_0$ with $X_0\sim\mathcal N(0,1)$, so $\rho_t = \mathcal N(0, s_t^2)$
+with $s_t = e^{-t}$, that is,
+$$
+\rho_t(x) = \frac{1}{\sqrt{2\pi}\,s_t}\exp\!\Big(-\frac{x^2}{2s_t^2}\Big),
+\qquad \log\rho_t(x) = -\log s_t - \frac{x^2}{2s_t^2} - \tfrac12\log 2\pi .
+$$
+
+*Check the PDE directly.* Using $\dot s_t = -s_t$,
+$$
+\partial_t\log\rho_t = -\frac{\dot s_t}{s_t} + \frac{x^2\dot s_t}{s_t^3}
+= 1 - \frac{x^2}{s_t^2},
+\qquad\text{so}\qquad
+\partial_t\rho_t = \rho_t\Big(1 - \frac{x^2}{s_t^2}\Big).
+$$
+For the flux term, $\rho_t v_t = -x\rho_t$ and $\partial_x\rho_t = -\frac{x}{s_t^2}\rho_t$, so
+$$
+\partial_x(\rho_t v_t) = -\rho_t - x\,\partial_x\rho_t = -\rho_t + \frac{x^2}{s_t^2}\rho_t
+= -\rho_t\Big(1 - \frac{x^2}{s_t^2}\Big).
+$$
+Adding: $\partial_t\rho_t + \partial_x(\rho_t v_t) = 0$. Thm 1 holds, term by term.
+
+*Check Thm 3.* Here $\partial_x v = -1$, so the formula predicts
+$\log\rho_t(\phi_t(x)) = \log\rho_0(x) + t$, i.e. $\rho_t(xe^{-t}) = e^{t}\rho_0(x)$.
+Directly: $\rho_t(xe^{-t}) = \frac{1}{\sqrt{2\pi}}e^{t}\exp(-\tfrac{x^2 e^{-2t}}{2e^{-2t}})
+= e^{t}\rho_0(x)$. Same thing: the flow compresses lengths by $e^{-t}$, so density goes up
+by $e^{t}$.
+
+*Numbers.* At $t = \ln 2$, $s_t = \tfrac12$ and the particle from $x=1$ sits at $\tfrac12$.
+$\rho_0(1) = \frac{1}{\sqrt{2\pi}}e^{-1/2} = 0.2420$, and Thm 3 predicts
+$\rho_t(\tfrac12) = 2\times 0.2420 = 0.4839$. Directly from $\mathcal N(0,\tfrac14)$:
+$\rho_t(\tfrac12) = \frac{2}{\sqrt{2\pi}}e^{-(1/4)/(2\cdot 1/4)} = 0.7979\times 0.6065 = 0.4839$.
+As $t\to\infty$, $\rho_t\to\delta_0$ and $\log\rho_t(\phi_t(x))\to+\infty$ linearly in $t$,
+which is the right rate: the density of $\mathcal N(0,e^{-2t})$ at its mode is $e^{t}/\sqrt{2\pi}$.
+</Example>
+
+<Example title="The flow-matching conditional path">
+Let $x_1\in\mathbb{R}^d$ be fixed and $\phi_t(x) = (1-t)x + t x_1$ for $t\in[0,1)$, pushing
+$\rho_0 = \mathcal N(0,I)$. Then $\rho_t = \mathcal N(t x_1, (1-t)^2 I)$. Which velocity
+field generates this? Differentiate: $\dot\phi_t(x) = x_1 - x$, and $v_t$ must equal this at
+the point $y = \phi_t(x)$. Since $x = (y - tx_1)/(1-t)$,
+$$
+v_t(y) = x_1 - \frac{y - t x_1}{1-t} = \frac{x_1 - y}{1-t}.
+$$
+Check the weak form on $f(y) = y$ (componentwise, ignoring compact support, which a truncation
+argument justifies): left side $\frac{\mathrm{d}}{\mathrm{d}t}\mathbb{E}[X_t] = x_1$; right side
+$\mathbb{E}[v_t(X_t)] = (x_1 - tx_1)/(1-t) = x_1$. On $f(y) = \|y\|^2$: left side
+$\frac{\mathrm{d}}{\mathrm{d}t}\big(t^2\|x_1\|^2 + d(1-t)^2\big) = 2t\|x_1\|^2 - 2d(1-t)$; right side
+$\mathbb{E}[2\langle X_t, v_t(X_t)\rangle] = \frac{2}{1-t}\big(\langle tx_1, x_1\rangle -
+t^2\|x_1\|^2 - d(1-t)^2\big) = 2t\|x_1\|^2 - 2d(1-t)$. This $v_t$ is, up to the
+$\sigma_{\min}$ smoothing, the conditional vector field $u_t(x\mid x_1)$ of Lipman et al.,
+equation (23).
+</Example>
+
+## Where it shows up
+
+- **Flow matching** (<Cite id="2210.02747" />, Theorem 1): if each conditional path
+  $p_t(\cdot\mid x_1)$ is generated by $u_t(\cdot\mid x_1)$, then the marginal
+  $p_t = \int p_t(\cdot\mid x_1)q(x_1)\,\mathrm{d}x_1$ is generated by
+  $u_t(x) = \int u_t(x\mid x_1)\frac{p_t(x\mid x_1)q(x_1)}{p_t(x)}\mathrm{d}x_1$. The proof is
+  one line of this page: integrate the conditional continuity equations against $q(x_1)$ and
+  use linearity of $\nabla\cdot$. See [flow matching](/concepts/flow-matching). The same
+  theorem underlies rectified flow and the flow-based action heads of $\pi_0$.
+- **Probability-flow ODE** (Song et al. 2021, eq. 13): the Warning above. See
+  [Fokker–Planck](/concepts/fokker-planck) and
+  [time reversal](/concepts/time-reversal-of-diffusions).
+- **Continuous normalizing flows** (<Cite id="1806.07366" />, eq. 4 and FFJORD): Thm 3 is
+  the exact-likelihood formula those models train with.
+- **Benamou–Brenier**: $W_2^2$ is the minimum of $\int_0^1\int\|v_t\|^2\rho_t$ over all
+  solutions of the continuity equation joining two given densities. See
+  [Benamou–Brenier](/concepts/benamou-brenier).
+
+## Exercises
+
+<Exercise hint="Take f = 1 formally, or approximate 1 by compactly supported functions; the right side of the weak form has gradient zero.">
+Show from the weak form that $\int\rho_t\,\mathrm{d}x$ is constant in $t$. Explain in one
+sentence why the weak form, rather than the pointwise PDE, is the right setting when $\rho_0$
+is an empirical distribution of $n$ data points.
+</Exercise>
+
+<Exercise hint="Solve the ODE with a translation, then check the PDE.">
+Let $v_t(x) = c$ be constant in $\mathbb{R}^d$ and $\rho_0 = \mathcal N(0, I)$. Compute
+$\phi_t$, $\rho_t$, and verify the continuity equation and Thm 3 (the divergence is zero, so
+$\log\rho_t(\phi_t(x)) = \log\rho_0(x)$).
+</Exercise>
+
+<Exercise hint="Write rho_t = N(m_t, s_t^2 I) and try v_t(x) = a_t + b_t (x - m_t) with scalar b_t.">
+Show that for the Gaussian path $\rho_t = \mathcal N(m_t, s_t^2 I)$ with differentiable
+$m_t$ and $s_t>0$, the velocity field $v_t(x) = \dot m_t + \frac{\dot s_t}{s_t}(x - m_t)$
+solves the continuity equation. This is the general form of flow matching's Gaussian
+conditional vector field (Lipman et al., Theorem 3).
+</Exercise>
+
+<Exercise hint="Write the Laplacian as a divergence of p times the score, as in the Warning.">
+Starting from the Fokker–Planck equation for $\mathrm{d}X_t = -\tfrac12\beta X_t\,\mathrm{d}t +
+\sqrt\beta\,\mathrm{d}W_t$, write down the probability-flow ODE, and for
+$p_t = \mathcal N(0, \sigma_t^2)$ with $\sigma_t^2 = 1 - (1-\sigma_0^2)e^{-\beta t}$
+compute its velocity field explicitly. Confirm it matches the previous exercise's form.
+</Exercise>
+
+## Going deeper
+
+Santambrogio Ch. 4.1 proves Thm 1 and 2 with the analysis written out, including what happens
+when $v$ is only locally Lipschitz. Ambrosio–Gigli–Savaré Ch. 8 is the general theory:
+continuity equations for measures, the superposition principle (every solution is a
+superposition of trajectories, even for non-Lipschitz $v$), and the identification of
+absolutely continuous curves in Wasserstein space with solutions of the continuity equation,
+which is the starting point of Otto calculus.

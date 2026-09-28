@@ -1,0 +1,355 @@
+---
+title: "Gaussian computations"
+kind: concept
+summary: "Everything you compute with a multivariate normal: affine images, marginals and conditionals through Schur complements, the moment generating function, KL between Gaussians, Wick's formula, and the score of a Gaussian."
+tags: [gaussian, multivariate-normal, schur-complement, kl-divergence, score, diffusion-models]
+track: foundations
+level: 1
+prerequisites: [matrix-calculus]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Pattern Recognition and Machine Learning"
+    author: "Christopher Bishop"
+    where: "Section 2.3"
+  - type: book
+    title: "Gaussian Processes for Machine Learning"
+    author: "Rasmussen & Williams"
+    where: "Appendix A"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+---
+
+## Why you need this
+
+Diffusion and flow models are built so that every intermediate distribution given the data is
+Gaussian, and the whole derivation of DDPM (Ho et al. 2020) is a sequence of Gaussian
+conditionings and Gaussian KLs: the posterior $q(x_{t-1}\mid x_t,x_0)$ in their eq. (6)–(7)
+is a conditional of a jointly Gaussian pair, and each ELBO term $L_{t-1}$ in eq. (8) is a KL
+between two Gaussians. The denoising score matching target of Song et al. 2021,
+$\nabla_{x_t}\log q(x_t\mid x_0)$, is the score of a Gaussian. The conditional probability
+paths of Lipman et al. 2022 are Gaussians with time-varying mean and scale. In robotics the
+Kalman filter is Gaussian conditioning applied once per time step. This page makes each of
+these a five-line computation.
+
+## Setup
+
+For $\mu\in\mathbb{R}^d$ and symmetric positive definite $\Sigma\in\mathbb{R}^{d\times d}$,
+
+$$
+\mathcal N(x;\mu,\Sigma) = (2\pi)^{-d/2}(\det\Sigma)^{-1/2}
+\exp\!\Big(-\tfrac12 (x-\mu)^\top\Sigma^{-1}(x-\mu)\Big).
+$$
+
+We write $\Lambda = \Sigma^{-1}$ for the precision. The rules of
+[matrix calculus](/concepts/matrix-calculus) for quadratic forms, $\log\det$, and the change of
+variables are used throughout. We take as known the one-dimensional facts
+$\int e^{-z^2/2}\mathrm{d}z = \sqrt{2\pi}$, $\mathbb{E}Z = 0$, $\mathbb{E}Z^2 = 1$ for
+$Z\sim\mathcal N(0,1)$.
+
+<Definition name="Multivariate normal">
+$X\sim\mathcal N(\mu,\Sigma)$ with $\Sigma\succ 0$ means $X$ has the density above. More
+generally, for any $A\in\mathbb{R}^{d\times m}$ and $Z\sim\mathcal N(0,I_m)$ (independent
+standard normals), $X = \mu + AZ$ is called Gaussian with mean $\mu$ and covariance
+$AA^\top$; this allows singular covariances, in which case there is no density on
+$\mathbb{R}^d$. Prop 2 below shows the two definitions agree when $AA^\top\succ 0$.
+</Definition>
+
+## The idea
+
+<Proposition name="Moment generating function" label="Prop 1">
+If $X\sim\mathcal N(\mu,\Sigma)$ (in either sense) then for every $a\in\mathbb{R}^d$
+$$
+\mathbb{E}\big[e^{a^\top X}\big] = \exp\!\Big(a^\top\mu + \tfrac12 a^\top\Sigma a\Big).
+$$
+</Proposition>
+
+<Proof>
+First $d = 1$, $Z\sim\mathcal N(0,1)$, $s\in\mathbb{R}$: complete the square,
+$-\tfrac12 z^2 + sz = -\tfrac12(z-s)^2 + \tfrac12 s^2$, so
+$\mathbb{E}[e^{sZ}] = e^{s^2/2}\int (2\pi)^{-1/2}e^{-(z-s)^2/2}\mathrm{d}z = e^{s^2/2}$.
+Now $X = \mu + AZ$ with $Z\sim\mathcal N(0,I_m)$: $a^\top X = a^\top\mu + \sum_j (A^\top a)_j Z_j$,
+and the $Z_j$ are independent, so the expectation factors into
+$e^{a^\top\mu}\prod_j e^{(A^\top a)_j^2/2} = \exp(a^\top\mu + \tfrac12\|A^\top a\|^2)$, and
+$\|A^\top a\|^2 = a^\top AA^\top a = a^\top\Sigma a$. For the density definition, the same
+completing-the-square computation in $d$ dimensions works with $\Sigma^{-1}$ in place of $1$.
+$\blacksquare$
+</Proof>
+
+The MGF determines the distribution, so two Gaussians with the same $(\mu,\Sigma)$ are the
+same distribution. That is the tool behind the next three results.
+
+<Proposition name="Affine images and independence" label="Prop 2">
+1. If $X\sim\mathcal N(\mu,\Sigma)$ and $Y = BX + c$, then $Y\sim\mathcal N(B\mu + c, B\Sigma B^\top)$.
+2. If $(X_1,X_2)$ is jointly Gaussian and $\operatorname{Cov}(X_1,X_2) = 0$, then $X_1$ and
+   $X_2$ are independent.
+</Proposition>
+
+<Proof>
+(1) $\mathbb{E}[e^{a^\top Y}] = e^{a^\top c}\,\mathbb{E}[e^{(B^\top a)^\top X}]
+= \exp(a^\top c + a^\top B\mu + \tfrac12 a^\top B\Sigma B^\top a)$, which is the MGF of
+$\mathcal N(B\mu + c, B\Sigma B^\top)$.
+
+(2) With block-diagonal $\Sigma = \operatorname{diag}(\Sigma_{11},\Sigma_{22})$ and
+$a = (a_1,a_2)$, the MGF is $\exp(a_1^\top\mu_1 + \tfrac12 a_1^\top\Sigma_{11}a_1)\cdot
+\exp(a_2^\top\mu_2 + \tfrac12 a_2^\top\Sigma_{22}a_2)$, the product of the marginal MGFs. A
+joint MGF that factors is the MGF of the product distribution. $\blacksquare$
+</Proof>
+
+<Theorem name="Marginals and conditionals" label="Thm 3">
+Partition $X = (X_1,X_2)\sim\mathcal N(\mu,\Sigma)$ with
+$\mu = (\mu_1,\mu_2)$ and $\Sigma = \begin{pmatrix}\Sigma_{11} & \Sigma_{12}\\ \Sigma_{21} & \Sigma_{22}\end{pmatrix}$,
+$\Sigma_{22}\succ 0$. Then $X_2\sim\mathcal N(\mu_2,\Sigma_{22})$ and
+
+$$
+X_1\mid X_2 = x_2 \;\sim\; \mathcal N\!\Big(\mu_1 + \Sigma_{12}\Sigma_{22}^{-1}(x_2-\mu_2),\;
+\Sigma_{11} - \Sigma_{12}\Sigma_{22}^{-1}\Sigma_{21}\Big).
+$$
+
+The conditional covariance $\Sigma_{11} - \Sigma_{12}\Sigma_{22}^{-1}\Sigma_{21}$ is the Schur
+complement of $\Sigma_{22}$ in $\Sigma$; it does not depend on $x_2$.
+</Theorem>
+
+<Proof>
+The marginal is Prop 2(1) with $B = (0\ \ I)$. For the conditional, define the residual
+$R = X_1 - \Sigma_{12}\Sigma_{22}^{-1}X_2$. The pair $(R,X_2)$ is an affine image of $X$, so
+jointly Gaussian, and
+
+$$
+\operatorname{Cov}(R,X_2) = \Sigma_{12} - \Sigma_{12}\Sigma_{22}^{-1}\Sigma_{22} = 0 ,
+$$
+
+so by Prop 2(2) $R$ is independent of $X_2$. Its mean is $\mu_1 - \Sigma_{12}\Sigma_{22}^{-1}\mu_2$
+and its covariance is
+
+$$
+\operatorname{Cov}(R) = \Sigma_{11} - 2\Sigma_{12}\Sigma_{22}^{-1}\Sigma_{21}
++ \Sigma_{12}\Sigma_{22}^{-1}\Sigma_{22}\Sigma_{22}^{-1}\Sigma_{21}
+= \Sigma_{11} - \Sigma_{12}\Sigma_{22}^{-1}\Sigma_{21}.
+$$
+
+Now write $X_1 = R + \Sigma_{12}\Sigma_{22}^{-1}X_2$. Conditioning on $X_2 = x_2$ fixes the
+second term and leaves the distribution of $R$ unchanged (independence). So $X_1\mid X_2 = x_2$
+is $R$ shifted by $\Sigma_{12}\Sigma_{22}^{-1}x_2$, which is Gaussian with the stated mean and
+covariance. $\blacksquare$
+</Proof>
+
+<Intuition>
+$\Sigma_{12}\Sigma_{22}^{-1}$ is the regression coefficient of $X_1$ on $X_2$; for scalars it is
+$\rho\sigma_1/\sigma_2$. The conditional variance $\sigma_1^2(1-\rho^2)$ is what is left after
+the best linear predictor has been subtracted. For Gaussians the best linear predictor is the
+best predictor, which is the content of the independence step in the proof.
+</Intuition>
+
+<Proposition name="Score and Hessian of a Gaussian" label="Prop 4">
+For $p = \mathcal N(\cdot\,;\mu,\Sigma)$,
+$$
+\nabla_x\log p(x) = -\Sigma^{-1}(x-\mu),\qquad \nabla^2_x\log p(x) = -\Sigma^{-1}.
+$$
+In particular for the DDPM forward kernel $q(x_t\mid x_0) = \mathcal N(\sqrt{\bar\alpha_t}\,x_0,(1-\bar\alpha_t)I)$,
+$\nabla_{x_t}\log q(x_t\mid x_0) = -\dfrac{x_t - \sqrt{\bar\alpha_t}\,x_0}{1-\bar\alpha_t} = -\dfrac{\varepsilon}{\sqrt{1-\bar\alpha_t}}$
+where $x_t = \sqrt{\bar\alpha_t}x_0 + \sqrt{1-\bar\alpha_t}\,\varepsilon$.
+</Proposition>
+
+<Proof>
+$\log p(x) = -\tfrac12(x-\mu)^\top\Sigma^{-1}(x-\mu) + \text{const}$; apply the gradient of a
+quadratic form with symmetric matrix $\Sigma^{-1}$. $\blacksquare$
+</Proof>
+
+<Proposition name="KL divergence between Gaussians" label="Prop 5">
+For $p_0 = \mathcal N(\mu_0,\Sigma_0)$ and $p_1 = \mathcal N(\mu_1,\Sigma_1)$ on $\mathbb{R}^d$,
+$$
+\mathrm{KL}(p_0\,\|\,p_1) = \tfrac12\Big[\operatorname{tr}(\Sigma_1^{-1}\Sigma_0)
++ (\mu_1-\mu_0)^\top\Sigma_1^{-1}(\mu_1-\mu_0) - d + \log\frac{\det\Sigma_1}{\det\Sigma_0}\Big].
+$$
+</Proposition>
+
+<Proof>
+We need $\mathbb{E}_{p_0}[(X-m)^\top A(X-m)]$ for a fixed symmetric $A$ and vector $m$. Write
+$X - m = (X-\mu_0) + (\mu_0 - m)$ and expand; the cross term has mean zero and
+$\mathbb{E}[(X-\mu_0)^\top A(X-\mu_0)] = \mathbb{E}\operatorname{tr}(A(X-\mu_0)(X-\mu_0)^\top)
+= \operatorname{tr}(A\Sigma_0)$. So
+
+$$
+\mathbb{E}_{p_0}[(X-m)^\top A(X-m)] = \operatorname{tr}(A\Sigma_0) + (\mu_0-m)^\top A(\mu_0-m).
+$$
+
+Now
+
+$$
+\log\frac{p_0}{p_1}(x) = \tfrac12\log\frac{\det\Sigma_1}{\det\Sigma_0}
+- \tfrac12(x-\mu_0)^\top\Sigma_0^{-1}(x-\mu_0) + \tfrac12(x-\mu_1)^\top\Sigma_1^{-1}(x-\mu_1).
+$$
+
+Take $\mathbb{E}_{p_0}$: the second term gives $-\tfrac12\operatorname{tr}(\Sigma_0^{-1}\Sigma_0) = -\tfrac d2$,
+the third gives $\tfrac12[\operatorname{tr}(\Sigma_1^{-1}\Sigma_0) + (\mu_0-\mu_1)^\top\Sigma_1^{-1}(\mu_0-\mu_1)]$.
+$\blacksquare$
+</Proof>
+
+Sanity checks on Prop 5: it is zero when the two Gaussians coincide ($\operatorname{tr}I = d$,
+$\log 1 = 0$); it is not symmetric; and for equal covariances it reduces to half the squared
+Mahalanobis distance $\tfrac12\|\mu_1-\mu_0\|_{\Sigma^{-1}}^2$, which is the form of every
+$L_{t-1}$ term in DDPM.
+
+<Theorem name="Isserlis / Wick formula" label="Thm 6">
+Let $X\sim\mathcal N(0,\Sigma)$ on $\mathbb{R}^d$. Then for indices $i_1,\dots,i_{2n}$
+(repetitions allowed)
+$$
+\mathbb{E}[X_{i_1}X_{i_2}\cdots X_{i_{2n}}] = \sum_{\text{pairings}}\ \prod_{(a,b)\in\text{pairing}}\Sigma_{i_ai_b},
+$$
+the sum running over the $(2n-1)!! = (2n-1)(2n-3)\cdots 1$ ways to split the $2n$ indices
+into $n$ unordered pairs. Odd moments vanish. For $n = 2$:
+$\mathbb{E}[X_iX_jX_kX_l] = \Sigma_{ij}\Sigma_{kl} + \Sigma_{ik}\Sigma_{jl} + \Sigma_{il}\Sigma_{jk}$.
+</Theorem>
+
+<Proof>
+Sketch. Differentiate the MGF $M(a) = \exp(\tfrac12 a^\top\Sigma a)$: the moment is
+$\partial_{a_{i_1}}\cdots\partial_{a_{i_{2n}}}M(a)\big|_{a=0}$. Each derivative either brings
+down a factor $(\Sigma a)_{i}$ from the exponent or hits an existing factor $(\Sigma a)_{j}$
+and turns it into the constant $\Sigma_{ij}$. At $a = 0$ every un-hit factor vanishes, so only
+terms where the derivatives were consumed in pairs survive, one $\Sigma_{i_ai_b}$ per pair. The
+bookkeeping of which derivative hit which factor is exactly an enumeration of pairings. The
+one-dimensional case is the check: $M(s) = e^{s^2/2} = \sum_k s^{2k}/(2^k k!)$, so
+$\mathbb{E}Z^{2n} = (2n)!/(2^n n!) = (2n-1)!!$, and $(2n-1)!!$ is the number of pairings of
+$2n$ objects. For $n = 2$, $\mathbb{E}Z^4 = 3$. $\blacksquare$
+</Proof>
+
+<Warning>
+Wick's formula needs mean zero. For $X\sim\mathcal N(\mu,\Sigma)$ write $X = \mu + X^0$ and
+expand; e.g. $\mathbb{E}[XX^\top] = \Sigma + \mu\mu^\top$ and
+$\mathbb{E}\|X\|^4 = (\operatorname{tr}\Sigma)^2 + 2\operatorname{tr}(\Sigma^2)$ only when $\mu = 0$.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Conditioning in two dimensions">
+Let $(X_1,X_2)\sim\mathcal N(\mu,\Sigma)$ with $\mu = (1,2)^\top$ and
+$\Sigma = \begin{pmatrix}4 & 2\\ 2 & 3\end{pmatrix}$. Observe $X_2 = 4$. Thm 3 with scalars:
+
+$$
+\mathbb{E}[X_1\mid X_2 = 4] = 1 + \tfrac{2}{3}(4-2) = \tfrac73\approx 2.333,\qquad
+\operatorname{Var}(X_1\mid X_2 = 4) = 4 - \tfrac{2\cdot 2}{3} = \tfrac83\approx 2.667.
+$$
+
+Checks. The correlation is $\rho = 2/\sqrt{12} = 0.577$, and
+$\sigma_1^2(1-\rho^2) = 4(1 - \tfrac13) = \tfrac83$ agrees. The conditional variance is
+smaller than the marginal variance $4$, as it must be: observing $X_2$ can only reduce
+uncertainty, and it reduced it by the fraction $\rho^2 = 1/3$. The conditional mean moved from
+$1$ toward the direction of the surprise $x_2-\mu_2 = +2$ with slope $2/3$, less than $1$
+because $X_2$ is noisier than its covariance with $X_1$. If we instead observed $X_2 = 2$, the
+mean would stay at $\mu_1 = 1$. Good.
+</Example>
+
+<Example title="The DDPM posterior of the previous step given the current one and the data">
+In one dimension, fix $x_0$ and let $\varepsilon,\varepsilon'\sim\mathcal N(0,1)$ independent:
+
+$$
+x_{t-1} = \sqrt{\bar\alpha_{t-1}}\,x_0 + \sqrt{1-\bar\alpha_{t-1}}\,\varepsilon,\qquad
+x_t = \sqrt{\alpha_t}\,x_{t-1} + \sqrt{1-\alpha_t}\,\varepsilon' ,
+$$
+
+with $\bar\alpha_t = \alpha_t\bar\alpha_{t-1}$. Given $x_0$, the pair $(x_{t-1},x_t)$ is an
+affine image of $(\varepsilon,\varepsilon')$, hence jointly Gaussian, with
+
+$$
+\operatorname{Var}(x_{t-1}) = 1-\bar\alpha_{t-1},\quad
+\operatorname{Cov}(x_{t-1},x_t) = \sqrt{\alpha_t}(1-\bar\alpha_{t-1}),\quad
+\operatorname{Var}(x_t) = \alpha_t(1-\bar\alpha_{t-1}) + (1-\alpha_t) = 1-\bar\alpha_t .
+$$
+
+Thm 3 with $X_1 = x_{t-1}$, $X_2 = x_t$:
+
+$$
+\mathbb{E}[x_{t-1}\mid x_t,x_0]
+= \sqrt{\bar\alpha_{t-1}}\,x_0 + \frac{\sqrt{\alpha_t}(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\big(x_t - \sqrt{\bar\alpha_t}\,x_0\big).
+$$
+
+Collect the $x_0$ coefficient: $\sqrt{\bar\alpha_{t-1}}\big[1 - \tfrac{\alpha_t(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\big]
+= \sqrt{\bar\alpha_{t-1}}\,\tfrac{1-\bar\alpha_t-\alpha_t+\bar\alpha_t}{1-\bar\alpha_t}
+= \tfrac{\sqrt{\bar\alpha_{t-1}}(1-\alpha_t)}{1-\bar\alpha_t}$. So
+
+$$
+\tilde\mu_t(x_t,x_0) = \frac{\sqrt{\bar\alpha_{t-1}}(1-\alpha_t)}{1-\bar\alpha_t}\,x_0
++ \frac{\sqrt{\alpha_t}(1-\bar\alpha_{t-1})}{1-\bar\alpha_t}\,x_t,\qquad
+\tilde\beta_t = (1-\bar\alpha_{t-1}) - \frac{\alpha_t(1-\bar\alpha_{t-1})^2}{1-\bar\alpha_t}
+= \frac{(1-\bar\alpha_{t-1})(1-\alpha_t)}{1-\bar\alpha_t},
+$$
+
+which are exactly eq. (7) of <Cite id="2006.11239" />. With numbers $\alpha_t = 0.9$,
+$\bar\alpha_{t-1} = 0.5$ (so $\bar\alpha_t = 0.45$): the $x_0$ coefficient is
+$0.7071\cdot 0.1/0.55 = 0.1286$, the $x_t$ coefficient is $0.9487\cdot 0.5/0.55 = 0.8624$,
+and $\tilde\beta_t = 0.5\cdot 0.1/0.55 = 0.0909$. Sanity: as $\alpha_t\to 1$ (no noise added
+at step $t$) the $x_t$ coefficient tends to $1$, the $x_0$ coefficient to $0$, and
+$\tilde\beta_t\to 0$: the posterior collapses onto $x_{t-1} = x_t$, as it should.
+</Example>
+
+<Example title="KL in one dimension, both ways">
+$\mathrm{KL}(\mathcal N(0,1)\,\|\,\mathcal N(1,2)) = \tfrac12[\tfrac12 + \tfrac12 - 1 + \log 2] = \tfrac12\log 2 = 0.347$.
+$\mathrm{KL}(\mathcal N(1,2)\,\|\,\mathcal N(0,1)) = \tfrac12[2 + 1 - 1 - \log 2] = 1 - 0.347 = 0.653$.
+Not symmetric; the direction that puts the wide distribution first is larger because its
+tails land where the narrow one has little mass.
+</Example>
+
+## Where it shows up
+
+- DDPM, <Cite id="2006.11239" />: eq. (4) is the marginal $q(x_t\mid x_0)$ by iterating
+  Prop 2(1); eq. (7) is the example above; eq. (8) is Prop 5 with equal isotropic covariances,
+  giving $L_{t-1} = \frac{1}{2\sigma_t^2}\|\tilde\mu_t - \mu_\theta\|^2 + \text{const}$.
+- Score-SDE, <Cite id="2011.13456" />, eq. (7): the denoising score matching target is
+  $\nabla_{x_t}\log p_{0t}(x_t\mid x_0)$, Prop 4 for the perturbation kernel; for the VE-SDE the
+  kernel is $\mathcal N(x_0,(\sigma_t^2-\sigma_0^2)I)$, for the VP-SDE it is the DDPM kernel.
+- Flow matching, <Cite id="2210.02747" />, Section 4.1: the conditional path
+  $p_t(x\mid x_1) = \mathcal N(\mu_t(x_1),\sigma_t(x_1)^2 I)$ is pushed forward by the affine
+  map $\psi_t(x) = \sigma_t x + \mu_t$, Prop 2(1), and Theorem 3 there is the unique vector
+  field generating it. -
+Kalman filtering: the update step is Thm 3 with $X_1$ the state and $X_2 = HX_1 + \text{noise}$
+  the measurement; the Kalman gain is $\Sigma_{12}\Sigma_{22}^{-1}$. -
+SAC's entropy bonus for a Gaussian policy is $\tfrac12\log\det(2\pi e\Sigma)$ (Exercise 1);
+  the Gaussian [$W_2$ distance](/concepts/wasserstein-distance) and the Gaussian
+  [Schrödinger bridge](/concepts/schrodinger-bridge) are built from the same objects.
+- [Conditional expectation](/concepts/conditional-expectation) revisits Thm 3 as an
+  $L^2$ projection, and [Stein's identity](/concepts/integration-by-parts-and-stein) is the
+  integration-by-parts form of Prop 4.
+
+## Exercises
+
+<Exercise hint="Use the expected quadratic form computed in the proof of Prop 5 with A equal to the precision.">
+Show that the differential entropy of $\mathcal N(\mu,\Sigma)$ is
+$-\mathbb{E}\log p(X) = \tfrac12\log\det(2\pi e\,\Sigma)$.
+</Exercise>
+
+<Exercise hint="Set X_1 = X and X_2 = Y in Thm 3; then compute the score of the marginal of Y with Prop 4 and compare.">
+Let $X\sim\mathcal N(0,\tau^2)$ and $Y = X + \sigma\varepsilon$ with $\varepsilon\sim\mathcal N(0,1)$
+independent. Compute $\mathbb{E}[X\mid Y = y]$ from Thm 3 and verify Tweedie's formula
+$\mathbb{E}[X\mid Y = y] = y + \sigma^2\nabla_y\log p_Y(y)$.
+</Exercise>
+
+<Exercise hint="There are 15 pairings of six indices; when all indices are equal each pairing contributes 1.">
+Use Thm 6 to compute $\mathbb{E}Z^6$ for $Z\sim\mathcal N(0,1)$, and check it against the
+coefficient of $s^6$ in $e^{s^2/2}$.
+</Exercise>
+
+<Exercise hint="Apply Prop 2(1) to the affine map that produces x_t from x_0 and noise, then Prop 5 with the isotropic DDPM prior.">
+For the DDPM forward kernel with $\bar\alpha_T = 0.99$ in $d = 1$ and a data point $x_0 = 3$,
+compute $\mathrm{KL}\big(q(x_T\mid x_0)\,\|\,\mathcal N(0,1)\big)$ and note how it depends on
+$x_0$.
+</Exercise>
+
+## Going deeper
+
+Bishop Section 2.3 derives the conditional and marginal by completing the square in the
+precision matrix, the other standard route; the Schur complement identities used there are
+collected in Rasmussen and Williams Appendix A.3. Petersen and Pedersen's Matrix Cookbook,
+Section 8, lists every Gaussian identity on this page plus the ones for products of Gaussian
+densities. For the degenerate case and characteristic functions, see any measure-theoretic
+probability text (Durrett, Section 3.9).

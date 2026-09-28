@@ -1,0 +1,323 @@
+---
+title: "KL-regularized reinforcement learning"
+kind: concept
+summary: "Adding a KL penalty to a reference policy turns the Bellman max into a log-sum-exp, makes the optimal policy a Boltzmann reweighting of the reference, and is the objective behind SAC, RLHF, DPO, and RL fine-tuning of diffusion models."
+tags: [reinforcement-learning, regularized-mdp, entropy, soft-q, rlhf, dpo, control-as-inference]
+track: reinforcement-learning
+level: 3
+prerequisites: [mdp-and-bellman-operators, kl-divergence-and-variational-bounds, policy-gradient-theorem]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "1801.01290"
+    title: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor"
+  - type: arxiv
+    id: "1805.00909"
+    title: "Reinforcement Learning and Control as Probabilistic Inference: Tutorial and Review"
+  - type: arxiv
+    id: "1901.11275"
+    title: "A Theory of Regularized Markov Decision Processes"
+  - type: arxiv
+    id: "2305.18290"
+    title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model"
+  - type: arxiv
+    id: "2203.02155"
+    title: "Training Language Models to Follow Instructions with Human Feedback"
+  - type: arxiv
+    id: "2402.15194"
+    title: "Fine-Tuning of Continuous-Time Diffusion Models as Entropy-Regularized Control"
+  - type: arxiv
+    id: "2305.16381"
+    title: "DPOK: Reinforcement Learning for Fine-tuning Text-to-Image Diffusion Models"
+  - type: arxiv
+    id: "1806.06920"
+    title: "Maximum a Posteriori Policy Optimisation"
+---
+
+## Why you need this
+
+SAC <Cite id="1801.01290" /> maximizes return plus entropy; RLHF <Cite id="2203.02155" />
+maximizes reward minus $\beta$ times the KL to the pretrained model; DPO
+<Cite id="2305.18290" /> starts from the closed-form solution of that problem,
+$\pi^\star\propto\pi_{\mathrm{ref}}\,e^{r/\beta}$, and inverts it; DPOK <Cite id="2305.16381" />,
+Diffusion-DPO, and the continuous-time treatment of Uehara et al. <Cite id="2402.15194" /> do the
+same for diffusion models, with the KL taken over the whole denoising chain. All of these are the
+same object: an MDP whose reward is penalized by a KL divergence to a reference policy. This
+page proves the three facts that make it tractable: the soft Bellman operator is still a
+$\gamma$-contraction, the optimal policy is a Boltzmann reweighting of the reference, and the
+whole thing is a variational inference problem in disguise.
+
+## Setup
+
+Take a finite MDP $(\mathcal S,\mathcal A,P,r,\gamma)$ as on the
+[MDP page](/concepts/mdp-and-bellman-operators), a *reference policy* $\pi_{\mathrm{ref}}(a\mid s)>0$,
+and a temperature $\beta>0$. For a policy $\pi$ write
+$\mathrm{KL}_s(\pi\,\|\,\pi_{\mathrm{ref}})=\sum_a\pi(a\mid s)\log\frac{\pi(a\mid s)}{\pi_{\mathrm{ref}}(a\mid s)}$
+for the per-state KL (see [KL divergence](/concepts/kl-divergence-and-variational-bounds)).
+
+<Definition name="KL-regularized value functions">
+$$
+V^\pi_\beta(s)=\mathbb{E}\Big[\sum_{t\ge0}\gamma^t\Big(r(s_t,a_t)-\beta\,\mathrm{KL}_{s_t}(\pi\,\|\,\pi_{\mathrm{ref}})\Big)\,\Big|\,s_0=s\Big],
+\qquad
+Q^\pi_\beta(s,a)=r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V^\pi_\beta(s').
+$$
+
+Since $\mathbb{E}_{a\sim\pi(\cdot\mid s)}[\log\frac{\pi(a\mid s)}{\pi_{\mathrm{ref}}(a\mid s)}]=\mathrm{KL}_s$, the
+same $V^\pi_\beta$ is obtained by paying the per-sample penalty
+$-\beta\log\frac{\pi(a_t\mid s_t)}{\pi_{\mathrm{ref}}(a_t\mid s_t)}$ along the trajectory, which is how
+RLHF and SAC write it. With $\pi_{\mathrm{ref}}$ uniform,
+$-\beta\,\mathrm{KL}_s(\pi\,\|\,\mathrm{unif})=\beta\,H(\pi(\cdot\mid s))-\beta\log|\mathcal A|$, so
+entropy regularization is the special case up to a constant. Note that $Q^\pi_\beta$ excludes
+the penalty at the current step; it is the value of committing to $a$ now and following $\pi$
+after.
+</Definition>
+
+<Definition name="Soft Bellman operators">
+$$
+(T^\pi_\beta V)(s)=\sum_a\pi(a\mid s)\Big[r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V(s')\Big]-\beta\,\mathrm{KL}_s(\pi\,\|\,\pi_{\mathrm{ref}}),
+$$
+
+$$
+(T_\beta V)(s)=\beta\log\sum_a\pi_{\mathrm{ref}}(a\mid s)\exp\!\Big(\frac{r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V(s')}{\beta}\Big).
+$$
+</Definition>
+
+The same first-reward argument as in the unregularized case gives $V^\pi_\beta=T^\pi_\beta V^\pi_\beta$.
+The second operator replaces $\max_a$ by a $\beta$-scaled log-sum-exp under $\pi_{\mathrm{ref}}$; the
+next lemma explains why that is the right replacement.
+
+## The idea
+
+<Lemma name="Gibbs variational principle">
+Let $q$ be a probability distribution on a finite set with $q>0$, $f$ a real function on it,
+and $\beta>0$. Then
+
+$$
+\max_p\Big\{\sum_a p(a)f(a)-\beta\,\mathrm{KL}(p\,\|\,q)\Big\}=\beta\log\sum_a q(a)e^{f(a)/\beta},
+$$
+
+attained uniquely at $p^\star(a)=q(a)e^{f(a)/\beta}\big/\sum_{a'}q(a')e^{f(a')/\beta}$.
+</Lemma>
+
+<Proof>
+Let $Z=\sum_a q(a)e^{f(a)/\beta}$, so $f(a)=\beta\log\frac{p^\star(a)}{q(a)}+\beta\log Z$. For any $p$,
+
+$$
+\sum_a p(a)f(a)-\beta\sum_a p(a)\log\frac{p(a)}{q(a)}
+=\beta\log Z+\beta\sum_a p(a)\Big[\log\frac{p^\star(a)}{q(a)}-\log\frac{p(a)}{q(a)}\Big]
+=\beta\log Z-\beta\,\mathrm{KL}(p\,\|\,p^\star).
+$$
+
+$\mathrm{KL}\ge0$ with equality iff $p=p^\star$. $\blacksquare$
+</Proof>
+
+This is the Donsker–Varadhan identity with $g=f/\beta$. Applied at each state with
+$f(a)=r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V(s')$ and $q=\pi_{\mathrm{ref}}(\cdot\mid s)$ it says
+
+$$
+T_\beta V=\max_\pi T^\pi_\beta V\quad\text{pointwise, attained by }\;
+\pi_V(a\mid s)\propto\pi_{\mathrm{ref}}(a\mid s)\exp\!\Big(\frac{r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V(s')}{\beta}\Big).
+$$
+
+<Theorem name="Soft Bellman operators are gamma-contractions" label="Thm 1">
+$T^\pi_\beta$ and $T_\beta$ are monotone, satisfy $F(V+c\mathbf 1)=FV+\gamma c\mathbf 1$, and hence
+are $\gamma$-contractions in $\|\cdot\|_\infty$.
+</Theorem>
+
+<Proof>
+$T^\pi_\beta$ is $T^\pi$ plus a term not depending on $V$. For $T_\beta$: the map
+$f\mapsto\beta\log\sum_a q(a)e^{f(a)/\beta}$ is monotone in $f$ (each term is) and shifts by $c$
+when $f$ shifts by $c$ (pull $e^{c/\beta}$ out of the sum). Its argument
+$r(s,a)+\gamma\sum_{s'}PV$ is monotone in $V$ and shifts by $\gamma c$. The contraction
+follows from the monotone-plus-translation lemma on the MDP page: from
+$W-c\mathbf 1\le V\le W+c\mathbf 1$ with $c=\|V-W\|_\infty$ get $|FV-FW|\le\gamma c$. $\blacksquare$
+</Proof>
+
+<Theorem name="Optimal regularized policy is Boltzmann" label="Thm 2">
+Let $V^\star_\beta$ be the unique fixed point of $T_\beta$ and
+$Q^\star_\beta(s,a)=r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V^\star_\beta(s')$. Then $V^\pi_\beta\le V^\star_\beta$
+for every $\pi$, and the policy
+
+$$
+\pi^\star(a\mid s)=\frac{\pi_{\mathrm{ref}}(a\mid s)\exp\big(Q^\star_\beta(s,a)/\beta\big)}{\sum_{a'}\pi_{\mathrm{ref}}(a'\mid s)\exp\big(Q^\star_\beta(s,a')/\beta\big)}
+=\pi_{\mathrm{ref}}(a\mid s)\exp\!\Big(\frac{Q^\star_\beta(s,a)-V^\star_\beta(s)}{\beta}\Big)
+$$
+
+satisfies $V^{\pi^\star}_\beta=V^\star_\beta$. It is the unique optimal policy.
+</Theorem>
+
+<Proof>
+By the lemma $T^\pi_\beta V\le T_\beta V$ for all $V$, so $V^\pi_\beta=T^\pi_\beta V^\pi_\beta\le T_\beta V^\pi_\beta$
+and, iterating the monotone $T_\beta$, $V^\pi_\beta\le T^k_\beta V^\pi_\beta\to V^\star_\beta$. For $\pi^\star$
+the lemma's equality case gives $T^{\pi^\star}_\beta V^\star_\beta=T_\beta V^\star_\beta=V^\star_\beta$, so
+$V^\star_\beta$ is the fixed point of $T^{\pi^\star}_\beta$, i.e. $V^{\pi^\star}_\beta=V^\star_\beta$. The second
+form of $\pi^\star$ uses $V^\star_\beta(s)=\beta\log\sum_a\pi_{\mathrm{ref}}e^{Q^\star_\beta/\beta}$, the
+fixed-point equation itself. Uniqueness: any optimal $\pi$ must attain the lemma's maximum at
+every state visited with positive probability, which forces $\pi=\pi^\star$ there. $\blacksquare$
+</Proof>
+
+<Corollary name="Log-ratio equals advantage; the two limits">
+1. $\beta\log\dfrac{\pi^\star(a\mid s)}{\pi_{\mathrm{ref}}(a\mid s)}=Q^\star_\beta(s,a)-V^\star_\beta(s)=:A^\star_\beta(s,a)$.
+   In the bandit case ($\gamma=0$) this reads $r(a)=\beta\log\frac{\pi^\star(a)}{\pi_{\mathrm{ref}}(a)}+\beta\log Z$,
+   which is DPO's eq. (4)–(5): the reward is recoverable from the policy up to a constant.
+2. As $\beta\to0$, $T_\beta V\to TV$ pointwise and $V^\star_\beta\to V^\star$; as $\beta\to\infty$,
+   $\pi^\star\to\pi_{\mathrm{ref}}$. For uniform $\pi_{\mathrm{ref}}$,
+   $V^\star-\frac{\beta\log|\mathcal A|}{1-\gamma}\le V^\star_\beta\le V^\star$.
+</Corollary>
+
+<Proof>
+(1) is the second form of $\pi^\star$ with logs taken. (2): for $q>0$,
+$\max_af(a)+\beta\log q(a_{\max})\le\beta\log\sum_aq(a)e^{f(a)/\beta}\le\max_af(a)$, so
+$T_\beta V\to TV$ as $\beta\to0$; with $q$ uniform the lower bound is $\max f-\beta\log|\mathcal A|$,
+and iterating $T_\beta V\ge TV-\beta\log|\mathcal A|$ from any $V$ (monotonicity) accumulates a
+geometric series. The $\beta\to\infty$ claim is $e^{Q/\beta}\to1$. $\blacksquare$
+</Proof>
+
+<Intuition>
+A hard max lets the policy put all its mass on one action. The KL term charges $\beta$ per nat
+of information moved away from the reference. The log-sum-exp is the exact price-adjusted
+value of the state, and the Boltzmann policy is the exact best response to that price. Nothing
+here is approximate; the "soft" in soft Q-learning is not a smoothing heuristic.
+</Intuition>
+
+**Control as inference.** Attach to each step a binary "optimality" variable with
+$p(\mathcal O_t=1\mid s_t,a_t)=\exp(r(s_t,a_t)/\beta)$ (rescale $r\le0$ so this is a
+probability), and use $\pi_{\mathrm{ref}}$ and the true dynamics as the prior over trajectories. In
+the bandit case Bayes' rule gives $p(a\mid\mathcal O=1)\propto\pi_{\mathrm{ref}}(a)e^{r(a)/\beta}$,
+exactly $\pi^\star$. For multi-step problems the exact posterior also reweights the dynamics
+toward lucky transitions, which is not something a controller can do; Levine
+<Cite id="1805.00909" /> shows that restricting the variational family to
+$q(\tau)=\rho_0\prod\pi(a_t\mid s_t)P(s_{t+1}\mid s_t,a_t)$ (true dynamics, free policy) and
+maximizing the ELBO gives exactly $\frac1\beta\mathbb{E}_\pi[\sum_t(r_t-\beta\log\frac{\pi}{\pi_{\mathrm{ref}}})]$,
+i.e. the objective of this page with $\gamma=1$. So Thm 2 is the statement that the ELBO of this
+family has a closed-form maximizer; SAC's actor step, which minimizes
+$\mathrm{KL}(\pi_\theta(\cdot\mid s)\,\|\,e^{Q/\alpha}/Z)$ over Gaussians, is the same variational
+problem with a restricted family.
+
+**Why RL fine-tuning of diffusion and flow policies is this problem.** A pretrained sampler
+defines a chain $p_{\mathrm{ref}}(x_{0:T})=p(x_T)\prod_{t=1}^{T}p_{\mathrm{ref}}(x_{t-1}\mid x_t)$ with Gaussian
+kernels. Fine-tune $p_\theta$ to maximize $\mathbb{E}_{p_\theta}[r(x_0)]-\beta\,\mathrm{KL}(p_\theta(x_{0:T})\,\|\,p_{\mathrm{ref}}(x_{0:T}))$.
+The [chain rule of KL](/concepts/kl-divergence-and-variational-bounds) splits the path KL into
+$\sum_t\mathbb{E}_{p_\theta}[\mathrm{KL}(p_\theta(\cdot\mid x_t)\,\|\,p_{\mathrm{ref}}(\cdot\mid x_t))]$, a sum of per-step,
+per-state KLs. That is precisely $V^\pi_\beta$ for the MDP with state $(x_t,t)$, action
+$x_{t-1}$, terminal reward $r(x_0)$, $\gamma=1$, and reference policy $p_{\mathrm{ref}}$. Because the
+action *is* the next state (no separate dynamics), the exact posterior of control-as-inference
+is attainable, and Thm 2 applied step by step yields the global optimum
+$p^\star(x_{0:T})\propto p_{\mathrm{ref}}(x_{0:T})e^{r(x_0)/\beta}$, whose $x_0$-marginal is
+$\propto p_{\mathrm{ref}}(x_0)e^{r(x_0)/\beta}$. DPOK <Cite id="2305.16381" /> optimizes this
+objective with policy gradients; DPO-style methods use Corollary (1) to skip the reward model.
+In continuous time, Uehara et al. <Cite id="2402.15194" /> take the reference SDE
+$\mathrm{d}X=b\,\mathrm{d}t+\sigma\,\mathrm{d}W$ and a controlled drift $b+\sigma u$; by
+[Girsanov](/concepts/girsanov-theorem) the path KL is $\mathbb{E}\int\tfrac12\|u_t\|^2\mathrm{d}t$, the
+soft Bellman equation becomes a Hamilton–Jacobi–Bellman equation, and the substitution
+$\varphi=e^{V^\star_\beta/\beta}$ turns it into a linear backward equation with optimal control
+$u^\star=\sigma^\top\nabla\log\varphi$. That is the same structure as the
+[Schrödinger bridge](/concepts/schrodinger-bridge), with a terminal reward in place of a terminal
+constraint.
+
+## Worked example by hand
+
+<Example title="Two actions, one state">
+Let $\mathcal A=\{a_1,a_2\}$, $\pi_{\mathrm{ref}}=(\tfrac12,\tfrac12)$, $r=(1,0)$, $\beta=\tfrac12$, $\gamma=0$.
+
+The soft value is
+$V^\star_\beta=\beta\log\sum_a\pi_{\mathrm{ref}}(a)e^{r(a)/\beta}=\tfrac12\log\big(\tfrac12(e^2+1)\big)=\tfrac12\log(4.1945)=\tfrac12\cdot1.4337=0.7169$.
+
+The Boltzmann policy is $\pi^\star(a_1)=\dfrac{e^2}{e^2+1}=\dfrac{7.389}{8.389}=0.8808$, $\pi^\star(a_2)=0.1192$.
+
+Check the value by evaluating the objective at $\pi^\star$ directly.
+$\mathbb{E}_{\pi^\star}[r]=0.8808$. The KL to the uniform reference is
+
+$$
+0.8808\log\frac{0.8808}{0.5}+0.1192\log\frac{0.1192}{0.5}
+=0.8808\cdot0.5662+0.1192\cdot(-1.4338)=0.4987-0.1709=0.3278,
+$$
+
+so $\mathbb{E}_{\pi^\star}[r]-\beta\,\mathrm{KL}=0.8808-0.5\cdot0.3278=0.8808-0.1639=0.7169$. Agreement to
+four digits.
+
+Compare two other policies. The greedy policy $(1,0)$ scores $1-\tfrac12\log2=1-0.3466=0.6534$;
+the reference itself scores $0.5-0=0.5$. Both are below $0.7169$, as Thm 2 requires. Limits:
+as $\beta\to0$ the value tends to $\max r=1$ and $\pi^\star\to(1,0)$; as $\beta\to\infty$ it tends to
+$\mathbb{E}_{\pi_{\mathrm{ref}}}[r]=\tfrac12$ and $\pi^\star\to\pi_{\mathrm{ref}}$. The bound of the corollary,
+$1-\tfrac12\log2=0.6534\le0.7169\le1$, holds. Finally Corollary (1):
+$\beta\log\frac{\pi^\star(a_1)}{\pi_{\mathrm{ref}}(a_1)}=0.5\cdot0.5662=0.2831$ and
+$\beta\log\frac{\pi^\star(a_2)}{\pi_{\mathrm{ref}}(a_2)}=-0.7169$; their difference is $1.0000=r(a_1)-r(a_2)$,
+and each equals $r(a)-V^\star_\beta$, as it must since $Z=e^{V^\star_\beta/\beta}$.
+</Example>
+
+<Example title="Gaussian reference, linear reward">
+Let the action be $a\in\mathbb{R}$, $\pi_{\mathrm{ref}}=\mathcal N(0,1)$, $r(a)=a$, $\gamma=0$. The lemma
+holds for densities with the same proof, so
+
+$$
+\pi^\star(a)\propto e^{-a^2/2}\,e^{a/\beta}=\exp\!\Big(-\tfrac12\big(a-\tfrac1\beta\big)^2+\tfrac{1}{2\beta^2}\Big),
+\qquad\text{i.e.}\quad\pi^\star=\mathcal N\!\big(\tfrac1\beta,1\big).
+$$
+
+Its value: $\mathbb{E}_{\pi^\star}[a]=1/\beta$ and $\mathrm{KL}(\mathcal N(1/\beta,1)\,\|\,\mathcal N(0,1))=\tfrac{1}{2\beta^2}$
+(the KL between Gaussians with equal variance is half the squared mean difference), so the
+objective is $\frac1\beta-\beta\cdot\frac{1}{2\beta^2}=\frac{1}{2\beta}$. The log-sum-exp side:
+$\beta\log\mathbb{E}_{\mathcal N(0,1)}[e^{a/\beta}]=\beta\cdot\frac{1}{2\beta^2}=\frac{1}{2\beta}$ by the
+Gaussian moment generating function. They agree. This is the one-step picture of reward
+fine-tuning a Gaussian denoising kernel $\mathcal N(\mu,\Sigma)$: a linear reward with
+gradient $\nabla r$ shifts the mean by $\Sigma\nabla r/\beta$ and leaves the covariance alone,
+the same mean shift that classifier guidance applies at each step.
+</Example>
+
+## Where it shows up
+
+- **SAC** <Cite id="1801.01290" />: eq. (2) is $T^\pi_\beta$ with uniform reference and
+  $\alpha=\beta$; eq. (3) is the soft value; the policy improvement step (their eq. 4) minimizes the KL to
+  the Boltzmann policy of the current $Q$, i.e. Thm 2 projected onto Gaussians. Soft Q-learning
+  (Haarnoja et al. 2017) iterates $T_\beta$ directly.
+- **RLHF** <Cite id="2203.02155" />: reward $r(x,y)-\beta\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}$
+  over whole responses, optimized with PPO. It is the bandit case of this page, so the optimum
+  is $\pi_{\mathrm{ref}}e^{r/\beta}/Z$ in closed form.
+- **DPO** <Cite id="2305.18290" />: substitutes Corollary (1) into the Bradley–Terry likelihood
+  so that $Z$ cancels in reward differences. GRPO adds the same KL as an explicit penalty.
+- **MPO** <Cite id="1806.06920" />, AWR, AWAC: the "E-step" or weighting
+  $\pi_{\mathrm{ref}}(a\mid s)\exp(A(s,a)/\beta)$ is the lemma with the behavior policy as reference.
+- **Diffusion fine-tuning**: DPOK <Cite id="2305.16381" />, Diffusion-DPO (Wallace et al. 2023),
+  and Uehara et al. <Cite id="2402.15194" />, as explained above. DPPO for diffusion policies
+  uses PPO's clipping as an implicit KL trust region rather than an explicit penalty.
+- **Regularized MDPs in general** <Cite id="1901.11275" />: replace $\beta\,\mathrm{KL}$ by any
+  strongly convex regularizer; the log-sum-exp becomes its Legendre–Fenchel conjugate and all
+  proofs above survive.
+
+## Exercises
+
+<Exercise hint="Log-sum-exp is monotone and translation-equivariant; then apply the monotone-plus-translation lemma from the MDP page.">
+Write out the proof that $T_\beta$ is a $\gamma$-contraction without appealing to the MDP page:
+show directly that $|T_\beta V-T_\beta W|\le\gamma\|V-W\|_\infty$ componentwise.
+</Exercise>
+
+<Exercise hint="Soft values: state 1 gives log(0.5(e^0.2 + 1)) = 0.105, state 2 gives 0, state 3 gives log(0.5(e + e^0.5)) = 0.781; hard values are (0.2, 0, 1).">
+Take the three-state MDP from the [MDP page](/concepts/mdp-and-bellman-operators), uniform
+$\pi_{\mathrm{ref}}$, $\beta=1$. Compute $T_\beta\mathbf 0$ and compare with $T\mathbf 0=(0.2,0,1)$.
+Verify the corollary's bounds $T\mathbf0-\log2\le T_\beta\mathbf 0\le T\mathbf 0$.
+</Exercise>
+
+<Exercise hint="Complete the square in the exponent; the precision adds, the mean is a precision-weighted average.">
+With $\pi_{\mathrm{ref}}=\mathcal N(0,1)$ and quadratic reward $r(a)=-\tfrac12(a-m)^2$, show
+$\pi^\star=\mathcal N\!\big(\tfrac{m}{1+\beta},\tfrac{\beta}{1+\beta}\big)$ and check the limits
+$\beta\to0$ (concentrates at $m$) and $\beta\to\infty$ (returns to the reference).
+</Exercise>
+
+<Exercise hint="Take logs in the Boltzmann formula for two actions and subtract; Z cancels.">
+In the bandit case, show that $r(a)-r(a')=\beta\big[\log\frac{\pi^\star(a)}{\pi_{\mathrm{ref}}(a)}-\log\frac{\pi^\star(a')}{\pi_{\mathrm{ref}}(a')}\big]$
+and explain why this lets DPO train without ever fitting $Z$ or $r$.
+</Exercise>
+
+## Going deeper
+
+Geist, Scherrer and Pietquin <Cite id="1901.11275" /> is the general theory (any convex
+regularizer, regularized policy iteration, error propagation). Levine <Cite id="1805.00909" />
+is the tutorial on control as inference and explains carefully why the exact posterior is the
+wrong target in stochastic environments. Ziebart's 2010 thesis introduced the maximum-entropy
+version and its connection to inverse RL. For the continuous-time story, including the
+Hopf–Cole substitution $\varphi=e^{V/\beta}$ and its relation to Schrödinger bridges, read
+Uehara et al. <Cite id="2402.15194" /> after the [Girsanov](/concepts/girsanov-theorem) page.

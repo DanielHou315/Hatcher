@@ -1,0 +1,316 @@
+---
+title: "Score matching"
+kind: concept
+summary: "How to learn the gradient of a log-density without ever knowing the normaliser: Hyvärinen's integration-by-parts trick, denoising score matching, and Tweedie's formula."
+tags: [score-matching, denoising, diffusion-models, tweedie, energy-based-models]
+track: generative-modeling
+level: 3
+prerequisites: [integration-by-parts-and-stein, gaussian-computations, conditional-expectation]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: web
+    title: "Estimation of Non-Normalized Statistical Models by Score Matching"
+    author: "Aapo Hyvärinen, JMLR 2005"
+  - type: web
+    title: "A Connection Between Score Matching and Denoising Autoencoders"
+    author: "Pascal Vincent, Neural Computation 2011"
+  - type: web
+    title: "Tweedie's Formula and Selection Bias"
+    author: "Bradley Efron, JASA 2011"
+  - type: arxiv
+    id: "1907.05600"
+    title: "Generative Modeling by Estimating Gradients of the Data Distribution"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+---
+
+## Why you need this
+
+Every diffusion model is trained by score matching. The $\epsilon$-prediction loss of DDPM
+(Ho et al. 2020, eq. 14), the noise-conditional objective of NCSN (Song and Ermon 2019), the
+continuous-time objective in Song et al. 2021 (eq. 7), and the action-denoising loss of
+Diffusion Policy (Chi et al. 2023) are all the same estimator: denoising score matching
+with a Gaussian kernel, reparametrised. Tweedie's formula is what turns a trained score
+network into the posterior-mean predictor $\hat x_0$ used by DDIM, classifier-free guidance,
+and every "$x_0$-prediction" variant. This page proves the three identities that make this
+work, with hypotheses.
+
+## Setup
+
+Let $p$ be a density on $\mathbb{R}^d$ that is $C^1$ and positive. Its **score** is the vector
+field $\nabla_x\log p(x)$. Two facts make the score the right object to learn:
+
+1. It ignores normalisation: if $p = e^{-E}/Z$ then $\nabla\log p = -\nabla E$, and $Z$ is gone.
+2. It is all Langevin dynamics needs: $\mathrm{d}X_t = \nabla\log p(X_t)\,\mathrm{d}t + \sqrt 2\,\mathrm{d}W_t$
+   has $p$ as its stationary law ([Fokker–Planck](/concepts/fokker-planck)), so a score is a
+   sampler.
+
+Let $s_\theta:\mathbb{R}^d\to\mathbb{R}^d$ be a $C^1$ model (a neural network). We want
+$s_\theta\approx\nabla\log p$ using only samples $x\sim p$.
+
+<Definition name="Fisher divergence and explicit score matching">
+$$
+J_{\mathrm{ESM}}(\theta) = \tfrac12\,\mathbb{E}_{x\sim p}\big\|s_\theta(x) - \nabla\log p(x)\big\|^2 .
+$$
+It is zero iff $s_\theta = \nabla\log p$ on the support of $p$, but it cannot be evaluated
+because $\nabla\log p$ is unknown.
+</Definition>
+
+## The idea
+
+<Theorem name="Hyvärinen's identity" label="Thm 1">
+Assume $p$ and $s_\theta$ are $C^1$, $\mathbb{E}_p\|s_\theta\|^2<\infty$,
+$\mathbb{E}_p\|\nabla\log p\|^2<\infty$, and $p(x)\,s_\theta(x)\to 0$ as $\|x\|\to\infty$
+(fast enough for the boundary term in integration by parts to vanish). Then
+$$
+J_{\mathrm{ESM}}(\theta) = \mathbb{E}_{x\sim p}\Big[\tfrac12\|s_\theta(x)\|^2 + \nabla\!\cdot s_\theta(x)\Big] + C,
+$$
+where $\nabla\!\cdot s_\theta = \operatorname{tr}\nabla s_\theta = \sum_i\partial_i s_{\theta,i}$
+and $C = \tfrac12\mathbb{E}_p\|\nabla\log p\|^2$ does not depend on $\theta$.
+</Theorem>
+
+<Proof>
+Expand the square:
+$J_{\mathrm{ESM}} = \tfrac12\mathbb{E}_p\|s_\theta\|^2 - \mathbb{E}_p\langle s_\theta,\nabla\log p\rangle + \tfrac12\mathbb{E}_p\|\nabla\log p\|^2$.
+Only the cross term involves the unknown score. Since $p\,\nabla\log p = \nabla p$,
+$$
+\mathbb{E}_p\langle s_\theta,\nabla\log p\rangle
+= \int\langle s_\theta(x),\nabla p(x)\rangle\,\mathrm{d}x
+= -\int(\nabla\!\cdot s_\theta)(x)\,p(x)\,\mathrm{d}x
+= -\mathbb{E}_p[\nabla\!\cdot s_\theta],
+$$
+by [integration by parts in $\mathbb{R}^d$](/concepts/integration-by-parts-and-stein): the
+boundary term is $\lim_{R\to\infty}\oint_{\|x\|=R}p\,\langle s_\theta,n\rangle\,\mathrm{d}S$,
+which vanishes by the decay hypothesis. Substitute back. $\blacksquare$
+</Proof>
+
+The right-hand side is an expectation over data of a quantity you can compute from the
+network alone. The price is the divergence $\nabla\!\cdot s_\theta$: a trace of a
+$d\times d$ Jacobian, $d$ backward passes per sample. Sliced score matching (Exercise 1)
+replaces it by a random projection. Denoising score matching avoids it entirely.
+
+<Definition name="Gaussian perturbation">
+Fix $\sigma>0$ and let $\tilde x = x + \sigma\epsilon$ with $x\sim p$, $\epsilon\sim\mathcal N(0,I)$
+independent. The kernel is $q_\sigma(\tilde x|x) = \mathcal N(\tilde x;\,x,\sigma^2 I)$ and the
+perturbed marginal is $q_\sigma(\tilde x) = \int q_\sigma(\tilde x|x)\,p(x)\,\mathrm{d}x$, which
+is $C^\infty$ and positive whatever $p$ is (a convolution with a Gaussian). Its conditional score
+is explicit:
+$$
+\nabla_{\tilde x}\log q_\sigma(\tilde x|x) = -\frac{\tilde x - x}{\sigma^2} = -\frac{\epsilon}{\sigma}.
+$$
+</Definition>
+
+<Theorem name="Denoising score matching (Vincent 2011)" label="Thm 2">
+For any $s_\theta$ with $\mathbb{E}_{q_\sigma}\|s_\theta\|^2<\infty$,
+$$
+\underbrace{\tfrac12\,\mathbb{E}_{\tilde x\sim q_\sigma}\big\|s_\theta(\tilde x)-\nabla\log q_\sigma(\tilde x)\big\|^2}_{J_{\mathrm{ESM}}^\sigma(\theta)}
+=
+\underbrace{\tfrac12\,\mathbb{E}_{x\sim p,\;\tilde x\sim q_\sigma(\cdot|x)}\big\|s_\theta(\tilde x)-\nabla_{\tilde x}\log q_\sigma(\tilde x|x)\big\|^2}_{J_{\mathrm{DSM}}^\sigma(\theta)}
++ C_\sigma ,
+$$
+with $C_\sigma$ independent of $\theta$. Hence both objectives have the same minimiser, and
+$J_{\mathrm{DSM}}^\sigma$ is a plain regression: predict $-\epsilon/\sigma$ from $\tilde x$.
+</Theorem>
+
+<Proof>
+Expand both squares. The $\tfrac12\mathbb{E}\|s_\theta(\tilde x)\|^2$ terms coincide because
+the marginal of $\tilde x$ under $p(x)q_\sigma(\tilde x|x)$ is $q_\sigma(\tilde x)$. The terms
+not involving $\theta$ go into $C_\sigma$. It remains to show the cross terms agree:
+$$
+\mathbb{E}_{q_\sigma(\tilde x)}\big\langle s_\theta(\tilde x),\nabla\log q_\sigma(\tilde x)\big\rangle
+= \int\big\langle s_\theta(\tilde x),\nabla_{\tilde x}q_\sigma(\tilde x)\big\rangle\,\mathrm{d}\tilde x
+= \int\Big\langle s_\theta(\tilde x),\int p(x)\,\nabla_{\tilde x}q_\sigma(\tilde x|x)\,\mathrm{d}x\Big\rangle\mathrm{d}\tilde x .
+$$
+Differentiation under the integral is justified because $\nabla_{\tilde x}q_\sigma(\tilde x|x)$ is
+bounded uniformly in $x$ by a constant times $1/\sigma$ (Gaussian kernel), so dominated
+convergence applies. Now write $\nabla_{\tilde x}q_\sigma(\tilde x|x) = q_\sigma(\tilde x|x)\nabla_{\tilde x}\log q_\sigma(\tilde x|x)$
+and use Fubini:
+$$
+= \iint p(x)\,q_\sigma(\tilde x|x)\,\big\langle s_\theta(\tilde x),\nabla_{\tilde x}\log q_\sigma(\tilde x|x)\big\rangle\,\mathrm{d}x\,\mathrm{d}\tilde x
+= \mathbb{E}_{x,\tilde x}\big\langle s_\theta(\tilde x),\nabla_{\tilde x}\log q_\sigma(\tilde x|x)\big\rangle ,
+$$
+which is the cross term of $J_{\mathrm{DSM}}^\sigma$. $\blacksquare$
+</Proof>
+
+<Corollary name="The DSM minimiser is a conditional expectation" label="Cor 3">
+The minimiser of $J^\sigma_{\mathrm{DSM}}$ over all measurable $s$ is
+$$
+s^\star(\tilde x) = \mathbb{E}\big[\nabla_{\tilde x}\log q_\sigma(\tilde x|x)\,\big|\,\tilde x\big]
+= -\frac{\mathbb{E}[\epsilon\mid\tilde x]}{\sigma} = \nabla\log q_\sigma(\tilde x).
+$$
+</Corollary>
+
+<Proof>
+$J^\sigma_{\mathrm{DSM}}$ is a least-squares problem in which $s(\tilde x)$ must predict the
+target $-\epsilon/\sigma$ from $\tilde x$; the $L^2$-optimal predictor is the conditional
+expectation ([conditional expectation as projection](/concepts/conditional-expectation)).
+The last equality is Thm 2: the same minimiser minimises $J^\sigma_{\mathrm{ESM}}$, whose
+unique minimiser is $\nabla\log q_\sigma$. $\blacksquare$
+</Proof>
+
+<Theorem name="Tweedie's formula" label="Thm 4">
+With $\tilde x = x+\sigma\epsilon$ as above and $\mathbb{E}\|x\|<\infty$,
+$$
+\mathbb{E}[x\mid\tilde x] = \tilde x + \sigma^2\,\nabla\log q_\sigma(\tilde x).
+$$
+More generally, if $\tilde x = a\,x + \sigma\epsilon$ with $a\neq 0$, then
+$a\,\mathbb{E}[x\mid\tilde x] = \tilde x + \sigma^2\nabla\log q(\tilde x)$.
+</Theorem>
+
+<Proof>
+Differentiate the marginal under the integral sign (same justification as in Thm 2):
+$$
+\nabla q_\sigma(\tilde x) = \int p(x)\,\nabla_{\tilde x}q_\sigma(\tilde x|x)\,\mathrm{d}x
+= \int p(x)\,q_\sigma(\tilde x|x)\,\frac{x-\tilde x}{\sigma^2}\,\mathrm{d}x .
+$$
+Divide by $q_\sigma(\tilde x)$. The ratio $p(x)q_\sigma(\tilde x|x)/q_\sigma(\tilde x)$ is the
+posterior density of $x$ given $\tilde x$ (Bayes), so the right side becomes
+$(\mathbb{E}[x\mid\tilde x]-\tilde x)/\sigma^2$. Rearrange. For the affine case replace
+$(x-\tilde x)/\sigma^2$ by $(ax-\tilde x)/\sigma^2$. $\blacksquare$
+</Proof>
+
+<Intuition>
+Thm 4 says the score of a noisy marginal is the direction from the noisy point toward the
+posterior mean of the clean point, scaled by $1/\sigma^2$. Denoising and score estimation
+are the same problem. That is why a network trained to predict $\epsilon$ can be read as a
+score ($s = -\epsilon_\theta/\sigma$) or as an $x_0$-predictor
+($\hat x_0 = \tilde x - \sigma\epsilon_\theta$) without retraining.
+</Intuition>
+
+**Noise-conditional score matching.** A single $\sigma$ is a compromise: small $\sigma$ gives
+an accurate score of $p$ but a target with variance $1/\sigma^2$ and no supervision far from
+the data; large $\sigma$ is smooth but biased. Song and Ermon 2019 train one network
+$s_\theta(\tilde x,\sigma)$ across a ladder $\sigma_1>\dots>\sigma_L$ with the objective
+$$
+\sum_{i}\lambda(\sigma_i)\,J^{\sigma_i}_{\mathrm{DSM}}(\theta),
+\qquad
+\lambda(\sigma) = \sigma^2 ,
+$$
+chosen so that each term $\tfrac12\sigma^2\,\mathbb{E}\|s_\theta(\tilde x,\sigma)+\epsilon/\sigma\|^2 = \tfrac12\mathbb{E}\|\sigma s_\theta(\tilde x,\sigma)+\epsilon\|^2$
+has a target of unit scale. Writing $\epsilon_\theta = -\sigma s_\theta$ turns it into
+$\tfrac12\mathbb{E}\|\epsilon_\theta(\tilde x,\sigma)-\epsilon\|^2$, which is DDPM's
+$L_{\mathrm{simple}}$ once the affine kernel $\tilde x = \sqrt{\bar\alpha_t}x + \sqrt{1-\bar\alpha_t}\,\epsilon$
+is used (Thm 4, affine case, with $a = \sqrt{\bar\alpha_t}$).
+
+<Warning>
+Thm 2 gives the score of $q_\sigma$, not of $p$. As $\sigma\to 0$ these agree where $p$ is
+smooth, but the DSM target $-\epsilon/\sigma$ has variance $d/\sigma^2$, so the estimator's
+variance blows up. In practice you never take $\sigma\to 0$; you sample from $q_{\sigma_L}$
+with $\sigma_L$ small and accept the bias, or run the reverse SDE of the
+[diffusion framework](/concepts/diffusion-sde-framework), which uses all levels.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Hyvärinen's identity on a standard normal">
+Let $p = \mathcal N(0,1)$, so $\nabla\log p(x) = -x$, and take the one-parameter model
+$s_\theta(x) = -\theta x$. Directly,
+$J_{\mathrm{ESM}} = \tfrac12\mathbb{E}[(-\theta x + x)^2] = \tfrac12(1-\theta)^2\mathbb{E}[x^2] = \tfrac12(1-\theta)^2$.
+By Thm 1, with $\nabla\!\cdot s_\theta = -\theta$:
+$\mathbb{E}[\tfrac12\theta^2x^2 - \theta] = \tfrac12\theta^2-\theta$. The difference is
+$\tfrac12(1-\theta)^2 - (\tfrac12\theta^2-\theta) = \tfrac12$, which is indeed
+$C = \tfrac12\mathbb{E}[(\nabla\log p)^2] = \tfrac12\mathbb{E}[x^2] = \tfrac12$. Both are
+minimised at $\theta = 1$. The decay hypothesis holds because $x\,e^{-x^2/2}\to 0$.
+</Example>
+
+<Example title="A two-component Gaussian mixture: score, DSM target, and Tweedie">
+Data: $p = \tfrac12\mathcal N(-2,1) + \tfrac12\mathcal N(2,1)$. Noise level $\sigma = 1$.
+
+*Perturbed marginal.* Convolving each component with $\mathcal N(0,1)$ adds variances, so
+$q_\sigma = \tfrac12\mathcal N(-2,2)+\tfrac12\mathcal N(2,2)$. For a symmetric two-component
+mixture $\tfrac12\mathcal N(-m,v)+\tfrac12\mathcal N(m,v)$,
+$$
+q(\tilde x)\propto e^{-(\tilde x+m)^2/2v}+e^{-(\tilde x-m)^2/2v}
+= 2e^{-(\tilde x^2+m^2)/2v}\cosh\!\Big(\frac{m\tilde x}{v}\Big),
+\qquad
+\nabla\log q(\tilde x) = -\frac{\tilde x}{v} + \frac{m}{v}\tanh\!\Big(\frac{m\tilde x}{v}\Big).
+$$
+With $m = 2$, $v = 2$ at $\tilde x = 1$:
+$\nabla\log q_\sigma(1) = -\tfrac12 + \tanh(1) = -0.5 + 0.7616 = 0.2616$.
+Sanity checks: the score is odd in $\tilde x$ (symmetry of the mixture); for $|\tilde x|\gg m$,
+$\tanh\to\pm1$ and the score becomes $-(\tilde x\mp m)/v$, the score of the nearer component
+alone; and setting $\sigma = 0$ ($v = 1$) recovers the unperturbed score
+$\nabla\log p(1) = -1 + 2\tanh 2 = 0.928$, larger because $p$ is less smooth than $q_\sigma$.
+
+*Tweedie.* Thm 4 predicts $\mathbb{E}[x\mid\tilde x = 1] = 1 + 1\cdot 0.2616 = 1.2616$.
+Check by computing the posterior directly. Given the component, the prior on $x$ is
+$\mathcal N(\pm2,1)$ and the likelihood is $\mathcal N(\tilde x;x,1)$, so the posterior of $x$
+is Gaussian with precision $1+1 = 2$ and mean $(\pm2 + 1)/2$: that is $1.5$ for the $+$
+component and $-0.5$ for the $-$ component ([Gaussian conditioning](/concepts/gaussian-computations)).
+The component responsibilities at $\tilde x = 1$ are proportional to
+$\mathcal N(1;\pm2,2)$: the log-ratio is $\big[-(1-2)^2+(1+2)^2\big]/(2\cdot2) = 2$, so
+$w_+ = 1/(1+e^{-2}) = 0.8808$, $w_- = 0.1192$. Hence
+$\mathbb{E}[x\mid\tilde x=1] = 0.8808\cdot1.5 + 0.1192\cdot(-0.5) = 1.3212 - 0.0596 = 1.2616$. Agreement.
+
+*DSM targets.* Draw $x = 2$ (from the $+$ component) and $\epsilon = -1$, so $\tilde x = 1$.
+The regression target is $-\epsilon/\sigma = +1$. Another draw landing at the same $\tilde x$,
+say $x = -0.5$, $\epsilon = 1.5$, has target $-1.5$. Neither equals the score $0.2616$;
+Cor 3 says only their conditional average does:
+$\mathbb{E}[-\epsilon\mid\tilde x=1] = \mathbb{E}[x-\tilde x\mid\tilde x = 1] = 1.2616 - 1 = 0.2616$.
+The network sees noisy targets whose mean is exactly the score.
+</Example>
+
+## Where it shows up
+
+- **NCSN** <Cite id="1907.05600" />: eqs. (5)–(6) are $J^\sigma_{\mathrm{DSM}}$ summed over
+  a geometric ladder with $\lambda(\sigma) = \sigma^2$; sampling is annealed Langevin
+  dynamics driven by $s_\theta(\cdot,\sigma_i)$.
+- **Score SDE** <Cite id="2011.13456" />: eq. (7) is the continuous-time version
+  $\mathbb{E}_t\lambda(t)\,\mathbb{E}_{x_0}\mathbb{E}_{x_t|x_0}\|s_\theta(x_t,t)-\nabla\log p_{0t}(x_t|x_0)\|^2$,
+  Thm 2 applied to the perturbation kernel of the forward SDE at every $t$; see
+  [the diffusion SDE framework](/concepts/diffusion-sde-framework).
+- **DDPM** <Cite id="2006.11239" />: eq. (14), $L_{\mathrm{simple}} = \mathbb{E}\|\epsilon-\epsilon_\theta(x_t,t)\|^2$,
+  is $J^{\sigma_t}_{\mathrm{DSM}}$ in the $\epsilon$-parametrisation with the affine kernel;
+  Thm 4 (affine case) gives $\hat x_0 = (x_t - \sqrt{1-\bar\alpha_t}\,\epsilon_\theta)/\sqrt{\bar\alpha_t}$,
+  which DDIM uses at every step.
+- **Diffusion Policy** (Chi et al. 2023): the training loss is $L_{\mathrm{simple}}$ on
+  action chunks conditioned on observations; the policy is the DDPM sampler. Nothing beyond
+  Thm 2 is needed to see why it works.
+- **Guidance**: classifier guidance adds $\nabla\log p(y|x_t)$ to the score; classifier-free
+  guidance extrapolates between conditional and unconditional $\epsilon_\theta$. Both rely on
+  $\epsilon_\theta\leftrightarrow$ score via Cor 3.
+- The reverse-time SDE of [Anderson](/concepts/time-reversal-of-diffusions) needs
+  $\nabla\log p_t$; score matching is how it is estimated.
+
+## Exercises
+
+<Exercise hint="Take v uniform on the sphere or standard normal, use E[v v^T] = I, and integrate by parts in the direction v only.">
+Sliced score matching. Show that for $v\sim\mathcal N(0,I)$ independent of $x$,
+$\mathbb{E}_v\mathbb{E}_p\big[\tfrac12\langle v,s_\theta\rangle^2 + v^\top(\nabla s_\theta)v\big]$
+equals $\mathbb{E}_p[\tfrac12\|s_\theta\|^2+\nabla\!\cdot s_\theta]$, and explain why the
+second term costs one Jacobian-vector product instead of $d$.
+</Exercise>
+
+<Exercise hint="The marginal is N(0, 1 + sigma^2); write J_DSM as a quadratic in theta and differentiate.">
+Let $p = \mathcal N(0,1)$ and $s_\theta(\tilde x) = -\theta\tilde x$. Compute
+$J^\sigma_{\mathrm{DSM}}(\theta)$ in closed form and show its minimiser is
+$\theta^\star = 1/(1+\sigma^2)$, the true score coefficient of $q_\sigma$. Then compute
+$C_\sigma$ in Thm 2 for this case.
+</Exercise>
+
+<Exercise hint="Repeat the proof of Thm 4 with the kernel N(a x, sigma^2 I) and the substitution used for DDPM's alpha-bar.">
+Prove the affine case of Thm 4 and use it to derive DDPM's $\hat x_0$ formula from an
+$\epsilon$-predictor. Then show that the posterior variance of $x$ given $\tilde x$ equals
+$\sigma^4\nabla^2\log q_\sigma(\tilde x) + \sigma^2 I$ (differentiate once more).
+</Exercise>
+
+<Exercise hint="Compute Var(-epsilon / sigma | x-tilde) using the mixture posterior from the worked example.">
+In the mixture example, compute the conditional variance of the DSM target at $\tilde x = 1$
+and explain why the weighting $\lambda(\sigma) = \sigma^2$ keeps the per-level loss of the
+same order across $\sigma$.
+</Exercise>
+
+## Going deeper
+
+Hyvärinen 2005 introduces Thm 1 and the consistency proof for parametric families. Vincent
+2011 proves Thm 2 and connects it to denoising autoencoders. Efron 2011 is the modern
+reference for Tweedie's formula, including higher-order versions. Song and Ermon 2019 and
+Song et al. 2021 are the papers that turn these identities into generative models; the
+[Score SDE decomposition](/papers/score-sde-song-2021) on this site walks through the latter.

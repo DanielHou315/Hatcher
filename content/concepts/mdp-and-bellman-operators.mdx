@@ -1,0 +1,322 @@
+---
+title: "MDPs and Bellman operators"
+kind: concept
+summary: "A Markov decision process as a fixed-point problem: the Bellman operators, why they contract, and why that single fact makes value iteration and policy improvement work."
+tags: [reinforcement-learning, dynamic-programming, bellman-equation, contraction]
+track: reinforcement-learning
+level: 1
+prerequisites: [matrix-calculus]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Markov Decision Processes: Discrete Stochastic Dynamic Programming"
+    author: "Martin L. Puterman"
+    where: "Ch. 6"
+  - type: book
+    title: "Reinforcement Learning: An Introduction"
+    author: "Sutton & Barto"
+    where: "Ch. 3–4"
+  - type: book
+    title: "Neuro-Dynamic Programming"
+    author: "Bertsekas & Tsitsiklis"
+    where: "Ch. 2"
+  - type: arxiv
+    id: "1801.01290"
+    title: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor"
+  - type: arxiv
+    id: "2305.13301"
+    title: "Training Diffusion Models with Reinforcement Learning"
+  - type: arxiv
+    id: "2409.00588"
+    title: "Diffusion Policy Policy Optimization"
+---
+
+## Why you need this
+
+Almost every reinforcement learning algorithm is a noisy fixed-point iteration for one of two
+maps on value functions. DQN regresses onto $r + \gamma\max_{a'}Q(s',a')$, which is one sample
+of the Bellman optimality operator; SAC <Cite id="1801.01290" /> regresses onto a *soft*
+version of the same thing; PPO's advantage estimator is built from the residual
+$r_t + \gamma V(s_{t+1}) - V(s_t)$ of the Bellman expectation operator. When DDPO
+<Cite id="2305.13301" /> and DPPO <Cite id="2409.00588" /> fine-tune a diffusion model or a
+diffusion policy with RL, the first thing they do is declare the denoising chain to be an MDP
+so that all of this machinery applies. The page proves the two facts everything rests on: the
+Bellman operators are $\gamma$-contractions, and acting greedily with respect to a value
+function never makes a policy worse.
+
+## Setup
+
+<Definition name="Markov decision process">
+A (finite, discounted) MDP is a tuple $(\mathcal S,\mathcal A,P,r,\gamma)$: a finite state set
+$\mathcal S$, a finite action set $\mathcal A$, transition probabilities $P(s'\mid s,a)$, a
+bounded reward $r(s,a)\in[-R_{\max},R_{\max}]$, and a discount $\gamma\in[0,1)$. A (stationary)
+policy is a conditional distribution $\pi(a\mid s)$. Running $\pi$ from $s_0=s$ produces
+$a_t\sim\pi(\cdot\mid s_t)$, $s_{t+1}\sim P(\cdot\mid s_t,a_t)$, and the value functions
+
+$$
+V^\pi(s) = \mathbb{E}\Big[\sum_{t\ge 0}\gamma^t r(s_t,a_t)\,\Big|\,s_0 = s\Big],
+\qquad
+Q^\pi(s,a) = r(s,a) + \gamma\sum_{s'}P(s'\mid s,a)\,V^\pi(s').
+$$
+
+The series converges absolutely because $|r|\le R_{\max}$, so $|V^\pi|\le R_{\max}/(1-\gamma)$.
+</Definition>
+
+We treat $V\in\mathbb{R}^{|\mathcal S|}$ as a vector and use the sup norm
+$\|V\|_\infty=\max_s|V(s)|$ and the componentwise order $V\le W$. For a policy $\pi$ write
+
+$$
+r_\pi(s) = \sum_a \pi(a\mid s)\,r(s,a),
+\qquad
+P_\pi(s'\mid s) = \sum_a \pi(a\mid s)\,P(s'\mid s,a),
+$$
+
+so $P_\pi$ is a row-stochastic matrix (nonnegative entries, rows summing to one) and
+$(P_\pi V)(s) = \sum_{s'}P_\pi(s'\mid s)V(s')$ is the expected next value.
+
+<Definition name="Bellman operators">
+The *expectation* operator of $\pi$ and the *optimality* operator are the maps
+$T^\pi, T:\mathbb{R}^{|\mathcal S|}\to\mathbb{R}^{|\mathcal S|}$,
+
+$$
+T^\pi V = r_\pi + \gamma P_\pi V,
+\qquad
+(TV)(s) = \max_{a}\Big[r(s,a) + \gamma\sum_{s'}P(s'\mid s,a)\,V(s')\Big].
+$$
+
+The same operators act on $Q$-functions: $(TQ)(s,a) = r(s,a) + \gamma\sum_{s'}P(s'\mid s,a)\max_{a'}Q(s',a')$.
+</Definition>
+
+<Proposition name="Bellman equation">
+$V^\pi = T^\pi V^\pi$, and therefore $V^\pi = (I-\gamma P_\pi)^{-1} r_\pi$.
+</Proposition>
+
+<Proof>
+Split off the first reward. Conditional on $(s_0,a_0,s_1)$ the remaining sum
+$\sum_{t\ge1}\gamma^t r(s_t,a_t)$ has expectation $\gamma V^\pi(s_1)$ because the process
+started at $s_1$ is again the process started at a state, run under $\pi$ (the Markov property).
+Averaging over $a_0\sim\pi(\cdot\mid s)$ and $s_1\sim P(\cdot\mid s,a_0)$ gives
+$V^\pi(s) = r_\pi(s) + \gamma(P_\pi V^\pi)(s)$. For the matrix form, the induced sup norm of
+$P_\pi$ is its maximal row sum, $1$, so $\|\gamma P_\pi\|_\infty = \gamma$ and the Neumann series
+$(I-\gamma P_\pi)^{-1} = \sum_{k\ge0}\gamma^k P_\pi^k$ converges (see
+[matrix calculus](/concepts/matrix-calculus)). $\blacksquare$
+</Proof>
+
+## The idea
+
+Both operators have two elementary properties, and everything else is a consequence of them.
+
+<Lemma name="Monotone and translation-by-gamma">
+For $F\in\{T^\pi, T\}$, any $V,W$, and any constant $c\in\mathbb{R}$ (with $\mathbf 1$ the
+all-ones vector):
+
+1. Monotone: $V\le W$ implies $FV\le FW$.
+2. Translation: $F(V + c\mathbf 1) = FV + \gamma c\mathbf 1$.
+</Lemma>
+
+<Proof>
+For $T^\pi$: $P_\pi$ has nonnegative entries, so $P_\pi V\le P_\pi W$; and $P_\pi\mathbf 1 = \mathbf 1$.
+For $T$: each bracket $r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V(s')$ is monotone in $V$ and shifts by
+$\gamma c$ when $V$ shifts by $c$; a maximum of monotone functions is monotone, and a maximum of
+functions all shifted by $\gamma c$ shifts by $\gamma c$. $\blacksquare$
+</Proof>
+
+<Theorem name="Bellman operators are gamma-contractions" label="Thm 1">
+For $F\in\{T^\pi,T\}$ and all $V,W$: $\|FV - FW\|_\infty \le \gamma\,\|V-W\|_\infty$.
+</Theorem>
+
+<Proof>
+Let $c = \|V-W\|_\infty$. Then $W - c\mathbf 1\le V\le W + c\mathbf 1$ componentwise. Apply $F$
+and use the lemma twice:
+$FW - \gamma c\mathbf 1 \le FV \le FW + \gamma c\mathbf 1$, i.e. $|FV - FW|\le\gamma c$ in every
+component. $\blacksquare$
+</Proof>
+
+A contraction on a complete space has exactly one fixed point, and iterating the map finds it.
+Completeness means every Cauchy sequence converges; $\mathbb{R}^n$ with any norm is complete,
+which is all we need here.
+
+<Theorem name="Banach fixed-point theorem" label="Thm 2">
+Let $(X,d)$ be a complete metric space and $F:X\to X$ satisfy $d(Fx,Fy)\le\gamma\,d(x,y)$ with
+$\gamma\in[0,1)$. Then $F$ has a unique fixed point $x^\star$, and for every $x_0$ the iterates
+$x_{k+1}=Fx_k$ satisfy
+
+$$
+d(x_k,x^\star)\le\gamma^k d(x_0,x^\star)
+\qquad\text{and}\qquad
+d(x_k,x^\star)\le\frac{\gamma}{1-\gamma}\,d(x_k,x_{k-1}).
+$$
+</Theorem>
+
+<Proof>
+Since $d(x_{k+1},x_k) = d(Fx_k,Fx_{k-1})\le\gamma\,d(x_k,x_{k-1})\le\gamma^k d(x_1,x_0)$, for
+$m>k$ the triangle inequality gives
+$d(x_m,x_k)\le\sum_{j=k}^{m-1}\gamma^j d(x_1,x_0)\le\frac{\gamma^k}{1-\gamma}d(x_1,x_0)\to0$,
+so $(x_k)$ is Cauchy and converges to some $x^\star$. $F$ is Lipschitz, hence continuous, so
+$Fx^\star=\lim Fx_k=\lim x_{k+1}=x^\star$. If $y^\star$ is another fixed point then
+$d(x^\star,y^\star)=d(Fx^\star,Fy^\star)\le\gamma\,d(x^\star,y^\star)$ forces
+$d(x^\star,y^\star)=0$. The first rate is $d(F^kx_0,F^kx^\star)\le\gamma^k d(x_0,x^\star)$. For
+the second, $d(x_k,x^\star)\le d(x_k,x_{k+1})+d(x_{k+1},x^\star)\le\gamma\,d(x_{k-1},x_k)+\gamma\,d(x_k,x^\star)$;
+rearrange. $\blacksquare$
+</Proof>
+
+<Corollary name="Value iteration">
+$V^\pi$ is the unique fixed point of $T^\pi$. $T$ has a unique fixed point, written $V^\star$,
+and value iteration $V_{k+1}=TV_k$ from any $V_0$ satisfies
+$\|V_k - V^\star\|_\infty\le\gamma^k\|V_0-V^\star\|_\infty$.
+</Corollary>
+
+It remains to show that $V^\star$ deserves its name.
+
+<Theorem name="Optimality" label="Thm 3">
+$V^\pi\le V^\star$ for every policy $\pi$. If $\pi^\star$ is greedy with respect to $V^\star$,
+meaning $\pi^\star(s)\in\arg\max_a\big[r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V^\star(s')\big]$, then
+$V^{\pi^\star}=V^\star$. In particular an optimal policy exists and can be taken deterministic
+and stationary.
+</Theorem>
+
+<Proof>
+A weighted average is at most the maximum, so $T^\pi V\le TV$ for every $V$ and $\pi$. Hence
+$V^\pi = T^\pi V^\pi\le TV^\pi$. Apply the monotone map $T$ repeatedly:
+$V^\pi\le TV^\pi\le T^2V^\pi\le\cdots\le T^kV^\pi\to V^\star$. For the greedy policy the
+maximum in $T$ is attained by $\pi^\star$, so $T^{\pi^\star}V^\star = TV^\star = V^\star$; thus
+$V^\star$ is a fixed point of $T^{\pi^\star}$, and by uniqueness $V^\star=V^{\pi^\star}$. $\blacksquare$
+</Proof>
+
+<Theorem name="Policy improvement" label="Thm 4">
+Let $\pi'$ be greedy with respect to $Q^\pi$, i.e. $\pi'(s)\in\arg\max_a Q^\pi(s,a)$. Then
+$V^{\pi'}\ge V^\pi$, and if $V^{\pi'}=V^\pi$ then $\pi$ is optimal.
+</Theorem>
+
+<Proof>
+Greediness says $T^{\pi'}V^\pi = TV^\pi\ge T^\pi V^\pi = V^\pi$. By monotonicity of $T^{\pi'}$,
+$V^\pi\le T^{\pi'}V^\pi\le(T^{\pi'})^2V^\pi\le\cdots\to V^{\pi'}$. If equality holds
+throughout then $TV^\pi = V^\pi$, so $V^\pi$ is the fixed point of $T$, i.e. $V^\pi=V^\star$. $\blacksquare$
+</Proof>
+
+<Intuition>
+The contraction says one Bellman backup removes a fraction $1-\gamma$ of the error, uniformly
+over states, because the only place the current guess $V$ enters is through one step of
+lookahead weighted by $\gamma$. Policy improvement says: if a one-step deviation to $\pi'$
+followed by $\pi$ is no worse than $\pi$, then deviating for two steps is no worse than
+deviating for one, and so on forever.
+</Intuition>
+
+<Warning>
+Every statement above used $\gamma$ strictly less than $1$. With $\gamma=1$ (undiscounted,
+episodic) $T$ is merely nonexpansive and fixed points need not be unique; convergence then
+needs a termination argument (proper policies). For infinite state spaces the same proofs go
+through on the space of bounded functions with the sup norm, which is still complete; for
+continuous actions replace $\max$ by $\sup$ and you additionally need a measurable selection
+of near-greedy actions.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Value iteration on a three-state MDP">
+States $\{1,2,3\}$, actions $\{\mathrm{stay},\mathrm{go}\}$, $\gamma=0.9$:
+
+- State 1. stay: $r=0.2$, stays in 1. go: $r=0$, moves to 2.
+- State 2. stay: $r=0$, stays in 2. go: $r=0$, moves to 3 or to 1 with probability $\tfrac12$ each.
+- State 3. stay: $r=1$, stays in 3 or drops to 1 with probability $\tfrac12$ each. go: $r=0.5$, stays in 3.
+
+State 1 trades a sure small reward against a gamble on reaching state 3; state 3 trades a
+larger reward against the risk of falling back to 1. Start value iteration from $V_0=(0,0,0)$
+and write $Q_k(s,a) = r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)V_{k-1}(s')$.
+
+Iteration 1 (only rewards matter since $V_0=0$): $Q_1(1,\cdot)=(0.2,0)$, $Q_1(2,\cdot)=(0,0)$,
+$Q_1(3,\cdot)=(1,0.5)$, so $V_1=(0.2,\,0,\,1)$.
+
+Iteration 2:
+
+- $Q_2(1,\mathrm{stay}) = 0.2+0.9\cdot0.2 = 0.38$; $Q_2(1,\mathrm{go}) = 0.9\cdot0 = 0$.
+- $Q_2(2,\mathrm{stay}) = 0$; $Q_2(2,\mathrm{go}) = 0.9\,(0.5\cdot1+0.5\cdot0.2) = 0.54$.
+- $Q_2(3,\mathrm{stay}) = 1+0.9\,(0.5\cdot1+0.5\cdot0.2) = 1.54$; $Q_2(3,\mathrm{go}) = 0.5+0.9\cdot1 = 1.4$.
+
+So $V_2=(0.38,\,0.54,\,1.54)$, greedy actions (stay, go, stay).
+
+Iteration 3:
+
+- $Q_3(1,\mathrm{stay}) = 0.2+0.9\cdot0.38 = 0.542$; $Q_3(1,\mathrm{go}) = 0.9\cdot0.54 = 0.486$.
+- $Q_3(2,\mathrm{stay}) = 0.9\cdot0.54 = 0.486$; $Q_3(2,\mathrm{go}) = 0.9\,(0.5\cdot1.54+0.5\cdot0.38) = 0.864$.
+- $Q_3(3,\mathrm{stay}) = 1+0.9\cdot0.96 = 1.864$; $Q_3(3,\mathrm{go}) = 0.5+0.9\cdot1.54 = 1.886$.
+
+So $V_3=(0.542,\,0.864,\,1.886)$ and the greedy action at state 3 has flipped to go: once
+$V(3)$ is large enough, giving up half the reward to avoid the fall to state 1 pays.
+
+**Exact answer.** Guess that go is optimal everywhere and evaluate that policy with the Bellman
+equation. State 3 is decoupled: $V(3) = 0.5+0.9V(3)$, so $V(3)=5$. Then
+$V(2) = 0.9\,(0.5\cdot5+0.5V(1)) = 2.25+0.45V(1)$ and $V(1)=0.9V(2)$, giving
+$V(1) = 2.025+0.405V(1)$, i.e. $V(1)=2.025/0.595=405/119\approx3.4034$ and
+$V(2)=450/119\approx3.7815$. Check greediness (Thm 4): at state 1, stay gives
+$0.2+0.9\cdot3.4034=3.263$ versus go $3.4034$; at state 2, stay gives $3.403$ versus go $3.7815$;
+at state 3, stay gives $1+0.9\,(2.5+1.7017)=4.7815$ versus go $5$. Go wins everywhere, so
+$V^\star=(3.4034,\,3.7815,\,5)$ and $\pi^\star=$ go everywhere.
+
+**Sanity checks.** The a priori bound of Thm 2 gives
+$\|V_3-V^\star\|_\infty\le0.9^3\cdot\|V_0-V^\star\|_\infty = 0.729\cdot5=3.645$; the actual error
+is $\max(2.861,\,2.918,\,3.114)=3.114$. The a posteriori bound gives
+$\tfrac{0.9}{0.1}\|V_3-V_2\|_\infty = 9\cdot0.346 = 3.114$, exactly the true error. That is not
+luck: at state 3 the optimal action is a self-loop, so the map $V(3)\mapsto0.5+0.9V(3)$ is an
+affine contraction with factor exactly $\gamma$, and the a posteriori bound is tight for such
+maps. Finally, since $V_0=0\le TV_0=V_1$, monotonicity gives $V_0\le V_1\le V_2\le\cdots$, which
+the numbers confirm.
+</Example>
+
+## Where it shows up
+
+- **DQN.** The target $y = r+\gamma\max_{a'}Q_{\theta^-}(s',a')$ is $(TQ_{\theta^-})(s,a)$ evaluated
+  with one sample of $s'$; the squared loss is a sampled Bellman residual. Whether the noisy
+  iteration converges is the subject of
+  [stochastic approximation and TD](/concepts/stochastic-approximation-and-td).
+- **SAC** <Cite id="1801.01290" />, eqs. (2)–(3): the soft Bellman backup
+  $T^\pi Q = r+\gamma\,\mathbb{E}_{s'}[V(s')]$ with $V(s)=\mathbb{E}_{a\sim\pi}[Q(s,a)-\alpha\log\pi(a\mid s)]$
+  is the expectation operator of an entropy-regularized MDP; its contraction proof is the one
+  above with an extra bounded term. See [KL-regularized RL](/concepts/kl-regularized-rl).
+- **PPO and GAE.** The TD residual $\delta_t=r_t+\gamma V(s_{t+1})-V(s_t)$ is a one-sample
+  estimate of $(T^\pi V-V)(s_t)$; it has conditional mean zero exactly when $V=V^\pi$. The
+  policy update itself is justified by the
+  [policy gradient theorem](/concepts/policy-gradient-theorem), whose proof uses
+  $V^\pi=(I-\gamma P_\pi)^{-1}r_\pi$ in differentiated form.
+- **RL for diffusion models and policies.** DDPO <Cite id="2305.13301" /> and DPPO
+  <Cite id="2409.00588" /> define an MDP whose state is $(x_t,t,c)$, whose action is the next
+  denoised sample $x_{t-1}$, and whose reward is paid only at $x_0$. The transition is
+  deterministic given the action, so the Bellman equation collapses to
+  $Q(x_t,t,x_{t-1}) = \mathbb{E}[r(x_0)\mid x_{t-1}]$, and PPO can be run on it. The same trick
+  is what lets one talk about the "value" of a partially denoised action in Diffusion Policy.
+
+## Exercises
+
+<Exercise hint="Use the inequality |max f − max g| bounded by max |f − g| on the inner max over a', then the outer average over s'.">
+Show that $T$ acting on $Q$-functions, $(TQ)(s,a)=r(s,a)+\gamma\sum_{s'}P(s'\mid s,a)\max_{a'}Q(s',a')$,
+is a $\gamma$-contraction in $\|\cdot\|_\infty$.
+</Exercise>
+
+<Exercise hint="Write the 3-by-3 system (I − 0.9 P)V = r for the policy go-everywhere; the third row is decoupled and gives V(3) = 5 immediately.">
+Verify $V^\pi=(I-\gamma P_\pi)^{-1}r_\pi$ numerically for the policy "go everywhere" in the
+worked example by writing out $P_\pi$ and $r_\pi$ and solving the linear system. You should
+recover $(405/119,\,450/119,\,5)$.
+</Exercise>
+
+<Exercise hint="Evaluate stay-everywhere first: V(1) = 2, V(2) = 0, V(3) = 1.9/0.55. Then improve, evaluate, improve.">
+Run policy iteration on the worked example starting from "stay everywhere". Show that two
+improvement steps reach the optimal policy and that a third confirms it (Thm 4).
+</Exercise>
+
+<Exercise hint="Monotonicity plus translation: apply F to V − c1 ≤ W ≤ V + c1 exactly as in the proof of Thm 1.">
+Let $F$ be any monotone map with $F(V+c\mathbf 1)=FV+\gamma c\mathbf 1$ for all constants $c$.
+Prove $F$ is a $\gamma$-contraction in $\|\cdot\|_\infty$. (This is the lemma that makes the
+soft Bellman operator of SAC a contraction without redoing the proof.)
+</Exercise>
+
+## Going deeper
+
+Puterman Ch. 6 does everything above for countable state spaces and general bounded rewards,
+including the sup-norm setting hinted at in the warning, and proves that policy iteration
+terminates in finitely many steps for finite MDPs. Bertsekas and Tsitsiklis Ch. 2 organize the
+whole theory around the two lemma properties (monotonicity and constant-shift), which is the
+cleanest route to the regularized and stochastic versions used later on this site. Sutton and
+Barto Ch. 4 is the place for the algorithmic view (policy iteration, asynchronous backups).

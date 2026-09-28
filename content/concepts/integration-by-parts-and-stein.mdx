@@ -1,0 +1,297 @@
+---
+title: "Integration by parts and Stein's identity"
+kind: concept
+summary: "The divergence theorem, integration by parts against a decaying density on R^d, Gaussian integration by parts (Stein's identity), and the one identity that turns score matching and Fokker–Planck into computations."
+tags: [integration-by-parts, divergence-theorem, stein, gaussian, score-matching, fokker-planck]
+track: foundations
+level: 2
+prerequisites: [gaussian-computations]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: web
+    title: "Estimation of Dependencies by Score Matching"
+    author: "Aapo Hyvärinen (JMLR, 2005)"
+  - type: web
+    title: "Estimation of the Mean of a Multivariate Normal Distribution"
+    author: "Charles Stein (Annals of Statistics, 1981)"
+  - type: book
+    title: "Partial Differential Equations"
+    author: "Lawrence C. Evans"
+    where: "Appendix C.2"
+  - type: arxiv
+    id: "1608.04471"
+    title: "Stein Variational Gradient Descent"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+---
+
+## Why you need this
+
+Hyvärinen's score matching objective, Theorem 1 of his 2005 paper, replaces the unknown
+$\nabla\log p$ in $\mathbb{E}_p\|s_\theta - \nabla\log p\|^2$ by a divergence term
+$\mathbb{E}_p[\nabla\cdot s_\theta]$; the step is one integration by parts. The Fokker–Planck
+equation, from which Song et al. 2021 derive the probability-flow ODE and Anderson's reverse
+SDE, is the adjoint of the generator of an SDE, computed by integrating by parts twice. Stein's
+identity $\mathbb{E}[(Z-\mu)f(Z)] = \Sigma\,\mathbb{E}[\nabla f(Z)]$ is the Gaussian case; it
+is the engine of Stein variational gradient descent, of Stein's unbiased risk estimate for
+training denoisers, and of the equality between the reparameterization gradient and the
+score-function gradient of a Gaussian policy. This page proves the identity once in the form
+that covers all of these.
+
+## Setup
+
+For $f:\mathbb{R}^d\to\mathbb{R}$ and $v:\mathbb{R}^d\to\mathbb{R}^d$ continuously
+differentiable, $\nabla f$ is the gradient, $\nabla\cdot v = \sum_i\partial_i v_i$ the
+divergence, $J_v$ the Jacobian, and $\Delta f = \nabla\cdot\nabla f$ the Laplacian. The product
+rule
+
+$$
+\nabla\cdot(f v) = \nabla f\cdot v + f\,\nabla\cdot v
+$$
+
+is the whole algebra. A density $p$ on $\mathbb{R}^d$ is assumed $C^1$ and positive, and its
+score is $\nabla\log p = \nabla p/p$. We write $S_R = \{x : \|x\| = R\}$ for the sphere of
+radius $R$ and $\mathrm{d}S$ for surface measure on it; $\|S_R\| = c_d R^{d-1}$.
+
+## The idea
+
+<Theorem name="Divergence theorem" label="Thm 1">
+Let $\Omega\subset\mathbb{R}^d$ be bounded with piecewise $C^1$ boundary $\partial\Omega$ and
+outward unit normal $n$, and let $F:\overline\Omega\to\mathbb{R}^d$ be $C^1$. Then
+$$
+\int_\Omega\nabla\cdot F\,\mathrm{d}x = \int_{\partial\Omega}F\cdot n\,\mathrm{d}S .
+$$
+</Theorem>
+
+<Proof>
+We prove it for a rectangle $\Omega = [a,b]\times[c,d]$ in $d = 2$, which shows the mechanism;
+Evans Appendix C.2 handles general domains by covering $\partial\Omega$ with patches that look
+like graphs and adding up. By Fubini and the fundamental theorem of calculus,
+
+$$
+\int_\Omega\partial_x F_1\,\mathrm{d}x\,\mathrm{d}y = \int_c^d\big(F_1(b,y) - F_1(a,y)\big)\mathrm{d}y ,
+$$
+
+which is the flux of $F$ through the right side (normal $+e_1$) plus the flux through the
+left side (normal $-e_1$). The same computation for $\partial_y F_2$ gives the flux through the
+top and bottom. Adding the two gives the boundary integral over all four sides. $\blacksquare$
+</Proof>
+
+<Corollary name="Integration by parts on all of R^d" label="Cor 2">
+Let $F:\mathbb{R}^d\to\mathbb{R}^d$ be $C^1$ with $\nabla\cdot F$ integrable and
+$\int_{S_R}\|F\|\,\mathrm{d}S\to 0$ as $R\to\infty$. Then $\int_{\mathbb{R}^d}\nabla\cdot F\,\mathrm{d}x = 0$.
+Consequently, for $C^1$ functions $f$ (scalar) and $v$ (vector) and a $C^1$ density $p$ such
+that $F = f v p$ satisfies the hypotheses,
+
+$$
+\mathbb{E}_p[\nabla f\cdot v] = -\,\mathbb{E}_p[f\,\nabla\cdot v] - \mathbb{E}_p[f\,v\cdot\nabla\log p] .
+$$
+
+A sufficient condition: $f$, $\nabla f$, $v$, $J_v$ have polynomial growth and $p$ has
+Gaussian-type tails, $p(x)\le Ce^{-c\|x\|^2}$ with $\nabla p$ of the same order.
+</Corollary>
+
+<Proof>
+Apply Thm 1 on the ball $\|x\|\le R$: $\big|\int_{\|x\|\le R}\nabla\cdot F\,\mathrm{d}x\big|
+= \big|\int_{S_R}F\cdot n\,\mathrm{d}S\big|\le\int_{S_R}\|F\|\,\mathrm{d}S\to 0$. The left side
+converges to $\int_{\mathbb{R}^d}\nabla\cdot F$ by dominated convergence (dominator $|\nabla\cdot F|$).
+For the second claim expand $\nabla\cdot(f v p) = (\nabla f\cdot v)p + f(\nabla\cdot v)p + f\,v\cdot\nabla p$
+and write $\nabla p = p\,\nabla\log p$. Under the sufficient condition,
+$\|F\|\le C(1+\|x\|^k)e^{-c\|x\|^2}$ on $S_R$, so $\int_{S_R}\|F\|\,\mathrm{d}S\le C'R^{d-1+k}e^{-cR^2}\to 0$,
+and $\nabla\cdot F$ is integrable for the same reason. $\blacksquare$
+</Proof>
+
+<Intuition>
+On a bounded domain, integration by parts trades a derivative on $f$ for a derivative on
+everything else at the cost of a boundary term. On $\mathbb{R}^d$ the "boundary" is a sphere
+at infinity, and the boundary term vanishes exactly when the density kills the integrand out
+there. The three terms of Cor 2 are the three places the derivative can land: on $f$, on $v$,
+or on $p$, and the last one produces the score. That is the entire reason scores appear in
+score matching and in Fokker–Planck.
+</Intuition>
+
+<Theorem name="Stein's identity (Gaussian integration by parts)" label="Thm 3">
+Let $Z\sim\mathcal N(\mu,\Sigma)$ on $\mathbb{R}^d$ with $\Sigma\succ 0$, and let
+$f:\mathbb{R}^d\to\mathbb{R}$ be $C^1$ with $f$ and $\nabla f$ of polynomial growth. Then
+$$
+\mathbb{E}\big[(Z-\mu)f(Z)\big] = \Sigma\,\mathbb{E}\big[\nabla f(Z)\big] .
+$$
+In one dimension with $Z\sim\mathcal N(0,1)$: $\mathbb{E}[Zf(Z)] = \mathbb{E}[f'(Z)]$.
+Conversely, if $Z$ is a real random variable with $\mathbb{E}[f'(Z) - Zf(Z)] = 0$ for every
+bounded $f$ with bounded continuous derivative, then $Z\sim\mathcal N(0,1)$.
+</Theorem>
+
+<Proof>
+Take $v = e_i$ (constant, so $\nabla\cdot v = 0$) in Cor 2, with $p$ the Gaussian density and
+$\nabla\log p(z) = -\Sigma^{-1}(z-\mu)$ (see
+[Gaussian computations](/concepts/gaussian-computations), Prop 4). The hypotheses of Cor 2 hold
+by its sufficient condition. Then
+
+$$
+\mathbb{E}[\partial_i f(Z)] = -\mathbb{E}\big[f(Z)\,\partial_i\log p(Z)\big]
+= \mathbb{E}\big[f(Z)\,(\Sigma^{-1}(Z-\mu))_i\big] .
+$$
+
+Stacking over $i$: $\mathbb{E}[\nabla f(Z)] = \Sigma^{-1}\mathbb{E}[(Z-\mu)f(Z)]$; multiply by
+$\Sigma$. In one dimension the same thing is visible directly: $z\varphi(z) = -\varphi'(z)$ for
+the standard normal density, so $\mathbb{E}[Zf(Z)] = -\int f\varphi' = \big[-f\varphi\big]_{-\infty}^{\infty} + \int f'\varphi = \mathbb{E}[f'(Z)]$,
+the boundary term vanishing because $f$ grows polynomially.
+
+For the converse we only sketch: given a bounded continuous $h$, the ODE
+$f'(z) - zf(z) = h(z) - \mathbb{E}[h(N)]$ with $N\sim\mathcal N(0,1)$ has the bounded solution
+$f(z) = e^{z^2/2}\int_{-\infty}^z(h(u) - \mathbb{E}h(N))e^{-u^2/2}\mathrm{d}u$ with bounded
+derivative. Plugging it into the hypothesis gives $\mathbb{E}[h(Z)] = \mathbb{E}[h(N)]$ for all
+such $h$, which determines the law. The skipped step is checking the boundedness of $f$ and
+$f'$, a calculus estimate on Gaussian tails. $\blacksquare$
+</Proof>
+
+<Proposition name="The score matching identity" label="Prop 4">
+Let $p$ be a $C^1$ density and $s:\mathbb{R}^d\to\mathbb{R}^d$ a $C^1$ vector field such that
+$F = s\,p$ satisfies the hypotheses of Cor 2 and $\mathbb{E}_p\|s\|^2$, $\mathbb{E}_p\|\nabla\log p\|^2$
+are finite. Then
+$$
+\mathbb{E}_p\Big[\tfrac12\|s - \nabla\log p\|^2\Big]
+= \mathbb{E}_p\Big[\tfrac12\|s\|^2 + \nabla\cdot s\Big] + \tfrac12\,\mathbb{E}_p\|\nabla\log p\|^2 .
+$$
+The right side can be estimated from samples of $p$ without knowing $p$.
+</Proposition>
+
+<Proof>
+Expand $\tfrac12\|s - \nabla\log p\|^2 = \tfrac12\|s\|^2 - s\cdot\nabla\log p + \tfrac12\|\nabla\log p\|^2$.
+For the cross term use Cor 2 with $f\equiv 1$ and $v = s$:
+$\mathbb{E}_p[s\cdot\nabla\log p] = -\mathbb{E}_p[\nabla\cdot s]$. $\blacksquare$
+</Proof>
+
+<Proposition name="Adjoint of the generator (the Fokker–Planck operator)" label="Prop 5">
+For an SDE $\mathrm{d}X = b(x)\,\mathrm{d}t + \sigma(x)\,\mathrm{d}W$ with $a = \sigma\sigma^\top$,
+the generator is $Lf = b\cdot\nabla f + \tfrac12\sum_{ij}a_{ij}\partial_i\partial_j f$. For
+$f\in C^2$ with compact support and $p\in C^2$,
+$$
+\int (Lf)\,p\,\mathrm{d}x = \int f\,(L^*p)\,\mathrm{d}x,\qquad
+L^*p = -\nabla\cdot(bp) + \tfrac12\sum_{ij}\partial_i\partial_j(a_{ij}p) .
+$$
+</Proposition>
+
+<Proof>
+Compact support makes every boundary term vanish, so Cor 2 applies with no decay condition.
+Drift term: $\int(b\cdot\nabla f)p = \int\nabla f\cdot(bp) = -\int f\,\nabla\cdot(bp)$ (Cor 2
+with $F = f\,bp$, whose divergence is $\nabla f\cdot bp + f\nabla\cdot(bp)$). Diffusion term:
+$\int a_{ij}p\,\partial_i\partial_j f = -\int\partial_i(a_{ij}p)\,\partial_j f = \int f\,\partial_j\partial_i(a_{ij}p)$,
+integrating by parts once in $x_i$ and once in $x_j$. $\blacksquare$
+</Proof>
+
+This is the identity behind the [Fokker–Planck equation](/concepts/fokker-planck): Itô's lemma
+and the martingale property of the stochastic integral give
+$\frac{\mathrm{d}}{\mathrm{d}t}\mathbb{E}[f(X_t)] = \mathbb{E}[(Lf)(X_t)]$, i.e.
+$\int f\,\partial_t p_t = \int (Lf)\,p_t = \int f\,L^*p_t$ for every test $f$, hence
+$\partial_t p_t = L^*p_t$.
+
+<Warning>
+The identity fails without the decay hypothesis, and the failure is exactly the boundary term.
+Take $p$ uniform on $[0,1]$ and $s(x) = x$. Inside the interval $\nabla\log p = 0$, so the
+"cross term" $\mathbb{E}_p[s\,\partial_x\log p]$ is $0$, while $-\mathbb{E}_p[s'] = -1$. The
+missing $1$ is $\big[x\cdot p(x)\big]_0^1 = 1$. Densities with jumps, bounded supports, or
+heavy tails against fast-growing $s$ all need the boundary term checked.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Stein's identity checked, then used">
+$Z\sim\mathcal N(0,1)$. With $f(z) = z^3$: the left side is $\mathbb{E}[Z^4] = 3$, the right
+side is $\mathbb{E}[3Z^2] = 3$. With $f(z) = e^{az}$: the left side is
+$\mathbb{E}[Ze^{aZ}] = \frac{\mathrm{d}}{\mathrm{d}a}\mathbb{E}[e^{aZ}] = \frac{\mathrm{d}}{\mathrm{d}a}e^{a^2/2} = ae^{a^2/2}$,
+the right side is $\mathbb{E}[ae^{aZ}] = ae^{a^2/2}$. Now use it: with $f(z) = z^{n}$,
+$\mathbb{E}[Z^{n+1}] = n\,\mathbb{E}[Z^{n-1}]$, so $\mathbb{E}Z^2 = 1$, $\mathbb{E}Z^4 = 3$,
+$\mathbb{E}Z^6 = 15$, $\mathbb{E}Z^8 = 105$: Wick's formula for the one-dimensional case in a
+single line.
+
+In two dimensions take $\mu = 0$, $\Sigma = \begin{pmatrix}4 & 2\\ 2 & 3\end{pmatrix}$ and
+$f(z) = z_1^3$. Left side: $\mathbb{E}[Zz_1^3] = (\mathbb{E}Z_1^4,\ \mathbb{E}Z_1^3Z_2)^\top
+= (3\Sigma_{11}^2,\ 3\Sigma_{11}\Sigma_{12})^\top = (48, 24)^\top$ by Wick. Right side:
+$\nabla f = (3z_1^2, 0)^\top$, $\mathbb{E}\nabla f = (12, 0)^\top$, and
+$\Sigma(12,0)^\top = (48, 24)^\top$. Agreed. The second component is the interesting one:
+the identity produces the cross moment $\mathbb{E}Z_1^3Z_2$ from a derivative that does not
+involve $z_2$ at all, because $\Sigma$ carries the correlation.
+</Example>
+
+<Example title="Score matching for a one-parameter Gaussian family">
+Let $p = \mathcal N(0,1)$, so $\nabla\log p(x) = -x$, and fit $s_\theta(x) = -\theta x$.
+Directly: $\tfrac12\mathbb{E}_p(-\theta x + x)^2 = \tfrac12(1-\theta)^2\mathbb{E}x^2 = \tfrac12(1-\theta)^2$.
+Hyvärinen's form: $\tfrac12\mathbb{E}_p[\theta^2x^2] + \mathbb{E}_p[\partial_x s_\theta] = \tfrac12\theta^2 - \theta$.
+The difference is $\tfrac12(1-\theta)^2 - \tfrac12\theta^2 + \theta = \tfrac12$, which is
+$\tfrac12\mathbb{E}_p\|\nabla\log p\|^2 = \tfrac12\mathbb{E}x^2$ as Prop 4 predicts, and it
+does not depend on $\theta$. Both expressions are minimized at $\theta = 1$, where
+$s_\theta = \nabla\log p$. With samples $x_1,\dots,x_n$ from $p$, the estimator
+$\frac1n\sum_k(\tfrac12\theta^2x_k^2 - \theta)$ is minimized at $\theta = n/\sum_k x_k^2$, the
+inverse of the empirical second moment, which is the maximum likelihood estimate of a
+precision. Score matching found it without ever normalizing a density.
+</Example>
+
+<Example title="The Ornstein–Uhlenbeck adjoint and its stationary density">
+$\mathrm{d}X = -X\,\mathrm{d}t + \sqrt2\,\mathrm{d}W$ in one dimension: $b = -x$, $a = 2$,
+so $Lf = -xf' + f''$ and by Prop 5 $L^*p = (xp)' + p''$. Check the standard normal
+$\varphi$ is stationary: $(x\varphi)' = \varphi + x\varphi' = \varphi - x^2\varphi$ and
+$\varphi'' = (-x\varphi)' = -\varphi + x^2\varphi$, which sum to $0$. Check Prop 5 itself with
+$f = x^2$: $Lf = -2x^2 + 2$, so $\int(Lf)\varphi = -2 + 2 = 0$, and $\int f\,L^*\varphi = 0$
+since $L^*\varphi = 0$. Consistent: at stationarity the second moment does not change.
+</Example>
+
+## Where it shows up
+
+- Hyvärinen 2005, Theorem 1, is Prop 4; the paper's Appendix gives the same proof with the
+  decay condition stated as $p(x)s(x)\to 0$ at infinity. Sliced score matching (Song et al.
+  2019) estimates $\nabla\cdot s$ by $\mathbb{E}_v[v^\top J_s v]$ with random $v$; denoising
+  score matching avoids the divergence altogether. See
+  [score matching](/concepts/score-matching).
+- Song et al., <Cite id="2011.13456" />, Appendix A, derive the probability-flow ODE from the
+  Fokker–Planck equation, which is Prop 5 applied to the forward SDE; Anderson's reverse-time
+  SDE on [time reversal](/concepts/time-reversal-of-diffusions) comes from the same identity
+  applied in reversed time. -
+SVGD, <Cite id="1608.04471" />: the Stein operator $\mathcal A_p\phi = \phi\cdot\nabla\log p + \nabla\cdot\phi$
+  satisfies $\mathbb{E}_p[\mathcal A_p\phi] = 0$, which is Cor 2 with $f\equiv 1$; the kernelized
+  Stein discrepancy measures how badly a sample set violates it, and the SVGD update is the
+  direction of steepest violation. -
+Stein's unbiased risk estimate: for $Y = X + \sigma\varepsilon$ and a denoiser $f$,
+  $\mathbb{E}\|f(Y) - X\|^2 = \mathbb{E}\|f(Y) - Y\|^2 + 2\sigma^2\mathbb{E}[\nabla\cdot f(Y)] - d\sigma^2$
+  (Exercise 3), so denoisers can be trained without clean targets. -
+Policy gradients: for $A = \mu + \sigma\varepsilon$ the pathwise gradient
+  $\nabla_\mu\mathbb{E}[r(A)] = \mathbb{E}[\nabla r(A)]$ and the score-function gradient
+  $\mathbb{E}[r(A)(A-\mu)/\sigma^2]$ are equal by Thm 3. SAC uses the first, REINFORCE the
+  second; the [policy gradient theorem](/concepts/policy-gradient-theorem) page compares
+  their variances.
+
+## Exercises
+
+<Exercise hint="Compute both sides of Thm 1: the divergence is 3y, and only the right and top sides have nonzero flux.">
+Verify the divergence theorem on the unit square $[0,1]^2$ for $F(x,y) = (xy, y^2)$.
+</Exercise>
+
+<Exercise hint="Apply Thm 3 to each component g_i and stack the resulting row vectors.">
+For $g:\mathbb{R}^d\to\mathbb{R}^d$ with polynomial growth, show
+$\mathbb{E}[g(Z)(Z-\mu)^\top] = \mathbb{E}[J_g(Z)]\,\Sigma$, and deduce
+$\mathbb{E}[Z Z^\top] = \Sigma + \mu\mu^\top$ by choosing $g$.
+</Exercise>
+
+<Exercise hint="Expand the square around f(Y) minus Y; condition on X and apply Thm 3 to the cross term with the Gaussian variable Y given X.">
+Prove Stein's unbiased risk estimate as stated in the previous section, for $\varepsilon\sim\mathcal N(0,I_d)$
+independent of $X$ and $f$ of polynomial growth.
+</Exercise>
+
+<Exercise hint="Plug p_t = N(0, v(t)) into the Fokker–Planck equation of the OU example and match the coefficients of x^2.">
+For the OU process of the last example started at $X_0 = 0$, assume $p_t = \mathcal N(0,v(t))$
+and use $\partial_tp_t = L^*p_t$ to derive $\dot v = 2(1 - v)$, hence $v(t) = 1 - e^{-2t}$.
+Compare with the variance computed on [linear SDEs and OU](/concepts/linear-sde-and-ou).
+</Exercise>
+
+## Going deeper
+
+Evans, Appendix C.2, has the divergence theorem for $C^1$ domains and the standard
+integration-by-parts formulas that follow. Stein's 1981 paper introduces the identity for the
+multivariate normal and proves the unbiased risk estimate. For the characterization direction
+of Thm 3 and its use in proving central limit theorems, see Ross, *Fundamentals of Stein's
+Method* (Probability Surveys, 2011), Section 2. Hyvärinen's paper is short and worth reading
+in full; its Theorem 1 and Appendix A are exactly Prop 4.

@@ -1,0 +1,325 @@
+---
+title: "Concentration inequalities"
+kind: concept
+summary: "Markov, Chebyshev, Chernoff, Hoeffding, sub-Gaussian variables, McDiarmid, and the union bound: the tools that turn a sample mean into a confidence interval, with the UCB bandit bound derived by hand."
+tags: [statistical-learning, concentration, hoeffding, sub-gaussian, bandits, ucb]
+track: statistical-learning
+level: 2
+prerequisites: [measure-theoretic-probability]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Concentration Inequalities: A Nonasymptotic Theory of Independence"
+    author: "Boucheron, Lugosi & Massart"
+    where: "Ch. 2"
+  - type: book
+    title: "High-Dimensional Probability"
+    author: "Roman Vershynin"
+    where: "Ch. 2"
+  - type: book
+    title: "Bandit Algorithms"
+    author: "Lattimore & Szepesvári"
+    where: "Ch. 5–8"
+  - type: web
+    title: "Finite-time Analysis of the Multiarmed Bandit Problem (Machine Learning, 2002)"
+    author: "Auer, Cesa-Bianchi & Fischer"
+  - type: arxiv
+    id: "1703.05449"
+    title: "Minimax Regret Bounds for Reinforcement Learning"
+  - type: arxiv
+    id: "2209.11215"
+    title: "Sampling is as Easy as Learning the Score: Theory for Diffusion Models with Minimal Data Assumptions"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+---
+
+## Why you need this
+
+A reported success rate of a robot policy over 50 rollouts, an exploration bonus
+$\sqrt{2\log t/n}$ in UCB, the pessimism penalty in offline RL, the sample-complexity term in a
+diffusion-model convergence theorem <Cite id="2209.11215" />, and every generalization bound
+you have seen are all the same computation: how far can an average of $n$ noisy quantities be
+from its mean? The law of large numbers says "not far, eventually"; the central limit theorem
+says "about $\sigma/\sqrt n$, asymptotically". Concentration inequalities say exactly how far
+with exactly what probability, for every finite $n$. This page proves Hoeffding's inequality
+from scratch and then derives the classic $O(\log T)$ regret bound of UCB1 with it.
+
+## Setup
+
+$X_1,\dots,X_n$ are independent real random variables on a probability space $(\Omega,\mathcal F,\mathbb{P})$,
+with $S_n=\sum_iX_i$ and $\bar X_n=S_n/n$. All expectations below are
+[Lebesgue integrals](/concepts/measure-theoretic-probability); the only facts we use are
+linearity, monotonicity, independence factorizes expectations of products, and Jensen.
+$\mathbf 1_A$ is the indicator of the event $A$.
+
+## The idea
+
+<Theorem name="Markov's inequality">
+If $X\ge0$ and $t>0$ then $\mathbb{P}(X\ge t)\le\mathbb{E}[X]/t$.
+</Theorem>
+
+<Proof>
+$t\,\mathbf 1_{\{X\ge t\}}\le X$ pointwise; take expectations. $\blacksquare$
+</Proof>
+
+<Corollary name="Chebyshev's inequality">
+If $\mathbb{E}X=\mu$ and $\operatorname{Var}X=\sigma^2$ then $\mathbb{P}(|X-\mu|\ge t)\le\sigma^2/t^2$.
+For $\bar X_n$ of i.i.d. variables, $\mathbb{P}(|\bar X_n-\mu|\ge t)\le\sigma^2/(nt^2)$.
+</Corollary>
+
+<Proof>
+Markov applied to $(X-\mu)^2$ at level $t^2$. $\blacksquare$
+</Proof>
+
+Chebyshev decays like $1/t^2$ because it uses two moments. Using all moments at once, through
+the moment generating function, gives exponential decay.
+
+<Lemma name="Chernoff method">
+For any $\lambda>0$, $\mathbb{P}(X\ge t)\le e^{-\lambda t}\,\mathbb{E}[e^{\lambda X}]$. Optimize over $\lambda$.
+</Lemma>
+
+<Proof>
+Markov applied to the nonnegative variable $e^{\lambda X}$ at level $e^{\lambda t}$. $\blacksquare$
+</Proof>
+
+<Definition name="Sub-Gaussian random variable">
+$X$ with mean $\mu$ is *$\sigma$-sub-Gaussian* if $\mathbb{E}[e^{\lambda(X-\mu)}]\le e^{\lambda^2\sigma^2/2}$ for
+all $\lambda\in\mathbb{R}$. A Gaussian $\mathcal N(\mu,\sigma^2)$ satisfies this with equality (compute
+the MGF by completing the square), so the definition says: the tails of $X$ are no heavier than
+those of a Gaussian with variance $\sigma^2$. The number $\sigma^2$ is the *variance proxy*; it is
+always at least $\operatorname{Var}X$.
+</Definition>
+
+<Proposition name="Sub-Gaussian tails and sums">
+1. If $X$ is $\sigma$-sub-Gaussian then $\mathbb{P}(X-\mu\ge t)\le e^{-t^2/(2\sigma^2)}$ and the same for
+   $\mathbb{P}(X-\mu\le-t)$.
+2. If $X_1,\dots,X_n$ are independent and $\sigma_i$-sub-Gaussian, then $S_n$ is
+   $\big(\sum_i\sigma_i^2\big)^{1/2}$-sub-Gaussian.
+</Proposition>
+
+<Proof>
+(1) Chernoff: $\mathbb{P}(X-\mu\ge t)\le e^{-\lambda t+\lambda^2\sigma^2/2}$; the exponent is minimized at
+$\lambda=t/\sigma^2$, giving $e^{-t^2/(2\sigma^2)}$. The lower tail is the same for $-X$.
+(2) Independence: $\mathbb{E}\,e^{\lambda(S_n-\mathbb{E}S_n)}=\prod_i\mathbb{E}\,e^{\lambda(X_i-\mu_i)}\le\prod_ie^{\lambda^2\sigma_i^2/2}$. $\blacksquare$
+</Proof>
+
+<Lemma name="Hoeffding's lemma">
+If $a\le X\le b$ almost surely, then $X$ is $\tfrac{b-a}{2}$-sub-Gaussian:
+$\mathbb{E}[e^{\lambda(X-\mathbb{E}X)}]\le e^{\lambda^2(b-a)^2/8}$.
+</Lemma>
+
+<Proof>
+Assume $\mathbb{E}X=0$ (shift otherwise), so $a\le0\le b$. Since $e^{\lambda x}$ is convex, on $[a,b]$
+it lies below its chord:
+
+$$
+e^{\lambda x}\le\frac{b-x}{b-a}e^{\lambda a}+\frac{x-a}{b-a}e^{\lambda b}.
+$$
+
+Take expectations, using $\mathbb{E}X=0$: $\mathbb{E}e^{\lambda X}\le\frac{b}{b-a}e^{\lambda a}-\frac{a}{b-a}e^{\lambda b}$.
+Put $p=-a/(b-a)\in[0,1]$ and $u=\lambda(b-a)$; the right side equals $e^{\varphi(u)}$ with
+$\varphi(u)=-pu+\log(1-p+pe^u)$. Now $\varphi(0)=0$,
+$\varphi'(u)=-p+\frac{pe^u}{1-p+pe^u}$ so $\varphi'(0)=0$, and
+
+$$
+\varphi''(u)=\frac{pe^u(1-p)}{(1-p+pe^u)^2}=\rho(1-\rho)\le\tfrac14,\qquad\rho=\frac{pe^u}{1-p+pe^u}\in[0,1].
+$$
+
+Taylor with remainder gives $\varphi(u)\le u^2/8=\lambda^2(b-a)^2/8$. $\blacksquare$
+</Proof>
+
+<Theorem name="Hoeffding's inequality" label="Thm 1">
+If $X_1,\dots,X_n$ are independent with $a_i\le X_i\le b_i$, then for every $t>0$
+
+$$
+\mathbb{P}\big(\bar X_n-\mathbb{E}\bar X_n\ge t\big)\le\exp\!\Big(-\frac{2n^2t^2}{\sum_i(b_i-a_i)^2}\Big),
+$$
+
+and the same for the lower tail. With a common range $[a,b]$:
+$\mathbb{P}(|\bar X_n-\mathbb{E}\bar X_n|\ge t)\le2\exp\big(-2nt^2/(b-a)^2\big)$. Equivalently, with probability
+at least $1-\delta$,
+
+$$
+|\bar X_n-\mathbb{E}\bar X_n|\le(b-a)\sqrt{\frac{\log(2/\delta)}{2n}} .
+$$
+</Theorem>
+
+<Proof>
+By Hoeffding's lemma and Proposition (2), $S_n-\mathbb{E}S_n$ is sub-Gaussian with variance proxy
+$\sigma^2=\sum_i(b_i-a_i)^2/4$. Proposition (1) at level $nt$ gives
+$\exp(-n^2t^2/(2\sigma^2))=\exp(-2n^2t^2/\sum_i(b_i-a_i)^2)$. The two-sided form is the union of
+the two tails; the confidence form solves $2e^{-2nt^2/(b-a)^2}=\delta$ for $t$. $\blacksquare$
+</Proof>
+
+<Theorem name="McDiarmid's bounded-differences inequality" label="Thm 2">
+Let $f:\mathcal X^n\to\mathbb{R}$ satisfy $|f(x)-f(x')|\le c_i$ whenever $x$ and $x'$ differ only in
+coordinate $i$, and let $X_1,\dots,X_n$ be independent. Then
+$\mathbb{P}\big(f(X)-\mathbb{E}f(X)\ge t\big)\le\exp\big(-2t^2/\sum_ic_i^2\big)$.
+</Theorem>
+
+Hoeffding is the case $f=\bar X_n$, $c_i=(b_i-a_i)/n$. The proof writes $f(X)-\mathbb{E}f(X)$ as a sum
+of martingale differences $Z_i=\mathbb{E}[f\mid X_1,\dots,X_i]-\mathbb{E}[f\mid X_1,\dots,X_{i-1}]$, each of which
+lies conditionally in an interval of length $c_i$, applies Hoeffding's lemma conditionally, and
+multiplies (the Azuma–Hoeffding argument). We omit it because it needs conditional MGFs; the
+statement is what you use, typically to show that an empirical risk is close to its mean
+uniformly over a hypothesis class.
+
+<Lemma name="Union bound">
+For any events $A_1,\dots,A_m$, $\mathbb{P}(\bigcup_iA_i)\le\sum_i\mathbb{P}(A_i)$.
+</Lemma>
+
+<Proof>
+$\mathbf 1_{\cup A_i}\le\sum_i\mathbf 1_{A_i}$. $\blacksquare$
+</Proof>
+
+The union bound is how one statement about one sample mean becomes a statement about all $K$
+arms and all $T$ rounds simultaneously: pay a factor $KT$ in the failure probability, which
+costs only $\log(KT)$ inside a square root.
+
+<Intuition>
+The CLT says $\sqrt n(\bar X_n-\mu)$ *looks* Gaussian for large $n$ but gives no guarantee at any
+fixed $n$. Hoeffding says the tails of $\bar X_n$ are dominated by those of a Gaussian with
+variance $(b-a)^2/(4n)$ for *every* $n$. The price is that $(b-a)^2/4$ is the largest variance a
+$[a,b]$-valued variable can have; if the actual variance is much smaller, Hoeffding is loose
+and Bernstein's inequality (Going deeper) is the fix.
+</Intuition>
+
+<Warning>
+The variables must be independent, or at least martingale differences (Azuma). Rewards observed
+by an adaptive algorithm are *not* independent of the number of times the arm was pulled: the
+algorithm decided to pull it because earlier samples looked good. The UCB proof below handles
+this by bounding, for each fixed sample count $s$, the mean of the first $s$ samples of the
+arm, which *are* i.i.d., and then union-bounding over $s$.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Coin flips: Chebyshev versus Hoeffding versus the truth">
+Flip a fair coin $n$ times; $X_i\in\{0,1\}$, $\mu=\tfrac12$, $\operatorname{Var}X_i=\tfrac14$. Bound
+$\mathbb{P}(|\bar X_n-\tfrac12|\ge0.1)$.
+
+$n=100$: Chebyshev gives $\tfrac{1/4}{100\cdot0.01}=0.25$; Hoeffding gives
+$2e^{-2\cdot100\cdot0.01}=2e^{-2}=0.271$; the exact binomial probability
+$\mathbb{P}(S_{100}\le40\text{ or }\ge60)$ is $0.057$. At this $n$ and $t$ Chebyshev is slightly
+*better*: both bounds are loose, and the Gaussian tail bound $e^{-t^2/(2\sigma^2)}$ has no $1/t$
+prefactor.
+
+$n=1000$: Chebyshev gives $0.025$; Hoeffding gives $2e^{-20}=4.1\times10^{-9}$; the exact value
+is about $3\times10^{-10}$. Now the exponential wins by seven orders of magnitude. The lesson:
+Hoeffding is the right tool when the deviation $t$ is large compared with $\sigma/\sqrt n$, which
+is the regime of every union bound over many events.
+</Example>
+
+<Example title="The UCB1 regret bound">
+$K$ arms with rewards in $[0,1]$, means $\mu_1,\dots,\mu_K$, best mean $\mu^\star$, gaps
+$\Delta_i=\mu^\star-\mu_i$. After pulling each arm once, UCB1 at round $t$ pulls
+$I_t=\arg\max_i\big[\hat\mu_{i,N_i(t-1)}+c_{t,N_i(t-1)}\big]$ with $c_{t,s}=\sqrt{2\log t/s}$, where
+$\hat\mu_{i,s}$ is the mean of the first $s$ rewards of arm $i$ and $N_i(t-1)$ its pull count.
+
+**Claim.** For every suboptimal arm, $\mathbb{E}[N_i(T)]\le\dfrac{8\log T}{\Delta_i^2}+1+\dfrac{\pi^2}{3}$.
+
+**Step 1: when can a well-sampled bad arm be pulled?** Let $\ell=\lceil8\log T/\Delta_i^2\rceil$.
+Suppose arm $i$ is pulled at round $t$ with $s_i=N_i(t-1)\ge\ell$ while the best arm has
+$s=N^\star(t-1)$. Then $\hat\mu_{i,s_i}+c_{t,s_i}\ge\hat\mu^\star_s+c_{t,s}$. At least one of the
+following must hold, because if all three failed we would get
+$\hat\mu^\star_s+c_{t,s}>\mu^\star\ge\mu_i+2c_{t,s_i}>\hat\mu_{i,s_i}+c_{t,s_i}$, a contradiction:
+
+- (a) $\hat\mu^\star_s\le\mu^\star-c_{t,s}$ (best arm underestimated);
+- (b) $\hat\mu_{i,s_i}\ge\mu_i+c_{t,s_i}$ (bad arm overestimated);
+- (c) $\mu^\star<\mu_i+2c_{t,s_i}$ (confidence width too wide).
+
+But (c) is impossible for $s_i\ge\ell$: $2c_{t,s_i}=2\sqrt{2\log t/s_i}\le2\sqrt{2\log T\cdot\Delta_i^2/(8\log T)}=\Delta_i$,
+so $\mu_i+2c_{t,s_i}\le\mu^\star$.
+
+**Step 2: Hoeffding kills (a) and (b).** For a *fixed* $s$, $\hat\mu^\star_s$ is a mean of $s$ i.i.d.
+$[0,1]$ variables, so by Thm 1
+
+$$
+\mathbb{P}\big(\hat\mu^\star_s\le\mu^\star-c_{t,s}\big)\le\exp\big(-2s\,c_{t,s}^2\big)=\exp(-4\log t)=t^{-4},
+$$
+
+and likewise for (b). The counts $s$ and $s_i$ are random, so union-bound over all
+$s\in\{1,\dots,t\}$ and $s_i\in\{\ell,\dots,t\}$: the probability that (a) or (b) holds for some
+pair is at most $t\cdot t\cdot(t^{-4}+t^{-4})=2t^{-2}$.
+
+**Step 3: count.** $N_i(T)\le\ell+\sum_{t=1}^T\mathbf 1\{I_t=i,\;N_i(t-1)\ge\ell\}$, so
+
+$$
+\mathbb{E}[N_i(T)]\le\ell+\sum_{t=1}^T2t^{-2}\le\frac{8\log T}{\Delta_i^2}+1+2\cdot\frac{\pi^2}{6}.
+$$
+
+Regret is $\sum_i\Delta_i\,\mathbb{E}[N_i(T)]$, hence $O\big(\sum_i\log T/\Delta_i\big)$.
+
+**Numbers.** Two Bernoulli arms with means $0.6$ and $0.4$, so $\Delta=0.2$, and $T=10^4$,
+$\log T=9.21$. The bound is $8\cdot9.21/0.04+1+3.29=1842.1+4.3=1846$ pulls of the bad arm, and a
+regret of at most $0.2\cdot1846=369$. Sanity checks: pulling arms uniformly at random costs
+$0.2\cdot5000=1000$; doubling $T$ adds only $8\log2/\Delta^2\cdot\Delta=27.7$ to the bound, the
+logarithmic growth the theorem promises; and as $\Delta\to0$ the bound blows up like $1/\Delta$,
+correctly, since near-identical arms are hard to tell apart but also cost little per mistake
+(the gap-free bound $O(\sqrt{KT\log T})$ covers that regime).
+</Example>
+
+## Where it shows up
+
+- **UCB and exploration bonuses.** The bonus $\sqrt{2\log t/n}$ is the Hoeffding confidence
+  width with $\delta=t^{-4}$. Tabular RL with optimism (UCB-VI, <Cite id="1703.05449" />) adds a
+  bonus of this shape to every $(s,a)$ estimate; using the variance-aware Bernstein width
+  instead of Hoeffding's is what improves the horizon dependence in their regret bound.
+- **Offline RL and pessimism.** Pessimistic value iteration subtracts the same width, so that
+  with probability $1-\delta$ the estimated value is a lower bound; the guarantee is a union
+  bound over states, actions and stages.
+- **Generalization bounds.** McDiarmid applied to $\sup_h|\hat R_n(h)-R(h)|$ (which changes by
+  at most $1/n$ per sample) reduces uniform convergence to bounding an expectation, the
+  Rademacher complexity.
+- **Evaluating a robot policy.** A success rate over $n=50$ rollouts (the norm in Diffusion
+  Policy and $\pi_0$ evaluations) has a Hoeffding 95% half-width of
+  $\sqrt{\log(40)/100}=0.19$; two policies reported at 80% and 90% on 50 trials each are not
+  distinguished by this bound. See Exercise 1.
+- **Diffusion model theory.** Chen et al. <Cite id="2209.11215" /> bound the TV distance between
+  samples and data by the $L^2$ score error plus a discretization term; converting a finite
+  training set into an $L^2$ score error is a concentration step. The choice
+  $\sigma_{\max}\approx$ the data diameter in Song et al. <Cite id="2011.13456" /> relies on the
+  fact that $\sigma Z$ for $Z\sim\mathcal N(0,I_d)$ concentrates on a shell of radius
+  $\sigma\sqrt d$ (Exercise 3), so that $p_{\sigma_{\max}}$ is indistinguishable from a
+  centered Gaussian.
+
+## Exercises
+
+<Exercise hint="Solve 2 exp(−2 n t^2) = 0.05 for t; then for n with t = 0.05.">
+Using Hoeffding, compute the 95% confidence half-width for a success rate estimated from
+$n=50$ Bernoulli rollouts, and the number of rollouts needed for a half-width of $0.05$.
+Compare with the CLT-based width $1.96\sqrt{p(1-p)/n}$ at $p=\tfrac12$ and explain the gap.
+</Exercise>
+
+<Exercise hint="Compare the Taylor series term by term; (2k)! is at least 2^k k!.">
+Show that a Rademacher variable ($\pm1$ with probability $\tfrac12$ each) is $1$-sub-Gaussian by
+proving $\cosh\lambda\le e^{\lambda^2/2}$. Deduce a tail bound for $\sum_i\epsilon_ia_i$ with fixed
+$a\in\mathbb{R}^n$.
+</Exercise>
+
+<Exercise hint="Var(Z_i^2) = 2 for a standard Gaussian; apply Chebyshev to the sum of squares, then take square roots.">
+For $Z\sim\mathcal N(0,I_d)$ show $\mathbb{E}\|Z\|^2=d$ and $\mathbb{P}(|\|Z\|^2-d|\ge t)\le2d/t^2$. Conclude
+that $\|Z\|/\sqrt d\to1$ in probability, and compute the Chebyshev bound on
+$\mathbb{P}(|\|Z\|^2/d-1|\ge0.1)$ for $d=3\cdot256^2$ (a $256\times256$ RGB image).
+</Exercise>
+
+<Exercise hint="Union bound over s from 1 to t, then apply Thm 1 with the confidence width sqrt(2 log t / s).">
+Prove that $\mathbb{P}\big(\exists\,s\le t:\hat\mu_s\le\mu-\sqrt{2\log t/s}\big)\le t^{-3}$ for i.i.d.
+$[0,1]$ rewards, and explain why the UCB proof needed the union over $s$ rather than a single
+application of Hoeffding at $s=N^\star(t-1)$.
+</Exercise>
+
+## Going deeper
+
+Boucheron, Lugosi and Massart Ch. 2 prove everything above plus Bernstein's inequality (tail
+$\exp(-t^2/(2\sigma^2+2bt/3))$, which uses the true variance and is what UCB-VI and most modern
+RL theory use) and the Efron–Stein inequality behind McDiarmid. Vershynin Ch. 2–3 treats
+sub-Gaussian and sub-exponential norms, the concentration of $\|Z\|$ around $\sqrt d$ with a
+dimension-free constant, and its consequences for random matrices. Lattimore and Szepesvári
+Ch. 7–8 give the UCB proof above and its tight versions (KL-UCB, the $\sqrt{KT}$ minimax bound);
+Ch. 20 does the self-normalized bounds needed for linear bandits and, by extension, for
+exploration with function approximation.

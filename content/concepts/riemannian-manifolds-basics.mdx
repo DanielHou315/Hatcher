@@ -1,0 +1,374 @@
+---
+title: "Riemannian manifolds: the basics"
+kind: concept
+summary: "Manifolds, tangent spaces, metrics, geodesics, exponential and logarithm maps, and volume forms, with the sphere and SO(3) fully worked, ending at the statement of Riemannian flow matching and why generative policies on rotations need all of it."
+tags: [riemannian-geometry, manifolds, flow-matching, rotations, robotics]
+track: geometry-and-robotics
+level: 3
+prerequisites: [lie-groups-so3-se3, continuity-equation, gaussian-computations]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "2302.03660"
+    title: "Flow Matching on General Geometries"
+  - type: book
+    title: "Introduction to Riemannian Manifolds"
+    author: "John M. Lee"
+    where: "Ch. 2, 5, 6"
+  - type: arxiv
+    id: "2302.02277"
+    title: "SE(3) diffusion model with application to protein backbone generation"
+  - type: arxiv
+    id: "2310.02391"
+    title: "SE(3)-Stochastic Flow Matching for Protein Backbone Generation"
+  - type: arxiv
+    id: "2303.04137"
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+  - type: arxiv
+    id: "2209.03855"
+    title: "SE(3)-DiffusionFields: Learning smooth cost functions for joint grasp and motion optimization through diffusion"
+---
+
+## Why you need this
+
+Flow matching moves a sample along $\dot x_t = v_\theta(t,x_t)$ and trains $v_\theta$ to match
+$x_1 - x_0$, the velocity of the straight line from noise to data. On the set of rotations there
+are no straight lines, and $R_1 - R_0$ is not a tangent vector. Riemannian flow matching (Chen
+and Lipman, <Cite id="2302.03660" />) replaces the line by a geodesic, the difference by a
+logarithm map, and the Euclidean norm in the loss by a Riemannian metric; its main theorem is
+the Euclidean one with the continuity equation rewritten on the manifold. Diffusion and flow
+models for protein backbones (FrameDiff <Cite id="2302.02277" />, FoldFlow
+<Cite id="2310.02391" />) and for robot grasps and end-effector poses (SE(3)-DiffusionFields
+<Cite id="2209.03855" />) do exactly this on $SO(3)$ and $SE(3)$, while Diffusion Policy
+(<Cite id="2303.04137" />) avoids it by treating a 6-D rotation encoding as Euclidean. To read
+either kind of paper, or to decide which to build, you need the five objects on this page:
+manifold, tangent space, metric, geodesic with its $\exp$ and $\log$, and volume form.
+
+## Setup
+
+We only need manifolds that sit inside $\mathbb{R}^n$ and are cut out by equations; this covers
+spheres, tori, $SO(3)$ and $SE(3)$, and avoids charts and atlases entirely.
+
+<Definition name="Embedded manifold and tangent space">
+Let $F:\mathbb{R}^n\to\mathbb{R}^k$ be smooth and suppose the Jacobian $DF(x)$ has full rank
+$k$ at every $x$ with $F(x)=0$. Then $M = \{x\in\mathbb{R}^n : F(x) = 0\}$ is an embedded
+manifold of dimension $d = n-k$, and its tangent space at $x\in M$ is
+
+$$
+T_xM = \ker DF(x) = \{ v\in\mathbb{R}^n : DF(x)\,v = 0\},
+$$
+
+a $d$-dimensional linear subspace. Equivalently, $T_xM$ is the set of velocities $\dot\gamma(0)$
+of smooth curves $\gamma$ in $M$ with $\gamma(0) = x$: differentiate $F(\gamma(s)) = 0$.
+</Definition>
+
+Two examples carry the whole page. The sphere $S^2 = \{x\in\mathbb{R}^3 : \|x\|^2 = 1\}$ has
+$F(x) = \|x\|^2 - 1$, $DF(x) = 2x^\top$, so $T_xS^2 = \{v : \langle x, v\rangle = 0\}$. The
+rotation group $SO(3)\subset\mathbb{R}^{3\times3}$ has $F(R) = R^\top R - I$ (six independent
+equations), $DF(R)V = R^\top V + V^\top R$, and $T_RSO(3) = \{R\,\omega^\wedge : \omega\in\mathbb{R}^3\}$,
+which is the [Lie algebra](/concepts/lie-algebra-and-perturbations) translated to $R$.
+
+<Definition name="Riemannian metric, length, distance">
+A Riemannian metric assigns to each $x\in M$ an inner product $\langle\cdot,\cdot\rangle_x$ on
+$T_xM$, varying smoothly with $x$. The length of a curve $\gamma:[a,b]\to M$ is
+$\int_a^b\|\dot\gamma(t)\|_{\gamma(t)}\,\mathrm{d}t$, and the distance $d(x,y)$ is the infimum
+of lengths of curves from $x$ to $y$. On $S^2$ we use the metric inherited from $\mathbb{R}^3$,
+$\langle u,v\rangle_x = u^\top v$. On $SO(3)$ we use
+$\langle R\omega^\wedge, R\eta^\wedge\rangle_R = \omega^\top\eta$, which equals half the
+Frobenius inner product and is bi-invariant: left or right multiplication by a fixed rotation
+preserves it.
+</Definition>
+
+The gradient of $f:M\to\mathbb{R}$ is the tangent vector $\nabla_g f(x)\in T_xM$ with
+$\langle\nabla_g f, v\rangle_x = \mathrm{d}f(x)[v]$ for all tangent $v$; for the inherited
+metric on an embedded manifold it is the orthogonal projection of the Euclidean gradient onto
+$T_xM$. On $S^2$, $\nabla_g f(x) = (I - xx^\top)\nabla f(x)$.
+
+## The idea
+
+<Definition name="Geodesic, exponential map, logarithm map">
+A geodesic is a curve $\gamma$ in $M$ with constant speed whose acceleration is orthogonal to
+the manifold: $\ddot\gamma(t)\perp T_{\gamma(t)}M$ for all $t$ (this is the embedded-manifold
+form of the geodesic equation; Lee Ch. 5). Geodesics locally minimize length, and through each
+$x$ with each initial velocity $v\in T_xM$ there is exactly one, $\gamma_{x,v}$, by ODE
+uniqueness. The exponential map and its local inverse are
+
+$$
+\exp_x(v) = \gamma_{x,v}(1),
+\qquad
+\log_x(y) = \text{the } v\in T_xM \text{ of smallest norm with } \exp_x(v) = y ,
+$$
+
+and then $d(x,y) = \|\log_x(y)\|_x$ whenever the minimizing geodesic is unique. The path
+$t\mapsto\exp_x(t\log_x(y))$, $t\in[0,1]$, is the geodesic from $x$ to $y$ traversed at
+constant speed $d(x,y)$.
+</Definition>
+
+<Theorem name="Geodesics of the sphere" label="Thm 1">
+On $S^2$ with the inherited metric, for $x\in S^2$ and $v\in T_xS^2$ with $\|v\| = r > 0$,
+
+$$
+\exp_x(v) = \cos r\,x + \sin r\,\frac{v}{r},
+\qquad
+\log_x(y) = \frac{\theta}{\sin\theta}\big(y - \cos\theta\,x\big),\ \ \theta = \arccos\langle x,y\rangle\in(0,\pi),
+$$
+
+and $d(x,y) = \theta$. Geodesics are great circles, and $\log_x$ is defined for all $y\neq -x$.
+</Theorem>
+
+<Proof>
+Let $\gamma(t) = \cos(tr)\,x + \sin(tr)\,v/r$. Since $x\perp v$ and both $x$ and $v/r$ are
+unit vectors, $\|\gamma(t)\|^2 = \cos^2(tr) + \sin^2(tr) = 1$, so $\gamma$ lies in $S^2$.
+Differentiate: $\dot\gamma = r\big(-\sin(tr)\,x + \cos(tr)\,v/r\big)$ has constant norm $r$,
+and $\ddot\gamma = -r^2\gamma$, which is a multiple of the position vector $\gamma(t)$, hence
+orthogonal to $T_{\gamma(t)}S^2$. So $\gamma$ is a geodesic with $\gamma(0) = x$,
+$\dot\gamma(0) = v$; by uniqueness $\exp_x(v) = \gamma(1)$. It traces the great circle in the
+plane spanned by $x$ and $v$.
+
+For the logarithm, given $y\neq\pm x$ let $\theta = \arccos\langle x,y\rangle$ and
+$w = y - \langle x,y\rangle x = y - \cos\theta\,x$, the component of $y$ orthogonal to $x$;
+$\|w\|^2 = 1 - \cos^2\theta = \sin^2\theta$. Put $v = \theta\,w/\sin\theta$, so $\|v\| = \theta$
+and $\exp_x(v) = \cos\theta\,x + \sin\theta\,w/\sin\theta = \cos\theta\,x + w = y$. Any other
+preimage has norm $2\pi k\pm\theta$ with $k\ge1$, larger than $\theta$, so this is
+$\log_x(y)$, and $d(x,y) = \theta$ because great-circle arcs shorter than $\pi$ minimize length
+(Lee Thm 6.4 gives the general statement; for the sphere it also follows from the spherical
+triangle inequality). $\blacksquare$
+</Proof>
+
+<Proposition name="Geodesics of SO(3)" label="Prop 2">
+With the bi-invariant metric, the geodesic through $R$ with velocity $R\omega^\wedge$ is
+$\gamma(t) = R\exp(t\omega^\wedge)$. Hence
+
+$$
+\exp_R(R\omega^\wedge) = R\exp(\omega^\wedge),
+\qquad
+\log_R(R') = R\,\big(\operatorname{Log}(R^\top R')\big)^\wedge,
+\qquad
+d(R,R') = \big\|\operatorname{Log}(R^\top R')\big\| ,
+$$
+
+so the Riemannian $\exp$ and $\log$ are the group exponential and logarithm of the
+[previous pages](/concepts/lie-groups-so3-se3), and the distance is the angle of the relative
+rotation.
+</Proposition>
+
+<Proof>
+$\ddot\gamma(t) = R\exp(t\omega^\wedge)(\omega^\wedge)^2 = \gamma(t)\,(\omega^\wedge)^2$. The
+tangent space at $\gamma(t)$ is $\gamma(t)\cdot\{\text{skew}\}$, and $(\omega^\wedge)^2$ is
+symmetric. Under the Frobenius inner product a symmetric matrix is orthogonal to every skew
+matrix ($\operatorname{tr}(S^\top A) = \operatorname{tr}(SA) = -\operatorname{tr}(AS)$ forces
+it to vanish), and left multiplication by $\gamma(t)$ preserves the Frobenius product. So the
+acceleration is normal to the manifold, and the speed $\|\omega\|$ is constant. The formulas
+follow by evaluating at $t = 1$ and inverting. $\blacksquare$
+</Proof>
+
+Densities on $M$ need a reference measure, the analogue of Lebesgue measure.
+
+<Definition name="Riemannian volume">
+Let $\varphi:U\subset\mathbb{R}^d\to M$ be a smooth parameterization (a chart) and
+$G(u)_{ij} = \langle\partial_i\varphi(u),\partial_j\varphi(u)\rangle_{\varphi(u)}$ its metric
+matrix. The Riemannian volume measure is $\mathrm{d}\mathrm{vol}_g = \sqrt{\det G(u)}\,\mathrm{d}u$
+on the image of the chart; it does not depend on the chart, by the change of variables
+formula. A density on $M$ is a function $p\ge0$ with $\int_M p\,\mathrm{d}\mathrm{vol}_g = 1$.
+The divergence of a tangent vector field $u$ is
+$\operatorname{div}_g u = \frac{1}{\sqrt{\det G}}\partial_i\big(\sqrt{\det G}\,u^i\big)$ in
+chart coordinates, the unique operator with
+$\int_M\langle u,\nabla_g f\rangle\,\mathrm{d}\mathrm{vol}_g = -\int_M f\,\operatorname{div}_g u\,\mathrm{d}\mathrm{vol}_g$
+for compactly supported $f$.
+</Definition>
+
+With these, the [continuity equation](/concepts/continuity-equation) keeps its form: if
+$x_t$ follows $\dot x_t = u_t(x_t)$ on $M$ with $x_0\sim p_0$, then the density of $x_t$ with
+respect to $\mathrm{d}\mathrm{vol}_g$ satisfies $\partial_tp_t + \operatorname{div}_g(p_tu_t) = 0$.
+The proof is the Euclidean one: differentiate $\int f(x_t)$ for a test function $f$ and integrate
+by parts with $\operatorname{div}_g$.
+
+<Theorem name="Riemannian conditional flow matching, simple geometries" label="Thm 3">
+(Chen and Lipman <Cite id="2302.03660" />.) Let $M$ have closed-form $\exp$ and
+$\log$, let $q$ be the data distribution on $M$ and $p_0$ a noise distribution. For
+$x_0\sim p_0$, $x_1\sim q$ independent, define the geodesic conditional path and its velocity
+
+$$
+x_t = \exp_{x_1}\!\big((1-t)\log_{x_1}(x_0)\big),
+\qquad
+u_t(x_t\mid x_1) = \frac{\mathrm{d}x_t}{\mathrm{d}t} = \frac{\log_{x_t}(x_1)}{1-t},
+$$
+
+so $\|u_t\|_{x_t} = d(x_0,x_1)$ for all $t$. Let $p_t$ be the marginal law of $x_t$ and
+$u_t(x) = \mathbb{E}[u_t(x_t\mid x_1)\mid x_t = x]$. Then $u_t$ is a tangent vector field
+whose flow transports $p_0$ to $p_1 = q$, and the losses
+
+$$
+\mathcal L_{\mathrm{RFM}}(\theta) = \mathbb{E}_{t,x_t}\big\|v_\theta(t,x_t) - u_t(x_t)\big\|^2_{x_t},
+\qquad
+\mathcal L_{\mathrm{RCFM}}(\theta) = \mathbb{E}_{t,x_0,x_1}\big\|v_\theta(t,x_t) - u_t(x_t\mid x_1)\big\|^2_{x_t}
+$$
+
+have the same gradient in $\theta$, for $v_\theta(t,x)\in T_xM$. Sampling integrates
+$\dot x = v_\theta(t,x)$, for instance by $x\leftarrow\exp_x\big(h\,v_\theta(t,x)\big)$.
+</Theorem>
+
+The proof is the one on the [flow matching](/concepts/flow-matching) page with two
+substitutions: the continuity equation is the Riemannian one above, and the expansion of the
+squared norm uses $\langle\cdot,\cdot\rangle_{x_t}$, whose cross term
+$\mathbb{E}\langle v_\theta, u_t(x_t\mid x_1)\rangle_{x_t}$ equals
+$\mathbb{E}\langle v_\theta, u_t(x_t)\rangle_{x_t}$ by the tower property, exactly as in
+$\mathbb{R}^d$. The formula $u_t = \log_{x_t}(x_1)/(1-t)$ holds because $x_t$ moves along the
+geodesic from $x_0$ to $x_1$ at constant speed $d(x_0,x_1)$, and the remaining arc from $x_t$
+to $x_1$ has length $(1-t)\,d(x_0,x_1)$, so $\log_{x_t}(x_1)$ is the velocity scaled by $1-t$.
+For manifolds without closed-form geodesics (meshes, for instance) the paper replaces
+$\log_{x_1}$ by the gradient of a premetric such as a spectral distance; we do not cover that
+case.
+
+<Warning>
+On $SO(3)$ the geodesic path is $R_t = R_1\exp\big((1-t)\operatorname{Log}(R_1^\top R_0)\big)$
+and the target velocity, expressed as a vector in the body frame of $R_t$, is
+$\operatorname{Log}(R_t^\top R_1)/(1-t)$. A network that outputs this vector must have its
+output interpreted as $R_t\,v^\wedge\in T_{R_t}SO(3)$, and the loss norm must be the
+Riemannian one, i.e. the ordinary Euclidean norm of the $\mathbb{R}^3$ vector, not the
+Frobenius norm of $R_tv^\wedge - R_tu^\wedge$ (which is $\sqrt2$ times larger, harmless) and
+not the norm of $R_t - R_1$ (which is not a velocity at all).
+</Warning>
+
+## Worked example by hand
+
+<Example title="A geodesic flow-matching path on the sphere">
+Take $x_1 = (0,0,1)$ (data, the north pole) and $x_0 = (1,0,0)$ (noise, on the equator).
+Then $\langle x_0,x_1\rangle = 0$, so $\theta = \pi/2$ and by Thm 1
+$\log_{x_1}(x_0) = \frac{\pi/2}{1}\big(x_0 - 0\cdot x_1\big) = (\pi/2, 0, 0)$, tangent at the
+pole as it should be. The conditional path is
+
+$$
+x_t = \exp_{x_1}\!\big((1-t)(\tfrac{\pi}{2},0,0)\big)
+= \cos\!\big((1-t)\tfrac{\pi}{2}\big)\,x_1 + \sin\!\big((1-t)\tfrac{\pi}{2}\big)\,e_1
+= \Big(\sin\tfrac{(1-t)\pi}{2},\ 0,\ \cos\tfrac{(1-t)\pi}{2}\Big).
+$$
+
+At $t = 0$ this is $(1,0,0) = x_0$, at $t = 1$ it is $(0,0,1) = x_1$. At $t = \tfrac12$,
+$x_{1/2} = (\tfrac{1}{\sqrt2}, 0, \tfrac{1}{\sqrt2}) = (0.7071, 0, 0.7071)$.
+
+Velocity by differentiating: $\dot x_t = \tfrac{\pi}{2}\big(-\cos\tfrac{(1-t)\pi}{2}, 0, \sin\tfrac{(1-t)\pi}{2}\big)$,
+so $\dot x_{1/2} = \tfrac{\pi}{2}(-0.7071, 0, 0.7071) = (-1.1107, 0, 1.1107)$. Checks:
+$\langle\dot x_{1/2}, x_{1/2}\rangle = -0.7854 + 0.7854 = 0$, tangent; and
+$\|\dot x_{1/2}\| = \pi/2 = d(x_0,x_1)$, constant speed.
+
+Velocity by the formula $\log_{x_t}(x_1)/(1-t)$: $\langle x_{1/2}, x_1\rangle = 0.7071$, so
+$\theta' = \pi/4 = (1-t)\,\pi/2$, consistent. Then
+
+$$
+\log_{x_{1/2}}(x_1) = \frac{\pi/4}{\sin(\pi/4)}\big(x_1 - \cos(\pi/4)\,x_{1/2}\big)
+= \frac{\pi}{4}\cdot\sqrt2\cdot\big(-\tfrac12, 0, \tfrac12\big) = \tfrac{\pi}{4}\big(-\tfrac{1}{\sqrt2}, 0, \tfrac{1}{\sqrt2}\big),
+$$
+
+and dividing by $1-t = \tfrac12$ gives $\tfrac{\pi}{2}(-0.7071, 0, 0.7071)$, the same vector.
+
+One sampler step. Starting at $x_0$ with the true field $u_0(x_0\mid x_1) = \log_{x_0}(x_1) = (0,0,\pi/2)$
+and step $h = \tfrac12$: $\exp_{x_0}\big(\tfrac12(0,0,\tfrac{\pi}{2})\big) = \cos\tfrac{\pi}{4}\,x_0 + \sin\tfrac{\pi}{4}\,e_3 = (0.7071, 0, 0.7071) = x_{1/2}$,
+exactly on the path, because a geodesic step along a geodesic path makes no error. The
+Euclidean step $x_0 + h\,u_0 = (1, 0, 0.7854)$ has norm $1.27$ and is not on the sphere; a
+projection would land it at $(0.786, 0, 0.618)$, off the geodesic and $6.9^\circ$ short of $x_{1/2}$.
+</Example>
+
+<Example title="Volume on the sphere and a wrapped Gaussian">
+Parameterize $S^2$ by $\varphi(\phi,\psi) = (\sin\phi\cos\psi, \sin\phi\sin\psi, \cos\phi)$
+with $\phi\in(0,\pi)$ the polar angle. Then
+$\partial_\phi\varphi = (\cos\phi\cos\psi, \cos\phi\sin\psi, -\sin\phi)$ and
+$\partial_\psi\varphi = (-\sin\phi\sin\psi, \sin\phi\cos\psi, 0)$, so
+$G = \operatorname{diag}(1, \sin^2\phi)$ and $\mathrm{d}\mathrm{vol}_g = \sin\phi\,\mathrm{d}\phi\,\mathrm{d}\psi$.
+The uniform density is $p = 1/(4\pi)$, and indeed
+$\int_0^{2\pi}\!\int_0^\pi\frac{\sin\phi}{4\pi}\,\mathrm{d}\phi\,\mathrm{d}\psi = \frac{2\cdot2\pi}{4\pi} = 1$.
+
+Now the manifold analogue of a Gaussian centered at the north pole $x$: draw
+$v\sim\mathcal N(0,\sigma^2I_2)$ in $T_xS^2$ and set $y = \exp_x(v)$ (a wrapped normal). In
+polar coordinates $(r,\alpha)$ on the tangent plane, $\exp_x$ sends $(r,\alpha)$ to
+$(\phi,\psi) = (r,\alpha)$ for $r < \pi$, by Thm 1. Lebesgue measure on the plane is
+$r\,\mathrm{d}r\,\mathrm{d}\alpha$ while $\mathrm{d}\mathrm{vol}_g = \sin r\,\mathrm{d}r\,\mathrm{d}\alpha$,
+so the [change of variables](/concepts/gaussian-computations) gives, for $d(x,y) = r < \pi$
+and ignoring wrap-around at $\sigma\ll\pi$,
+
+$$
+p(y) = \frac{1}{2\pi\sigma^2}\,e^{-r^2/(2\sigma^2)}\cdot\frac{r}{\sin r}.
+$$
+
+Sanity checks: as $r\to0$ the factor $r/\sin r\to1$ and $p$ is the flat Gaussian; at
+$r = \pi/2$ the factor is $\pi/2 = 1.571$, so the density per unit area is $57\%$ higher than a
+flat Gaussian would say, because $\exp_x$ compresses area near the equator. The same
+computation on $SO(3)$ with $v\sim\mathcal N(0,\sigma^2I_3)$ in the Lie algebra gives the factor
+$1/\det J_r(v) = \theta^2/(2(1-\cos\theta))$ with $\theta = \|v\|$, since $\det J_r$ has
+eigenvalue $1$ along $v$ and determinant $(\sin\theta/\theta)^2 + ((1-\cos\theta)/\theta)^2 = 2(1-\cos\theta)/\theta^2$
+on the orthogonal plane.
+</Example>
+
+## Where it shows up
+
+- **Riemannian flow matching** (<Cite id="2302.03660" />). the conditional
+  path is written $x_t = \exp_{x_1}(\kappa(t)\log_{x_1}(x_0))$ with a decreasing scheduler
+  $\kappa$, $\kappa(t) = 1-t$ here; the marginal-field theorem is stated with the
+  Riemannian continuity equation; the experiments on spheres, tori and $SO(3)$ use exactly the
+  $\exp$ and $\log$ of Thm 1 and Prop 2. FoldFlow (<Cite id="2310.02391" />) is this recipe on
+  $SE(3)^N$ for protein frames, with the $SO(3)$ path
+  $R_t = R_0\exp\big(t\operatorname{Log}(R_0^\top R_1)\big)$ and loss on the tangent vector.
+- **Diffusion on $SO(3)$.** FrameDiff (<Cite id="2302.02277" />) needs a forward noising
+  process on rotations. The Euclidean Gaussian is replaced by the heat kernel on $SO(3)$, the
+  isotropic Gaussian $\mathrm{IG}_{SO(3)}(\sigma)$, whose density with respect to the Haar
+  volume depends only on the angle $\theta$: $f_\sigma(\theta) = \sum_{l\ge0}(2l+1)\,e^{-l(l+1)\sigma^2/2}\,\sin((l+\tfrac12)\theta)/\sin(\theta/2)$.
+  As $\sigma\to\infty$ only $l=0$ survives and $f\to1$, the uniform (Haar) distribution, whose
+  angle marginal is $(1-\cos\theta)/\pi$ by the volume computation of the last example. The
+  score is then a Riemannian gradient in $T_RSO(3)$, and the reverse SDE steps with
+  $\exp_R$, i.e. $R\leftarrow R\exp(\cdot^\wedge)$.
+- **Policies that output rotations.** SE(3)-DiffusionFields (<Cite id="2209.03855" />) puts
+  Langevin dynamics on grasp poses in $SE(3)$ with the noise in $\mathfrak{se}(3)$ and the
+  score as a tangent vector; Diffusion-EDFs (Ryu et al. 2023) do the same with an equivariant
+  score. Diffusion Policy (<Cite id="2303.04137" />) instead predicts positions plus the 6-D
+  rotation encoding (first two columns of $R$) and adds Euclidean noise in $\mathbb{R}^6$. That
+  is legitimate as a generative model on $\mathbb{R}^6$, but the intermediate $x_t$ are not
+  rotations, the network's denoising target $x_1 - x_0$ is not a tangent vector, and the
+  Gram–Schmidt projection at the end is not $\exp$: as the last example shows, it lands off the
+  geodesic. Mean predictions in a chart are also biased: the Euclidean average of the
+  rotations by $\pm90^\circ$ about $z$ is $\operatorname{diag}(0,0,1)$, not a rotation at all,
+  whereas the Riemannian mean (Fréchet mean, the minimizer of $\sum d(R,R_i)^2$) is $I$. Which
+  design wins empirically is an open question; understanding the difference is not.
+- **Uncertainty on poses.** The concentrated Gaussian $R = \bar R\exp(\varepsilon^\wedge)$ of the
+  [previous page](/concepts/lie-algebra-and-perturbations) is the wrapped normal above on
+  $SO(3)$; its normalizing constant and its density with respect to Haar carry the
+  $\det J_r$ factor computed there.
+
+## Exercises
+
+<Exercise hint="Write the two rotations with Rodrigues, average the matrices, and compute the Frobenius distance to I and to the projected (Gram-Schmidt) matrix; then compute Log of each and average in the algebra.">
+Let $R_\pm = \exp((\pm\tfrac{\pi}{2}e_3)^\wedge)$. Compute the Euclidean average
+$\tfrac12(R_+ + R_-)$ and show it is singular. Then show that $I$ minimizes
+$d(R,R_+)^2 + d(R,R_-)^2$ over rotations about $e_3$ by writing $R = \exp((\alpha e_3)^\wedge)$
+and minimizing over $\alpha$.
+</Exercise>
+
+<Exercise hint="Use Thm 1 with x = e_3 and check that exp_x(log_x(y)) = y; the angle is 60 degrees.">
+Let $x = (0,0,1)$ and $y = (\tfrac{\sqrt3}{2}, 0, \tfrac12)$. Compute $\log_x(y)$, $d(x,y)$,
+the midpoint $\exp_x(\tfrac12\log_x(y))$, and verify the midpoint is equidistant from $x$ and $y$.
+</Exercise>
+
+<Exercise hint="Differentiate the geodesic R_1 exp((1-t) w^) with w = Log(R_1^T R_0), and use Prop 2's log formula on R_t^T R_1 = exp(-(1-t) w^).">
+On $SO(3)$, verify directly that the path $R_t = R_1\exp\big((1-t)\operatorname{Log}(R_1^\top R_0)\big)$
+satisfies $\dot R_t = R_t\,u_t^\wedge$ with $u_t = \operatorname{Log}(R_t^\top R_1)/(1-t)$, and
+that $\|u_t\| = d(R_0,R_1)$ for all $t$.
+</Exercise>
+
+<Exercise hint="The angle marginal of Haar is (1 - cos theta)/pi; integrate f_sigma against it term by term using orthogonality of sin((l+1/2)theta) sin(theta/2) on [0, pi].">
+Show that $\int_0^\pi f_\sigma(\theta)\,\frac{1-\cos\theta}{\pi}\,\mathrm{d}\theta = 1$ for
+every $\sigma$, so that $\mathrm{IG}_{SO(3)}(\sigma)$ is a probability density with respect to
+Haar measure. Which single term of the series contributes?
+</Exercise>
+
+## Going deeper
+
+Lee, *Introduction to Riemannian Manifolds*, Ch. 2 (metrics), 5 (geodesics and the exponential
+map) and 6 (distance and minimizing curves) is the standard reference and is readable with
+this page as a map; Ch. 2 also defines the volume form and divergence properly. Chen and
+Lipman (<Cite id="2302.03660" />) is short and should now read as an application: Thm 3 is its
+simple-geometry case, and the general case handles geometries without closed-form geodesics
+through premetrics and spectral distances. Yim et al. (<Cite id="2302.02277" />) Appendix on
+$\mathrm{IG}_{SO(3)}$ is the cleanest derivation of the heat kernel on rotations in the ML
+literature.

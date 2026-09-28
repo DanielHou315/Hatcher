@@ -1,0 +1,346 @@
+---
+title: "Matrix calculus"
+kind: concept
+summary: "Gradients of quadratic, trace, and log-determinant forms; Jacobians and the change-of-variables formula for densities; PSD matrices, Cholesky, SVD, and the matrix exponential of a 2x2."
+tags: [linear-algebra, calculus, jacobian, change-of-variables, matrix-exponential]
+track: foundations
+level: 1
+prerequisites: []
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: web
+    title: "The Matrix Cookbook"
+    author: "Petersen & Pedersen"
+    where: "Sections 2 and 8"
+  - type: book
+    title: "Matrix Analysis"
+    author: "Horn & Johnson"
+    where: "Ch. 4 and 7"
+  - type: book
+    title: "Numerical Linear Algebra"
+    author: "Trefethen & Bau"
+    where: "Lectures 4, 5, 23"
+  - type: arxiv
+    id: "1801.01290"
+    title: "Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+---
+
+## Why you need this
+
+Three computations recur in every paper on this site. The gradient of a Gaussian
+log-density, $-\tfrac12 (x-\mu)^\top\Sigma^{-1}(x-\mu) - \tfrac12\log\det\Sigma$, with respect
+to $x$, $\mu$, and $\Sigma$. The change-of-variables formula $\log p_Y(y) = \log p_X(x) -
+\log|\det J_T(x)|$, which is the tanh-squashing correction in SAC's Appendix C, the density of
+a normalizing flow, and (in its continuous-time form) the likelihood formula for the
+probability-flow ODE in Song et al. 2021. And the matrix exponential $e^{tA}$, which solves
+every linear SDE and is the map from an angular velocity to a rotation in $SO(3)$. This page
+collects the rules and proves the ones that are short.
+
+## Setup
+
+Vectors are columns. For $f:\mathbb{R}^n\to\mathbb{R}$ the gradient $\nabla f(x)\in\mathbb{R}^n$
+has entries $\partial f/\partial x_i$, and the Hessian $\nabla^2 f(x)\in\mathbb{R}^{n\times n}$
+has entries $\partial^2 f/\partial x_i\partial x_j$. For $F:\mathbb{R}^n\to\mathbb{R}^m$ the
+Jacobian $J_F(x)\in\mathbb{R}^{m\times n}$ has entries $(J_F)_{ij} = \partial F_i/\partial x_j$,
+so that $F(x+h) = F(x) + J_F(x)h + o(\|h\|)$. For a scalar function of a matrix,
+$f:\mathbb{R}^{m\times n}\to\mathbb{R}$, the gradient $\nabla_X f$ is the $m\times n$ matrix
+with entries $\partial f/\partial X_{ij}$.
+
+The one tool that makes every rule below a two-line computation is the differential. Write
+$\mathrm{d}f$ for the first-order change of $f$ under a small perturbation $\mathrm{d}X$ of its
+argument. Then
+
+$$
+\mathrm{d}f = \operatorname{tr}\!\big(A^\top\mathrm{d}X\big)
+\quad\Longleftrightarrow\quad
+\nabla_X f = A ,
+$$
+
+because $\operatorname{tr}(A^\top \mathrm{d}X) = \sum_{ij} A_{ij}\,\mathrm{d}X_{ij}$ is exactly
+the first-order Taylor term. For vectors the same reads $\mathrm{d}f = a^\top\mathrm{d}x
+\Leftrightarrow \nabla f = a$. The product rule $\mathrm{d}(UV) = (\mathrm{d}U)V + U(\mathrm{d}V)$
+and the cyclic property $\operatorname{tr}(ABC) = \operatorname{tr}(CAB)$ do the rest.
+
+## The idea
+
+<Proposition name="Gradients of the standard forms" label="Prop 1">
+For $A\in\mathbb{R}^{n\times n}$, $a,b\in\mathbb{R}^n$, and $X$ square and invertible where
+needed:
+
+1. $\nabla_x\,(a^\top x) = a$.
+2. $\nabla_x\,(x^\top A x) = (A + A^\top)x$, and $\nabla^2_x (x^\top A x) = A + A^\top$.
+3. $\nabla_x\,\|Ax-b\|^2 = 2A^\top(Ax-b)$.
+4. $\nabla_X \operatorname{tr}(AX) = A^\top$.
+5. $\nabla_X \operatorname{tr}(X^\top A X) = (A+A^\top)X$.
+6. $\nabla_X \log\det X = X^{-\top}$.
+7. $\nabla_X\,(a^\top X^{-1} a) = -X^{-\top}aa^\top X^{-\top}$.
+
+When $A$ or $X$ is symmetric, $A + A^\top = 2A$ and $X^{-\top} = X^{-1}$.
+</Proposition>
+
+<Proof>
+Each is the differential written as a trace.
+
+(2) $\mathrm{d}(x^\top A x) = \mathrm{d}x^\top A x + x^\top A\,\mathrm{d}x
+= x^\top A^\top \mathrm{d}x + x^\top A\,\mathrm{d}x = \big((A+A^\top)x\big)^\top\mathrm{d}x$.
+The gradient is linear in $x$ with matrix $A+A^\top$, which is the Hessian.
+
+(3) With $r = Ax - b$, $\mathrm{d}\|r\|^2 = 2r^\top\mathrm{d}r = 2r^\top A\,\mathrm{d}x
+= (2A^\top r)^\top\mathrm{d}x$.
+
+(4) $\mathrm{d}\operatorname{tr}(AX) = \operatorname{tr}(A\,\mathrm{d}X)
+= \operatorname{tr}\big((A^\top)^\top\mathrm{d}X\big)$.
+
+(5) $\mathrm{d}\operatorname{tr}(X^\top A X) = \operatorname{tr}(\mathrm{d}X^\top A X) + \operatorname{tr}(X^\top A\,\mathrm{d}X)$.
+Transposing inside the first trace,
+$\operatorname{tr}(\mathrm{d}X^\top AX) = \operatorname{tr}(X^\top A^\top\mathrm{d}X)$, so the
+sum is $\operatorname{tr}\big(X^\top(A^\top + A)\,\mathrm{d}X\big)
+= \operatorname{tr}\big(((A+A^\top)X)^\top\mathrm{d}X\big)$.
+
+(6) This is Jacobi's formula, Lemma 2 below: $\mathrm{d}\log\det X
+= \operatorname{tr}(X^{-1}\mathrm{d}X) = \operatorname{tr}\big((X^{-\top})^\top\mathrm{d}X\big)$.
+
+(7) From $X X^{-1} = I$, $\mathrm{d}X\,X^{-1} + X\,\mathrm{d}(X^{-1}) = 0$, so
+$\mathrm{d}(X^{-1}) = -X^{-1}\,\mathrm{d}X\,X^{-1}$. Then
+$\mathrm{d}(a^\top X^{-1}a) = -a^\top X^{-1}\,\mathrm{d}X\,X^{-1}a
+= -\operatorname{tr}\big(X^{-1}aa^\top X^{-1}\,\mathrm{d}X\big)$, and the gradient is the
+transpose of $X^{-1}aa^\top X^{-1}$. $\blacksquare$
+</Proof>
+
+<Lemma name="Jacobi's formula" label="Lemma 2">
+For invertible $X$, $\mathrm{d}\det X = \det X\,\operatorname{tr}(X^{-1}\mathrm{d}X)$, hence
+$\mathrm{d}\log\det X = \operatorname{tr}(X^{-1}\mathrm{d}X)$.
+</Lemma>
+
+<Proof>
+Factor $\det(X + E) = \det X\cdot\det(I + X^{-1}E)$. So it suffices to show
+$\det(I+\varepsilon B) = 1 + \varepsilon\operatorname{tr}B + O(\varepsilon^2)$. Expand the
+determinant as a sum over permutations $\sigma$ of $\operatorname{sgn}(\sigma)
+\prod_i (\delta_{i\sigma(i)} + \varepsilon B_{i\sigma(i)})$. A permutation that is not the
+identity moves at least two indices, so its product contains at least two factors of
+$\varepsilon$ and is $O(\varepsilon^2)$. The identity permutation contributes
+$\prod_i(1+\varepsilon B_{ii}) = 1 + \varepsilon\sum_i B_{ii} + O(\varepsilon^2)$. $\blacksquare$
+</Proof>
+
+<Theorem name="Change of variables for densities" label="Thm 3">
+Let $X$ have density $p_X$ on $\mathbb{R}^d$ and let $T:\mathbb{R}^d\to\mathbb{R}^d$ be a
+$C^1$ bijection with $C^1$ inverse. Then $Y = T(X)$ has density
+
+$$
+p_Y(y) = p_X\big(T^{-1}(y)\big)\,\big|\det J_{T^{-1}}(y)\big|
+= \frac{p_X(x)}{|\det J_T(x)|}\Big|_{x = T^{-1}(y)} ,
+\qquad
+\log p_Y(y) = \log p_X(x) - \log|\det J_T(x)| .
+$$
+</Theorem>
+
+<Proof>
+For $d = 1$ and $T$ increasing: $F_Y(y) = \mathbb{P}(T(X)\le y) = \mathbb{P}(X\le T^{-1}(y))
+= F_X(T^{-1}(y))$. Differentiate with the chain rule: $p_Y(y) = p_X(T^{-1}(y))\,(T^{-1})'(y)$,
+and $(T^{-1})'(y) = 1/T'(x)$ by the inverse function rule. If $T$ is decreasing the same
+computation produces $-1/T'(x)$, which is why the absolute value appears.
+
+For general $d$ we use the substitution rule of multivariable calculus, which we take as
+known: for integrable $g$ and $T$ as in the statement,
+$\int_{T(A)} g(y)\,\mathrm{d}y = \int_A g(T(x))\,|\det J_T(x)|\,\mathrm{d}x$. Apply it with
+$A = T^{-1}(B)$ and $g = p_X\circ T^{-1}\cdot|\det J_{T^{-1}}|$:
+
+$$
+\mathbb{P}(Y\in B) = \mathbb{P}(X\in T^{-1}(B)) = \int_{T^{-1}(B)} p_X(x)\,\mathrm{d}x
+= \int_B p_X(T^{-1}(y))\,|\det J_{T^{-1}}(y)|\,\mathrm{d}y ,
+$$
+
+where the last step is the substitution rule read from right to left, using
+$J_{T^{-1}}(y) = J_T(x)^{-1}$ so that $|\det J_T(x)|\,|\det J_{T^{-1}}(y)| = 1$. A density is
+exactly a function whose integral over every $B$ gives $\mathbb{P}(Y\in B)$. $\blacksquare$
+</Proof>
+
+<Intuition>
+$|\det J_T(x)|$ is the factor by which $T$ stretches an infinitesimal volume at $x$. Mass is
+conserved, so if the volume grows by that factor the density must shrink by it. The formula is
+nothing more than $p_Y\,\mathrm{d}y = p_X\,\mathrm{d}x$.
+</Intuition>
+
+<Definition name="Positive (semi)definite matrices">
+A symmetric $A\in\mathbb{R}^{n\times n}$ is positive semidefinite (PSD, written $A\succeq 0$)
+if $x^\top A x\ge 0$ for all $x$, and positive definite (PD, $A\succ 0$) if $x^\top Ax > 0$
+for all $x\ne 0$. By the spectral theorem $A = Q\Lambda Q^\top$ with $Q$ orthogonal and
+$\Lambda$ diagonal, and $A\succeq 0$ iff all eigenvalues are $\ge 0$ iff $A = B^\top B$ for
+some $B$ (take $B = \Lambda^{1/2}Q^\top$). Covariance matrices are PSD because
+$x^\top\operatorname{Cov}(Z)x = \operatorname{Var}(x^\top Z)\ge 0$.
+</Definition>
+
+<Proposition name="Cholesky and SVD" label="Prop 4">
+1. (Cholesky) If $A\succ 0$ there is a unique lower-triangular $L$ with positive diagonal such
+   that $A = LL^\top$. For $2\times 2$: $L_{11} = \sqrt{a_{11}}$, $L_{21} = a_{21}/L_{11}$,
+   $L_{22} = \sqrt{a_{22} - L_{21}^2}$.
+2. (SVD) Every $A\in\mathbb{R}^{m\times n}$ factors as $A = U S V^\top$ with $U, V$ orthogonal
+   and $S$ diagonal with entries $s_1\ge s_2\ge\dots\ge 0$. The columns of $V$ are the
+   eigenvectors of $A^\top A$, the $s_i^2$ its eigenvalues, and $\|A\|_{\mathrm{op}} = s_1$.
+</Proposition>
+
+The Cholesky factor is how you sample $\mathcal N(\mu,\Sigma)$: if $z\sim\mathcal N(0,I)$ then
+$\mu + Lz$ has covariance $LL^\top = \Sigma$ (see
+[Gaussian computations](/concepts/gaussian-computations)). It also gives
+$\log\det\Sigma = 2\sum_i\log L_{ii}$, which is how libraries compute Gaussian log-likelihoods
+stably. The $2\times2$ formula is the first step of the general algorithm: peel off the first
+row and column, then recurse on the Schur complement $a_{22} - a_{21}^2/a_{11}$, which is
+positive because $A\succ 0$.
+
+<Definition name="Matrix exponential">
+For square $A$, $e^{A} = \sum_{k\ge 0} A^k/k!$; the series converges absolutely for every $A$
+since $\|A^k\|\le\|A\|^k$. Properties: $e^{tA}$ solves $\dot X = AX$, $X(0)=I$ (differentiate
+the series term by term); $e^{A}e^{B} = e^{A+B}$ when $AB = BA$ (and not in general);
+$e^{PDP^{-1}} = Pe^DP^{-1}$; and $\det e^{A} = e^{\operatorname{tr}A}$.
+</Definition>
+
+The last property follows from Jacobi: $\phi(t) = \det e^{tA}$ satisfies
+$\phi'(t) = \phi(t)\operatorname{tr}(e^{-tA}Ae^{tA}) = \phi(t)\operatorname{tr}A$, so
+$\phi(t) = e^{t\operatorname{tr}A}$. For a $2\times2$ matrix you never need the series: either
+diagonalize, or use $A^2 = -\theta^2 I$ for the rotation generator, or use nilpotence
+(Exercise 3).
+
+## Worked example by hand
+
+<Example title="Least squares gradient, with a check">
+Let $A = \begin{pmatrix}1 & 2\\ 0 & 1\\ 1 & 0\end{pmatrix}$, $b = (1, 1, 1)^\top$, and
+$f(x) = \|Ax - b\|^2$. By Prop 1(3), $\nabla f = 2A^\top(Ax-b)$ and setting it to zero gives
+the normal equations $A^\top A x = A^\top b$:
+
+$$
+A^\top A = \begin{pmatrix}2 & 2\\ 2 & 5\end{pmatrix},\qquad
+A^\top b = \begin{pmatrix}2\\ 3\end{pmatrix},\qquad
+x^\star = \frac{1}{10-4}\begin{pmatrix}5 & -2\\ -2 & 2\end{pmatrix}\begin{pmatrix}2\\3\end{pmatrix}
+= \frac16\begin{pmatrix}4\\ 2\end{pmatrix} = \begin{pmatrix}2/3\\ 1/3\end{pmatrix}.
+$$
+
+Check with the geometry: the residual $r = Ax^\star - b = (2/3+2/3-1,\ 1/3-1,\ 2/3-1)^\top
+= (1/3, -2/3, -1/3)^\top$ must be orthogonal to both columns of $A$. Column 1 gives
+$1/3 + 0 - 1/3 = 0$; column 2 gives $2/3 - 2/3 + 0 = 0$. Good. Check the gradient formula
+numerically at $x = (1,1)^\top$: $Ax - b = (2, 0, 0)^\top$, so $\nabla f = 2A^\top(2,0,0)^\top
+= (4, 8)^\top$. Finite difference in $x_1$ with $h = 10^{-3}$: $f(1.001,1) - f(1,1)$ equals
+$(2.001^2 + 0 + 0.001^2) - 4 = 0.004002$, divided by $h$ gives $4.002\to 4$. Good.
+</Example>
+
+<Example title="SAC's tanh squashing correction">
+SAC samples $u\sim\mathcal N(\mu,\sigma^2)$ and outputs the action $a = \tanh(u)\in(-1,1)$.
+Here $T = \tanh$, $T'(u) = 1 - \tanh^2(u)$, so Thm 3 gives
+
+$$
+\log p_A(a) = \log p_U(u) - \log\big(1 - \tanh^2 u\big),\qquad u = \operatorname{artanh}(a).
+$$
+
+Take $\mu = 0$, $\sigma = 1$, $u = 0.5$. Then $a = \tanh(0.5) = 0.4621$,
+$1 - a^2 = 0.7864$, $\log(0.7864) = -0.2403$. The Gaussian log-density is
+$\log p_U(0.5) = -\tfrac12\log(2\pi) - \tfrac12(0.5)^2 = -0.9189 - 0.125 = -1.0439$. Therefore
+$\log p_A(0.4621) = -1.0439 + 0.2403 = -0.8036$, i.e. $p_A(a)\approx 0.448$ versus
+$p_U(u)\approx 0.352$. The density went up because $\tanh$ compresses the interval around
+$0.5$ by the factor $0.786$. Sanity check: at $u = 0$ the map has slope $1$, so
+$p_A(0) = p_U(0) = 0.399$, and as $|u|\to\infty$ the correction $-\log(1-\tanh^2u)\to+\infty$,
+piling density up near $\pm1$. In $d$ dimensions with independent components the Jacobian is
+diagonal and the correction is $-\sum_i\log(1-\tanh^2u_i)$, which is eq. (21) in
+<Cite id="1801.01290" />.
+</Example>
+
+<Example title="Cholesky of a 2x2 covariance">
+$\Sigma = \begin{pmatrix}4 & 2\\ 2 & 3\end{pmatrix}$. Prop 4: $L_{11} = 2$, $L_{21} = 2/2 = 1$,
+$L_{22} = \sqrt{3 - 1} = \sqrt2$. Check:
+$LL^\top = \begin{pmatrix}2 & 0\\ 1 & \sqrt2\end{pmatrix}\begin{pmatrix}2 & 1\\ 0 & \sqrt2\end{pmatrix}
+= \begin{pmatrix}4 & 2\\ 2 & 1 + 2\end{pmatrix} = \Sigma$. And
+$\det\Sigma = 12 - 4 = 8 = (2\cdot\sqrt2)^2 = (\det L)^2$, so
+$\log\det\Sigma = 2(\log 2 + \tfrac12\log 2) = 3\log 2$. Good.
+</Example>
+
+<Example title="Two matrix exponentials">
+Rotation generator. $A = \begin{pmatrix}0 & -\theta\\ \theta & 0\end{pmatrix}$ has
+$A^2 = -\theta^2 I$, so even powers are $(-\theta^2)^k I$ and odd powers are
+$(-\theta^2)^k A$. Splitting the series,
+
+$$
+e^{tA} = \Big(\sum_k \frac{(-1)^k(\theta t)^{2k}}{(2k)!}\Big) I
++ \Big(\sum_k \frac{(-1)^k(\theta t)^{2k+1}}{(2k+1)!}\Big)\frac{A}{\theta}
+= \begin{pmatrix}\cos\theta t & -\sin\theta t\\ \sin\theta t & \cos\theta t\end{pmatrix}.
+$$
+
+Check: $\det e^{tA} = \cos^2 + \sin^2 = 1 = e^{t\operatorname{tr}A} = e^0$. This is the
+$2$-D version of Rodrigues' formula on
+[SO(3)](/concepts/lie-groups-so3-se3).
+
+Triangular drift. $A = \begin{pmatrix}-1 & 1\\ 0 & -2\end{pmatrix}$, the kind of drift
+matrix that appears in a linear SDE $\mathrm{d}X = AX\,\mathrm{d}t + \dots$. Eigenvalues
+$-1, -2$ with eigenvectors $(1,0)^\top$ and $(1,-1)^\top$, so $A = PDP^{-1}$ with
+$P = \begin{pmatrix}1 & 1\\ 0 & -1\end{pmatrix} = P^{-1}$ and
+
+$$
+e^{tA} = P\begin{pmatrix}e^{-t} & 0\\ 0 & e^{-2t}\end{pmatrix}P^{-1}
+= \begin{pmatrix}e^{-t} & e^{-t} - e^{-2t}\\ 0 & e^{-2t}\end{pmatrix}.
+$$
+
+Check: at $t = 0$ this is $I$; $\frac{\mathrm{d}}{\mathrm{d}t}\big|_{t=0}$ is
+$\begin{pmatrix}-1 & -1+2\\ 0 & -2\end{pmatrix} = A$; and
+$\det e^{tA} = e^{-3t} = e^{t\operatorname{tr}A}$. Good.
+</Example>
+
+## Where it shows up
+
+- SAC, <Cite id="1801.01290" />, Appendix C: the policy log-likelihood with tanh squashing is
+  Thm 3 with a diagonal Jacobian. Every "squashed Gaussian" policy in robot learning (including
+  the Gaussian heads used as baselines against Diffusion Policy) carries this term.
+- Score-SDE, <Cite id="2011.13456" />, Appendix D.2: the log-likelihood of the probability-flow
+  ODE is $\log p_0(x_0) = \log p_T(x_T) + \int_0^T \nabla\!\cdot\tilde f_\theta(x_t,t)\,\mathrm{d}t$.
+  The divergence $\nabla\cdot\tilde f = \operatorname{tr}J_{\tilde f}$ is the instantaneous
+  version of $\log|\det J_T|$; see [the continuity equation](/concepts/continuity-equation).
+  It is estimated with the Skilling–Hutchinson trick $\operatorname{tr}J = \mathbb{E}[v^\top Jv]$
+  for $v\sim\mathcal N(0,I)$, which is Prop 1(2) in expectation. -
+Gaussian log-likelihoods: $\nabla_\mu$ and $\nabla_\Sigma$ of $\log\mathcal N(x;\mu,\Sigma)$
+  are Prop 1(2), (6), (7). Worked out on
+  [Gaussian computations](/concepts/gaussian-computations). -
+Linear SDEs and the OU process: the transition matrix is $e^{tA}$, and the covariance ODE
+  $\dot\Sigma = A\Sigma + \Sigma A^\top + \sigma\sigma^\top$ is solved with it. See
+  [linear SDEs and OU](/concepts/linear-sde-and-ou). -
+Flow-matching losses $\|v_\theta(x,t) - u_t(x)\|^2$ are Prop 1(3) with $A = I$; the gradient
+  through the network is a chain of Jacobians.
+
+## Exercises
+
+<Exercise hint="Write the exponent as a quadratic form in x and use Prop 1(2); for Sigma use Prop 1(6) and (7) with a = x minus mu.">
+For $\ell(x) = -\tfrac12(x-\mu)^\top\Sigma^{-1}(x-\mu) - \tfrac12\log\det\Sigma$ with
+$\Sigma$ symmetric PD, show $\nabla_x\ell = -\Sigma^{-1}(x-\mu)$, $\nabla_\mu\ell = \Sigma^{-1}(x-\mu)$,
+and $\nabla_\Sigma\ell = \tfrac12\big(\Sigma^{-1}(x-\mu)(x-\mu)^\top\Sigma^{-1} - \Sigma^{-1}\big)$.
+</Exercise>
+
+<Exercise hint="The Jacobian of y = Ax + b is A; then use det of a product and Thm 3.">
+Let $x\sim\mathcal N(0, I_d)$ and $y = Lx + \mu$ with $L$ lower triangular with positive
+diagonal. Use Thm 3 to show $y$ has density
+$(2\pi)^{-d/2}(\det L)^{-1}\exp\big(-\tfrac12\|L^{-1}(y-\mu)\|^2\big)$, and identify it as
+$\mathcal N(\mu, LL^\top)$.
+</Exercise>
+
+<Exercise hint="N^2 = 0, so the series stops after two terms.">
+Compute $e^{tA}$ for $A = \begin{pmatrix}0 & 1\\ 0 & 0\end{pmatrix}$ directly from the
+series, and check that it solves $\dot X = AX$. Then compute $e^{tB}$ for
+$B = \begin{pmatrix}-1 & 1\\ 0 & -1\end{pmatrix}$ by writing $B = -I + A$ and using that $-I$
+commutes with everything.
+</Exercise>
+
+<Exercise hint="Apply Prop 1(6) to X = A + t E and differentiate at t = 0; compare with the second-order term of Lemma 2's expansion.">
+Show that the Hessian of $\log\det$ acts on a perturbation $E$ by
+$\mathrm{d}^2\log\det X\,[E,E] = -\operatorname{tr}(X^{-1}EX^{-1}E)$, and deduce that
+$\log\det$ is concave on symmetric PD matrices.
+</Exercise>
+
+## Going deeper
+
+The Matrix Cookbook is the reference to keep open; every identity on this page is in its
+Sections 2.1 to 2.5 and 8.1. Horn and Johnson Ch. 4 has the spectral theorem and Ch. 7 the
+theory of PSD matrices and Cholesky; Trefethen and Bau Lectures 4 and 5 are the cleanest
+account of the SVD and Lecture 23 of Cholesky. For the matrix exponential of a general
+$n\times n$ matrix, including the non-diagonalizable case through Jordan form, see Horn and
+Johnson Ch. 6. Magnus and Neudecker, *Matrix Differential Calculus*, is the rigorous version
+of the differential notation used above.

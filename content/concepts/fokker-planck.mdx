@@ -1,0 +1,359 @@
+---
+title: "The Fokker–Planck equation"
+kind: concept
+summary: "The PDE that the density of an SDE solution obeys, derived from Itô's lemma and integration by parts, with the generator, its adjoint, and the score form that diffusion models run on."
+tags: [stochastic-calculus, sde, fokker-planck, kolmogorov-equations, diffusion-models]
+track: stochastic-analysis
+level: 3
+prerequisites: [ito-lemma, integration-by-parts-and-stein, linear-sde-and-ou]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 7–8"
+  - type: book
+    title: "Stochastic Processes and Applications"
+    author: "Grigorios A. Pavliotis"
+    where: "Ch. 4"
+  - type: book
+    title: "The Fokker–Planck Equation"
+    author: "Hannes Risken"
+    where: "Ch. 4–6"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2101.09258"
+    title: "Maximum Likelihood Training of Score-Based Diffusion Models"
+---
+
+## Why you need this
+
+The forward process of a diffusion model is an SDE, but everything you train and sample with is a
+statement about densities: the score $\nabla\log p_t$, the perturbation kernel $p_t(x_t\mid x_0)$,
+the model likelihood. The Fokker–Planck equation is the bridge. It is the PDE that $p_t$ satisfies,
+and it falls out of [Itô's lemma](/concepts/ito-lemma) plus
+[integration by parts](/concepts/integration-by-parts-and-stein) in ten lines. Anderson's
+reverse-time SDE (Eq. 6 of <Cite id="2011.13456" />) and the probability flow ODE (their Eq. 13)
+are both read off from it; the Schrödinger system behind
+[Schrödinger bridges](/concepts/schrodinger-bridge) is a forward and a backward Kolmogorov equation;
+the de Bruijn identity that justifies likelihood weighting in <Cite id="2101.09258" /> is
+Fokker–Planck tested against $\log p_t$.
+
+## Setup
+
+Let $X_t\in\mathbb{R}^d$ solve
+
+$$
+\mathrm{d}X_t = \mu(X_t,t)\,\mathrm{d}t + \sigma(X_t,t)\,\mathrm{d}W_t ,
+$$
+
+with $W$ an $m$-dimensional Brownian motion, $\sigma\in\mathbb{R}^{d\times m}$, and the
+diffusion matrix $D = \sigma\sigma^{\top}\in\mathbb{R}^{d\times d}$ (symmetric positive
+semidefinite). Standing assumptions:
+
+- **(A)** $\mu$ and $\sigma$ are locally Lipschitz with linear growth, so the SDE has a unique
+  solution ([existence and uniqueness](/concepts/linear-sde-and-ou)), and they are $C^1$ in $x$.
+- **(B)** For $t>0$ the law of $X_t$ has a density $p_t$ that is $C^2$ in $x$ and $C^1$ in $t$,
+  and $p_t$ together with its first two $x$-derivatives decays fast enough at infinity that the
+  boundary terms in integration by parts vanish.
+
+(B) is a genuine hypothesis. It holds when $D$ is uniformly positive definite and the coefficients
+are smooth and bounded (Friedman, *SDEs and Applications*, Vol. 1, Ch. 6); for the
+Ornstein–Uhlenbeck process below we verify it by hand because the density is Gaussian.
+
+Test functions are $\varphi\in C_c^2(\mathbb{R}^d)$: twice continuously differentiable with compact
+support. We write $\nabla\cdot v = \sum_i \partial_i v_i$ for the divergence and
+$\Delta = \nabla\cdot\nabla$ for the Laplacian.
+
+<Definition name="Generator">
+The (infinitesimal) generator of the diffusion at time $t$ is the differential operator
+
+$$
+(\mathcal{L}_t\varphi)(x)
+= \mu(x,t)\cdot\nabla\varphi(x) + \tfrac12\operatorname{tr}\!\big(D(x,t)\,\nabla^2\varphi(x)\big)
+= \sum_i \mu_i\,\partial_i\varphi + \tfrac12\sum_{i,j} D_{ij}\,\partial_i\partial_j\varphi .
+$$
+
+It is exactly the $\mathrm{d}t$ coefficient in Itô's lemma:
+$\mathrm{d}\varphi(X_t) = \mathcal{L}_t\varphi(X_t)\,\mathrm{d}t + \nabla\varphi(X_t)^{\top}\sigma\,\mathrm{d}W_t$.
+Equivalently, $\mathcal{L}_t\varphi(x) = \lim_{h\downarrow 0} h^{-1}\big(\mathbb{E}[\varphi(X_{t+h})\mid X_t = x] - \varphi(x)\big)$:
+the expected instantaneous rate of change of $\varphi$ along the process.
+</Definition>
+
+<Definition name="Adjoint generator">
+The formal adjoint of $\mathcal{L}_t$ is
+
+$$
+(\mathcal{L}_t^{*}p)(x)
+= -\sum_i \partial_i\big(\mu_i(x,t)\,p(x)\big) + \tfrac12\sum_{i,j}\partial_i\partial_j\big(D_{ij}(x,t)\,p(x)\big) .
+$$
+
+Note the derivatives now fall on the products $\mu_i p$ and $D_{ij}p$, not on $p$ alone.
+</Definition>
+
+<Lemma name="Duality" label="Lemma 1">
+For $\varphi\in C_c^2$ and $p$ satisfying (B),
+$\displaystyle\int_{\mathbb{R}^d}(\mathcal{L}_t\varphi)\,p\,\mathrm{d}x = \int_{\mathbb{R}^d}\varphi\,(\mathcal{L}_t^{*}p)\,\mathrm{d}x$.
+</Lemma>
+
+<Proof>
+Integrate by parts once on the drift term and twice on the diffusion term. Because $\varphi$ has
+compact support every boundary term is zero:
+
+$$
+\int \mu_i\,(\partial_i\varphi)\,p\,\mathrm{d}x = -\int \varphi\,\partial_i(\mu_i p)\,\mathrm{d}x ,
+\qquad
+\int D_{ij}\,(\partial_i\partial_j\varphi)\,p\,\mathrm{d}x
+= -\int (\partial_j\varphi)\,\partial_i(D_{ij}p)\,\mathrm{d}x
+= \int \varphi\,\partial_j\partial_i(D_{ij}p)\,\mathrm{d}x .
+$$
+
+Sum over $i$ and $i,j$ with the factors $1$ and $\tfrac12$. $\blacksquare$
+</Proof>
+
+## The idea
+
+<Theorem name="Fokker–Planck equation (Kolmogorov forward equation)" label="Thm 1">
+Under (A) and (B), the density $p_t$ of $X_t$ satisfies
+
+$$
+\partial_t p_t = \mathcal{L}_t^{*}p_t ,
+\qquad\text{i.e.}\qquad
+\partial_t p_t(x) = -\nabla\cdot\big(\mu(x,t)\,p_t(x)\big)
++ \tfrac12\sum_{i,j}\partial_i\partial_j\big(D_{ij}(x,t)\,p_t(x)\big),
+$$
+
+with initial condition $p_0$ the law of $X_0$.
+</Theorem>
+
+<Proof>
+Fix $\varphi\in C_c^2$.
+
+1. **Itô.** By the vector form of Itô's lemma,
+   $\varphi(X_t) = \varphi(X_0) + \int_0^t \mathcal{L}_s\varphi(X_s)\,\mathrm{d}s + \int_0^t \nabla\varphi(X_s)^{\top}\sigma(X_s,s)\,\mathrm{d}W_s$.
+2. **Expectation.** The integrand of the stochastic integral is bounded: $\nabla\varphi$ vanishes
+   outside a compact set $K$, and $\sigma$ is continuous, hence bounded on $K$. A stochastic
+   integral with bounded integrand is a martingale ([Itô isometry](/concepts/stochastic-integral)),
+   so its expectation is zero:
+   $$
+   \mathbb{E}\,\varphi(X_t) = \mathbb{E}\,\varphi(X_0) + \int_0^t \mathbb{E}\big[\mathcal{L}_s\varphi(X_s)\big]\mathrm{d}s .
+   $$
+   The integrand is continuous in $s$, so we may differentiate:
+   $\frac{\mathrm{d}}{\mathrm{d}t}\mathbb{E}\,\varphi(X_t) = \mathbb{E}\big[\mathcal{L}_t\varphi(X_t)\big]$.
+3. **Densities.** Write both sides with $p_t$. On the left,
+   $\frac{\mathrm{d}}{\mathrm{d}t}\int\varphi\,p_t\,\mathrm{d}x = \int \varphi\,\partial_t p_t\,\mathrm{d}x$
+   (differentiation under the integral is justified by (B) and the compact support of $\varphi$).
+   On the right, $\int(\mathcal{L}_t\varphi)\,p_t\,\mathrm{d}x = \int\varphi\,\mathcal{L}_t^{*}p_t\,\mathrm{d}x$
+   by Lemma 1.
+4. **Conclude.** $\int\varphi\,\big(\partial_t p_t - \mathcal{L}_t^{*}p_t\big)\mathrm{d}x = 0$ for
+   every $\varphi\in C_c^2$. A continuous function whose integral against every compactly
+   supported test function vanishes is identically zero (if it were positive at a point, integrate
+   against a small bump there). Hence $\partial_t p_t = \mathcal{L}_t^{*}p_t$. $\blacksquare$
+</Proof>
+
+<Intuition>
+Fokker–Planck is conservation of probability. Write it as $\partial_t p = -\nabla\cdot J$ with
+the probability flux $J_i = \mu_i p - \tfrac12\sum_j\partial_j(D_{ij}p)$. The drift carries mass
+along $\mu$; the diffusion term is a Fick's-law flux that pushes mass from high density to low.
+Total mass $\int p\,\mathrm{d}x$ is conserved because $\int\nabla\cdot J = 0$.
+</Intuition>
+
+The same generator also governs expectations of a terminal payoff, but running backward in time.
+
+<Theorem name="Kolmogorov backward equation" label="Thm 2">
+Fix $T>0$ and a bounded $C^2$ function $\phi$. Let
+$u(x,t) = \mathbb{E}\big[\phi(X_T)\mid X_t = x\big]$ for $t\le T$. If $u$ is $C^{2,1}$, then
+
+$$
+\partial_t u + \mathcal{L}_t u = 0 \quad\text{on } \mathbb{R}^d\times[0,T),
+\qquad u(x,T) = \phi(x).
+$$
+</Theorem>
+
+<Proof>
+By the Markov property, $M_t = u(X_t,t) = \mathbb{E}[\phi(X_T)\mid\mathcal{F}_t]$, and by the tower
+property $M$ is a martingale. Itô's lemma gives
+$\mathrm{d}M_t = (\partial_t u + \mathcal{L}_t u)(X_t,t)\,\mathrm{d}t + \nabla u^{\top}\sigma\,\mathrm{d}W_t$.
+A continuous martingale cannot carry a nonzero $\mathrm{d}t$ term: if $a = \partial_t u + \mathcal{L}_t u$
+were, say, positive on an open set $U$ around $(x_0,t_0)$, then starting the process at $x_0$ at
+time $t_0$ gives $\mathbb{E}[M_{t_0+h}] - M_{t_0} = \mathbb{E}\int_{t_0}^{t_0+h} a(X_s,s)\,\mathrm{d}s > 0$
+for small $h$, contradicting the martingale property. So $a\equiv 0$. $\blacksquare$
+</Proof>
+
+Keep the two equations apart. The forward equation (Thm 1) evolves a *density* forward from
+$p_0$ and uses $\mathcal{L}^{*}$. The backward equation (Thm 2) evolves an *expectation* backward
+from a terminal condition and uses $\mathcal{L}$. Both live inside the transition density
+$k(x,s;\,y,t)$ of $X_t = y$ given $X_s = x$: as a function of $(y,t)$ it solves the forward
+equation, as a function of $(x,s)$ the backward one. The proof of
+[Anderson's time-reversal theorem](/concepts/time-reversal-of-diffusions) uses both at once.
+
+<Proposition name="Stationary solutions for gradient drift (Langevin)" label="Prop 3">
+Let $\mu = -\nabla U$ for a $C^2$ potential $U$ with $Z = \int e^{-U}\mathrm{d}x$ finite, and
+$\sigma = \sqrt2\,I$. Then $p_\infty = e^{-U}/Z$ satisfies $\mathcal{L}^{*}p_\infty = 0$.
+</Proposition>
+
+<Proof>
+Here $D = 2I$, so $\mathcal{L}^{*}p = \nabla\cdot(p\,\nabla U) + \Delta p = \nabla\cdot\big(p\,\nabla U + \nabla p\big) = \nabla\cdot\big(p\,(\nabla U + \nabla\log p)\big)$, using $\nabla p = p\,\nabla\log p$. For
+$p = p_\infty$, $\nabla\log p_\infty = -\nabla U$ and the bracket vanishes. $\blacksquare$
+</Proof>
+
+In fact the flux $J = -p_\infty\nabla U - \nabla p_\infty$ is zero pointwise, not merely
+divergence-free. This is called detailed balance, and it is why Langevin sampling with the score
+in place of $-\nabla U$ targets the right distribution.
+
+<Proposition name="Continuity-equation form with the score" label="Prop 4">
+If $\sigma(x,t) = g(t)\,I$ (state-independent, isotropic), then Fokker–Planck reads
+
+$$
+\partial_t p_t = -\nabla\cdot\big(p_t\,v_t\big),
+\qquad
+v_t(x) = \mu(x,t) - \tfrac12 g(t)^2\,\nabla\log p_t(x) .
+$$
+</Proposition>
+
+<Proof>
+$D = g^2 I$, so the diffusion term is $\tfrac12 g^2\Delta p = \tfrac12 g^2\nabla\cdot(\nabla p) = \nabla\cdot\big(\tfrac12 g^2\,p\,\nabla\log p\big)$ wherever $p>0$. Move it into the drift
+divergence. $\blacksquare$
+</Proof>
+
+This is a [continuity equation](/concepts/continuity-equation): the *deterministic* flow
+$\dot x = v_t(x)$ transports $p_0$ to exactly the same $p_t$ as the SDE. That flow is the
+probability flow ODE. For general $\sigma$ the same manipulation gives
+$v_t = \mu - \tfrac12\nabla\cdot D - \tfrac12 D\,\nabla\log p_t$, where
+$(\nabla\cdot D)_i = \sum_j\partial_j D_{ij}$.
+
+<Warning>
+Fokker–Planck only sees the one-time marginals $p_t$. Different processes can share every $p_t$
+and still have different joint laws: the SDE and its probability flow ODE are the standard example.
+Never read a pathwise or two-time statement off the Fokker–Planck equation alone.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Ornstein–Uhlenbeck: the Gaussian solves Fokker–Planck">
+Take $d=1$, $\mathrm{d}X_t = -\theta X_t\,\mathrm{d}t + \sigma\,\mathrm{d}W_t$, $X_0 = x_0$
+deterministic. Fokker–Planck is
+
+$$
+\partial_t p = \theta\,\partial_x(x\,p) + \tfrac12\sigma^2\,\partial_{xx}p .
+$$
+
+**Ansatz.** From the [OU page](/concepts/linear-sde-and-ou) we expect
+$p_t = \mathcal{N}(m_t, v_t)$. Let us find which $m_t, v_t$ the PDE forces, without using the
+SDE solution. Write $p = (2\pi v)^{-1/2}\exp\!\big(-(x-m)^2/(2v)\big)$ and $z = x - m$. Then
+
+$$
+\partial_x p = -\frac{z}{v}\,p,
+\qquad
+\partial_{xx}p = \Big(\frac{z^2}{v^2} - \frac1v\Big)p,
+\qquad
+\partial_t p = \Big(-\frac{\dot v}{2v} + \frac{z\,\dot m}{v} + \frac{z^2\,\dot v}{2v^2}\Big)p .
+$$
+
+(For $\partial_t p$: differentiate $\log p = -\tfrac12\log(2\pi v) - z^2/(2v)$ in $t$, remembering
+$\partial_t z = -\dot m$.)
+
+**Drift term.** $\partial_x(xp) = p + x\,\partial_x p = \big(1 - \tfrac{x z}{v}\big)p$, and with
+$x = z + m$, $xz = z^2 + mz$. So
+
+$$
+\theta\,\partial_x(xp) = \Big(\theta - \frac{\theta m}{v}\,z - \frac{\theta}{v}\,z^2\Big)p .
+$$
+
+**Match powers of $z$.** Divide the PDE by $p$ and compare coefficients:
+
+- $z^0$: $\;-\dfrac{\dot v}{2v} = \theta - \dfrac{\sigma^2}{2v}$, i.e. $\dot v = -2\theta v + \sigma^2$.
+- $z^1$: $\;\dfrac{\dot m}{v} = -\dfrac{\theta m}{v}$, i.e. $\dot m = -\theta m$.
+- $z^2$: $\;\dfrac{\dot v}{2v^2} = -\dfrac{\theta}{v} + \dfrac{\sigma^2}{2v^2}$, i.e. again $\dot v = -2\theta v + \sigma^2$.
+
+Three equations, two unknown functions, and they are consistent: a Gaussian ansatz closes. With
+$m_0 = x_0$, $v_0 = 0$,
+
+$$
+m_t = x_0 e^{-\theta t},
+\qquad
+v_t = \frac{\sigma^2}{2\theta}\big(1 - e^{-2\theta t}\big).
+$$
+
+Check $v$: $\dot v_t = \sigma^2 e^{-2\theta t}$ and $-2\theta v_t + \sigma^2 = -\sigma^2(1-e^{-2\theta t}) + \sigma^2 = \sigma^2 e^{-2\theta t}$. Same.
+
+**Numbers.** $\theta = 1$, $\sigma = \sqrt2$, $x_0 = 2$: $m_t = 2e^{-t}$, $v_t = 1 - e^{-2t}$. At
+$t = \ln 2$: $m = 1$, $v = 1 - \tfrac14 = 0.75$, so $p_{\ln 2} = \mathcal{N}(1, 0.75)$ and the score
+at $x = 1.5$ is $\partial_x\log p = -(1.5-1)/0.75 = -2/3$.
+
+**Sanity checks.** (i) As $t\to\infty$, $p_t\to\mathcal{N}(0,1)$. Prop 3 with $U = x^2/2$ and
+$\sigma=\sqrt2$ predicts the stationary density $e^{-x^2/2}/\sqrt{2\pi}$; and directly,
+$\mathcal{L}^{*}p = \partial_x(xp) + \partial_{xx}p = \partial_x(xp - xp) = 0$ for that $p$.
+(ii) With $\theta = \beta/2$, $\sigma = \sqrt\beta$ we get $v_t = 1 - e^{-\beta t}$, the DDPM
+variance $1 - \bar\alpha_t$ found on the [Itô page](/concepts/ito-lemma) by solving the SDE.
+(iii) Assumption (B) holds: a Gaussian with $v_t > 0$ is smooth and decays like $e^{-cx^2}$.
+</Example>
+
+## Where it shows up
+
+- **Probability flow ODE.** Appendix D of <Cite id="2011.13456" /> is Prop 4 verbatim: rewrite the
+  diffusion term of Fokker–Planck as a divergence of $p\,\nabla\log p$, read off the velocity, and
+  get their Eq. (13). Their reverse SDE, Eq. (6), is Anderson's theorem, whose proof is
+  Thm 1 and Thm 2 applied together; see
+  [time reversal of diffusions](/concepts/time-reversal-of-diffusions).
+- **Langevin samplers.** Prop 3 is the entire justification for Langevin MCMC, SGLD, annealed
+  Langevin dynamics (Song and Ermon 2019), and the corrector steps of predictor–corrector sampling:
+  run $\mathrm{d}X = s_\theta(X,t)\,\mathrm{d}t + \sqrt2\,\mathrm{d}W$ and, if $s_\theta = \nabla\log p_t$,
+  the stationary density is $p_t$.
+- **Likelihood weighting.** Test Fokker–Planck against $\log p_t$ instead of a compactly supported
+  $\varphi$ and you get the de Bruijn identity (Exercise 4), the identity that turns the score
+  matching loss into a bound on negative log-likelihood in Theorem 1 of <Cite id="2101.09258" />.
+- **Flow matching.** Lipman et al. 2022 build a velocity $v_t$ with $\partial_t p_t = -\nabla\cdot(p_t v_t)$
+  directly; Prop 4 says the diffusion path's velocity is $\mu - \tfrac12 g^2\nabla\log p_t$, which is
+  how [flow matching](/concepts/flow-matching) recovers score-based models as a special case.
+- **Schrödinger bridges.** The Schrödinger system of De Bortoli et al. 2021 consists of a function
+  $\hat\varphi_t$ solving the forward equation (Thm 1) and $\varphi_t$ solving the backward equation
+  (Thm 2), with $p_t = \varphi_t\hat\varphi_t$; see [Schrödinger bridge](/concepts/schrodinger-bridge).
+- **Control.** Add a running reward and a maximum over controls to Thm 2 and you have the
+  Hamilton–Jacobi–Bellman equation, the continuous-time ancestor of the
+  [Bellman operators](/concepts/mdp-and-bellman-operators).
+
+## Exercises
+
+<Exercise hint="u(x,t) = x exp(-theta (T - t)). Compute the three partial derivatives and add them with the OU generator.">
+For the OU process $\mathrm{d}X_t = -\theta X_t\,\mathrm{d}t + \sigma\,\mathrm{d}W_t$, verify by
+direct differentiation that $u(x,t) = \mathbb{E}[X_T\mid X_t = x]$ solves the backward equation
+$\partial_t u - \theta x\,\partial_x u + \tfrac12\sigma^2\partial_{xx}u = 0$ with $u(x,T) = x$.
+</Exercise>
+
+<Exercise hint="Multiply Fokker–Planck by x (then by x^2), integrate over the line, and integrate by parts; the diffusion term contributes 0 for the mean and sigma^2 for the second moment.">
+Without any Gaussian ansatz, derive the moment ODEs $\dot m = -\theta m$ and
+$\dot v = -2\theta v + \sigma^2$ for the OU process directly from Fokker–Planck, using $x$ and
+$x^2$ as test functions. (They are not compactly supported; say what extra decay you need from
+$p_t$ to justify the boundary terms.)
+</Exercise>
+
+<Exercise hint="Repeat the computation of Prop 3 with D = (2/beta) I and check which power of exp(-U) kills the bracket.">
+Show that $\mathrm{d}X_t = -\nabla U(X_t)\,\mathrm{d}t + \sqrt{2/\beta}\,\mathrm{d}W_t$ has
+stationary density proportional to $e^{-\beta U}$, and explain in one sentence why lowering the
+temperature $1/\beta$ concentrates the samples near the minima of $U$.
+</Exercise>
+
+<Exercise hint="d/dt of -int p log p equals -int (log p + 1) dp/dt. Insert Fokker–Planck, integrate by parts once on the drift term and once on the Laplacian term, and use grad p = p grad log p.">
+(de Bruijn identity.) Let $\sigma = g(t)I$ and $H(p_t) = -\int p_t\log p_t\,\mathrm{d}x$. Show
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}H(p_t) = \mathbb{E}\big[\nabla\cdot\mu(X_t,t)\big] + \tfrac12 g(t)^2\,\mathbb{E}\big\|\nabla\log p_t(X_t)\big\|^2 ,
+$$
+assuming enough decay of $p_t$ to drop boundary terms. The second term is the Fisher information;
+this is the identity that links the score-matching objective to log-likelihood.
+</Exercise>
+
+## Going deeper
+
+Øksendal Ch. 7 proves the generator formula and Dynkin's formula for
+time-homogeneous diffusions; Ch. 8 covers the backward equation and Feynman–Kac. Pavliotis Ch. 4 treats the Fokker–Planck
+equation as a PDE, including the spectral theory of the OU operator and the conditions for
+convergence to equilibrium. Risken is the physicists' reference and has every exactly solvable
+case. For existence and smoothness of $p_t$ (assumption (B)), see Friedman, *Stochastic
+Differential Equations and Applications*, Vol. 1, Ch. 6, or Stroock and Varadhan for the
+martingale-problem formulation that avoids densities entirely.
