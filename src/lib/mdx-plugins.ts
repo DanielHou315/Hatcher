@@ -76,3 +76,54 @@ export function rehypeCollectToc(out: TocItem[]) {
     });
   };
 }
+
+/** Plain HTML elements MDX pages may use. Anything that runs code, loads a document, or submits is excluded. */
+export const MDX_HTML_ELEMENTS = new Set([
+  'a', 'abbr', 'b', 'blockquote', 'br', 'caption', 'cite', 'code', 'col', 'colgroup', 'dd', 'del', 'details',
+  'dfn', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img',
+  'ins', 'kbd', 'li', 'mark', 'ol', 'p', 'pre', 'q', 's', 'samp', 'small', 'span', 'strong', 'sub', 'summary',
+  'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'time', 'tr', 'u', 'ul', 'var', 'wbr',
+]);
+
+const URL_ATTRIBUTES = new Set(['href', 'src', 'srcset', 'cite', 'poster', 'action', 'formaction', 'background', 'xlink:href']);
+/** Relative URLs, fragments, and http(s)/mailto. Rejects javascript:, data:, vbscript: and the like. */
+const SAFE_URL = /^(?:[^:/?#]+(?:[/?#]|$)|[/?#.]|https?:|mailto:)/i;
+
+interface JsxAttribute {
+  type: string;
+  name?: string;
+  value?: string | { type: string } | null;
+}
+
+/**
+ * MDX pages render in the site's own origin, so they must not run code: no imports/exports, no
+ * {expressions}, and plain HTML limited to inert prose elements with no event handlers or
+ * script URLs. Interactive code belongs in a sandboxed <Figure> or an HTML page.
+ */
+export function remarkSafeMdx() {
+  return (tree: Node) => {
+    walk(tree, (n) => {
+      const line = n.position?.start?.line;
+      const at = line ? ` on line ${line}` : '';
+      const fail = (what: string): never => {
+        throw new Error(`${what}${at} is not allowed in MDX. Put interactive code in a <Figure> or an HTML page.`);
+      };
+      if (n.type === 'mdxjsEsm') fail('import/export');
+      if (n.type === 'mdxFlowExpression' || n.type === 'mdxTextExpression') fail('A {JavaScript expression}');
+      if (n.type !== 'mdxJsxFlowElement' && n.type !== 'mdxJsxTextElement') return;
+      if (!n.name) fail('A fragment <>');
+      const name = n.name!;
+      if (/^[a-z]/.test(name) && !MDX_HTML_ELEMENTS.has(name)) fail(`<${name}>`);
+      for (const attr of ((n as { attributes?: JsxAttribute[] }).attributes ?? [])) {
+        if (attr.type !== 'mdxJsxAttribute') fail(`A spread attribute on <${name}>`);
+        const attrName = (attr.name ?? '').toLowerCase();
+        if (attr.value && typeof attr.value === 'object') fail(`An expression attribute ${attr.name}={...} on <${name}>`);
+        if (attrName.startsWith('on') || attrName === 'srcdoc' || attrName === 'dangerouslysetinnerhtml') fail(`The ${attr.name} attribute`);
+        if (URL_ATTRIBUTES.has(attrName) && typeof attr.value === 'string') {
+          const urls = attrName === 'srcset' ? attr.value.split(',').map((s) => s.trim().split(/\s+/)[0]) : [attr.value.trim()];
+          for (const url of urls) if (url && !SAFE_URL.test(url)) fail(`The URL ${JSON.stringify(url)} in ${attr.name}`);
+        }
+      }
+    });
+  };
+}

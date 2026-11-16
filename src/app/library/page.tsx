@@ -1,8 +1,9 @@
 import { Suspense } from 'react';
 import { EntryCard } from '@/components/EntryCard';
 import { LibraryFilters, type FilterOptions } from '@/components/LibraryFilters';
-import { filterEntries, getSite, type Filters } from '@/lib/content';
+import { filterEntries, type Filters } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
+import { viewerSite } from '@/lib/viewer';
 import { TRACKS } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
@@ -26,8 +27,8 @@ export default async function LibraryPage({ searchParams }: Props) {
     tag: first(sp.tag),
     sort: first(sp.sort),
   };
-  const site = getSite();
-  const statusOf = progressLookup();
+  const { viewer, site } = await viewerSite();
+  const statusOf = progressLookup(viewer?.id);
   const results = filterEntries(site.entries, filters, statusOf);
 
   const options: FilterOptions = {

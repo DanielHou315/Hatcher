@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { contentDir, loadEntries } from '@/lib/content';
-import { getAllProgress } from '@/lib/db';
+import { store } from '@/lib/db';
+import { hatcherMode, isStudio } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,10 +9,10 @@ export function GET() {
   try {
     const dir = contentDir();
     const entries = loadEntries(dir);
-    getAllProgress();
+    if (isStudio()) store(); // the public site has no database
     return Response.json({
       ok: true,
-      contentDir: dir,
+      mode: hatcherMode(),
       contentDirExists: fs.existsSync(dir),
       entries: entries.length,
       invalid: entries.filter((e) => e.error).length,

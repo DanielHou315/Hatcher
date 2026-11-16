@@ -5,11 +5,13 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { DrawerProvider, DrawerScrim, MenuButton } from '@/components/Drawer';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
+import { UserMenu } from '@/components/auth/UserMenu';
+import { isStudio } from '@/lib/settings';
 import { LiveReload } from '@/components/LiveReload';
 import { Sidebar, type SidebarTrack } from '@/components/Sidebar';
 import { THEME_SCRIPT, ThemeToggle } from '@/components/ThemeToggle';
-import { getSite } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
+import { viewerSite } from '@/lib/viewer';
 import { entryHref } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
@@ -19,9 +21,9 @@ export const metadata: Metadata = {
   description: 'The mathematics behind the papers, one page a day.',
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
-  const site = getSite();
-  const statusOf = progressLookup();
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const { viewer, site } = await viewerSite();
+  const statusOf = progressLookup(viewer?.id);
   const tracks: SidebarTrack[] = site.tracks.map((t) => ({
     id: t.id,
     name: t.name,
@@ -65,6 +67,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="ml-auto flex items-center gap-3 sm:gap-4">
                 <LiveReload />
                 <ThemeToggle />
+                {isStudio() && <UserMenu viewer={viewer} />}
               </div>
             </div>
           </header>
