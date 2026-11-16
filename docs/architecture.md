@@ -41,8 +41,10 @@ HTML pages and MDX `<Figure>`s are untrusted code, so they never run in the site
   opens `https://` links in a new tab. The page sends `hatcher:hello` on mount so a frame that
   loaded before hydration repeats its state.
 - **Writes.** `POST /api/progress*` rejects requests whose `Origin` is another host or `null`.
-- **Libraries.** `scripts/vendor-libs.mjs` (run by `predev`/`prebuild`) copies KaTeX into
-  `public/_lib/katex/` (gitignored) for sandboxed pages.
+- **Libraries and fonts.** `scripts/vendor-libs.mjs` (run by `predev`/`prebuild`) copies KaTeX into
+  `public/_lib/katex/` and the `@fontsource` fonts into `public/_lib/fonts/` (both gitignored). The
+  site and every frame load the same `/_lib/fonts/fonts.css`, so they always match. Fonts are
+  pinned npm packages: update one by bumping its version, add one in the script's `FONTS` list.
 - **Separate content host (optional).** With `CONTENT_ORIGIN` set (for example
   `https://hatcher-content.example.com`, proxied to the same container), frames load from that host
   and `SITE_ORIGIN` is added to `frame-ancestors`. A different registrable domain also puts frames
