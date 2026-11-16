@@ -1,0 +1,345 @@
+---
+title: "Entropic optimal transport and Sinkhorn"
+kind: concept
+summary: "Adding a KL penalty to Kantorovich's problem makes it strictly convex with a diagonal-scaling solution; Sinkhorn's alternating normalizations are coordinate ascent on the dual, and the two limits of the regularization recover exact OT and the independent coupling."
+tags: [optimal-transport, entropic-regularization, sinkhorn, kl-divergence, schrodinger-bridge]
+track: optimal-transport
+level: 3
+prerequisites: [wasserstein-distance, kl-divergence-and-variational-bounds]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "1306.0895"
+    title: "Sinkhorn Distances: Lightspeed Computation of Optimal Transport"
+  - type: arxiv
+    id: "1803.00567"
+    title: "Computational Optimal Transport"
+  - type: lecture
+    title: "Introduction to Entropic Optimal Transport"
+    author: "Marcel Nutz"
+    where: "Lecture notes, Columbia University, 2021"
+  - type: web
+    title: "On the scaling of multidimensional matrices"
+    author: "Joel Franklin & Jens Lorenz"
+    where: "Linear Algebra and its Applications 114–115 (1989)"
+  - type: arxiv
+    id: "2106.01357"
+    title: "Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling"
+---
+
+## Why you need this
+
+Exact optimal transport between two clouds of $n$ points is a linear program that costs
+$O(n^3\log n)$ and has no useful gradients. Cuturi (2013) showed that adding an entropy
+penalty turns it into a problem solved by a few dozen matrix-vector products on a GPU, and
+that is the version used in practice: OT-CFM and its Schrödinger-bridge variant (Tong et al.
+2023) pair noise with data on each minibatch this way, SuperGlue-style feature matchers in
+visual SLAM front-ends output a Sinkhorn plan, and Sinkhorn divergences replace $W_2$ as a
+differentiable loss between point clouds. More importantly for this track, the Schrödinger
+bridge problem *is* entropic OT with a Brownian reference, and the iterative proportional
+fitting of Diffusion Schrödinger Bridge (De Bortoli et al. 2021) *is* Sinkhorn's algorithm
+run on path space. Learn the $3\times3$ case here and the path-space version will look familiar.
+
+## Setup
+
+Discrete measures $a\in\mathbb{R}^n_{>0}$, $b\in\mathbb{R}^m_{>0}$ with $\sum_i a_i = \sum_j b_j = 1$,
+a cost matrix $C\in\mathbb{R}^{n\times m}$, and the transport polytope
+
+$$
+U(a,b) = \big\{P\in\mathbb{R}^{n\times m}_{\ge 0} : P\mathbf 1 = a,\ P^\top\mathbf 1 = b\big\},
+$$
+
+the discrete version of the set of couplings $\Pi(\mu,\nu)$ from the
+[Wasserstein page](/concepts/wasserstein-distance). Exact OT is
+$\mathrm{OT}_0(a,b) = \min_{P\in U(a,b)}\langle C,P\rangle$ with
+$\langle C,P\rangle = \sum_{ij}C_{ij}P_{ij}$; for $C_{ij} = \|x_i-y_j\|^2$ this is $W_2^2$.
+
+The regularizer is the KL divergence of the plan from the independent coupling,
+
+$$
+\mathrm{KL}(P\,\|\,a\otimes b) = \sum_{ij}P_{ij}\log\frac{P_{ij}}{a_ib_j}
+\qquad(0\log 0 = 0),
+$$
+
+which for $P\in U(a,b)$ is the mutual information of the pair $(i,j)\sim P$. It is
+nonnegative, zero only at $P = ab^\top$, and at most $\log\min(n,m)$ (mutual information is
+bounded by the smaller marginal entropy). Cuturi's original paper uses
+$-H(P) = \sum P_{ij}(\log P_{ij}-1)$ instead; on $U(a,b)$ the two differ by a constant,
+so they have the same minimizers. Write $K = e^{-C/\varepsilon}$ entrywise, the *Gibbs kernel*.
+
+<Definition name="Entropic optimal transport">
+For $\varepsilon>0$,
+$$
+\mathrm{OT}_\varepsilon(a,b) = \min_{P\in U(a,b)}\ \langle C,P\rangle + \varepsilon\,\mathrm{KL}(P\,\|\,a\otimes b).
+$$
+</Definition>
+
+## The idea
+
+<Proposition name="Structure of the minimizer" label="Prop 1">
+The problem has a unique minimizer $P_\varepsilon$, it has strictly positive entries, and it
+is a diagonal scaling of the Gibbs kernel:
+$$
+P_\varepsilon = \operatorname{diag}(u)\,K\,\operatorname{diag}(v)
+\qquad\text{for some } u\in\mathbb{R}^n_{>0},\ v\in\mathbb{R}^m_{>0}.
+$$
+The vectors $u,v$ are unique up to the rescaling $(u,v)\mapsto(cu, v/c)$.
+</Proposition>
+
+<Proof>
+$U(a,b)$ is compact and nonempty ($ab^\top$ is in it), and the objective is continuous, so a
+minimizer exists; $\mathrm{KL}(\cdot\|a\otimes b)$ is strictly convex on the simplex of plans
+and $\langle C,\cdot\rangle$ is linear, so the minimizer is unique. Positivity: the derivative
+of $p\log p$ at $p = 0^+$ is $-\infty$, so if some $P_{ij} = 0$, moving a small amount of mass
+into that entry along a feasible direction (a cycle through $ab^\top$, which is strictly
+positive) decreases the objective, a contradiction. Hence all constraints $P_{ij}\ge 0$ are
+inactive and we can use Lagrange multipliers $f\in\mathbb{R}^n$, $g\in\mathbb{R}^m$ for the two
+marginal constraints:
+
+$$
+\mathcal L(P,f,g) = \sum_{ij}\Big(C_{ij}P_{ij} + \varepsilon P_{ij}\log\tfrac{P_{ij}}{a_ib_j}\Big)
+- \sum_i f_i\Big(\sum_j P_{ij}-a_i\Big) - \sum_j g_j\Big(\sum_i P_{ij}-b_j\Big).
+$$
+
+Setting $\partial\mathcal L/\partial P_{ij} = C_{ij} + \varepsilon\log\frac{P_{ij}}{a_ib_j} +
+\varepsilon - f_i - g_j = 0$ gives
+
+$$
+P_{ij} = a_i\,e^{f_i/\varepsilon - 1/2}\;e^{-C_{ij}/\varepsilon}\;b_j\,e^{g_j/\varepsilon - 1/2}
+= u_i\,K_{ij}\,v_j .
+$$
+
+For uniqueness of $(u,v)$ up to scaling: if $\operatorname{diag}(u)K\operatorname{diag}(v)
+= \operatorname{diag}(u')K\operatorname{diag}(v')$ with all $K_{ij}>0$, then
+$u_i/u'_i = v'_j/v_j$ for all $i,j$, which forces both ratios to be a single constant. $\blacksquare$
+</Proof>
+
+The marginal constraints in terms of $(u,v)$ read
+
+$$
+u\odot(Kv) = a, \qquad v\odot(K^\top u) = b ,
+$$
+
+with $\odot$ the entrywise product. Solving each one for its own variable is Sinkhorn's algorithm.
+
+<Definition name="Sinkhorn iteration">
+Start from $v^{(0)} = \mathbf 1$ and repeat
+$$
+u^{(k+1)} = \frac{a}{K v^{(k)}}, \qquad v^{(k+1)} = \frac{b}{K^\top u^{(k+1)}}
+$$
+with entrywise division. After the $u$-update, $\operatorname{diag}(u)K\operatorname{diag}(v)$
+has row sums exactly $a$; after the $v$-update it has column sums exactly $b$. Each step
+costs one matrix-vector product with $K$.
+</Definition>
+
+<Theorem name="Dual problem, and Sinkhorn as coordinate ascent" label="Thm 2">
+$$
+\mathrm{OT}_\varepsilon(a,b) = \max_{f\in\mathbb{R}^n,\ g\in\mathbb{R}^m}\ D(f,g),
+\qquad
+D(f,g) = \langle f,a\rangle + \langle g,b\rangle
+- \varepsilon\sum_{ij}a_ib_j\Big(e^{(f_i+g_j-C_{ij})/\varepsilon} - 1\Big).
+$$
+The maximizer $(f^\star,g^\star)$ is unique up to $(f+c, g-c)$, the primal optimum is
+$P_\varepsilon = a_ib_j\,e^{(f^\star_i+g^\star_j-C_{ij})/\varepsilon}$, and Sinkhorn's
+$u$-update is exact maximization of $D$ over $f$ with $g$ fixed (and the $v$-update likewise),
+under the identification $u_i = a_ie^{f_i/\varepsilon}$, $v_j = b_je^{g_j/\varepsilon}$.
+</Theorem>
+
+<Proof>
+Form the Lagrangian as in Prop 1 but now minimize it over all $P\ge 0$ with no constraints.
+Each entry separates: for fixed $(i,j)$ we minimize
+$p\,(C_{ij}-f_i-g_j) + \varepsilon\,p\log\frac{p}{a_ib_j}$ over $p\ge 0$. The derivative
+vanishes at $p^\star = a_ib_j\,e^{(f_i+g_j-C_{ij})/\varepsilon - 1}$, and substituting back,
+$p^\star(C_{ij}-f_i-g_j) + \varepsilon p^\star\big(\tfrac{f_i+g_j-C_{ij}}{\varepsilon}-1\big) = -\varepsilon p^\star$.
+So the dual function is $\langle f,a\rangle+\langle g,b\rangle - \varepsilon\sum_{ij}
+a_ib_je^{(f_i+g_j-C_{ij})/\varepsilon - 1}$. Shifting $f\to f+\varepsilon/2$, $g\to g+\varepsilon/2$
+adds $\varepsilon$ to the linear part (because $\sum_{ij}a_ib_j = 1$) and removes the $-1$ in
+the exponent, giving the stated $D$. Weak duality $D(f,g)\le\mathrm{OT}_\varepsilon$ holds for
+every $(f,g)$ because the Lagrangian minimized over $P$ is a lower bound on its value at any
+feasible $P$. Strong duality holds because this is a finite-dimensional convex program whose
+constraints are linear and which has a strictly feasible point ($ab^\top$), so Slater's
+condition applies; the primal optimum is read off from $p^\star$ at $(f^\star,g^\star)$.
+
+Coordinate ascent: $D$ is concave in $f$ (a linear term minus a sum of exponentials), and
+$$
+\frac{\partial D}{\partial f_i} = a_i - a_i\,e^{f_i/\varepsilon}\sum_j b_j\,e^{(g_j-C_{ij})/\varepsilon}
+= a_i - u_i\,(Kv)_i ,
+$$
+which vanishes exactly at $u_i = a_i/(Kv)_i$. Same for $g$. $\blacksquare$
+</Proof>
+
+<Intuition>
+The dual variables $f_i, g_j$ are prices: $f_i$ is what supplier $i$ charges, $g_j$ what
+consumer $j$ pays, and $e^{(f_i+g_j-C_{ij})/\varepsilon}$ is how much a route is used when
+prices exceed cost. Sinkhorn alternates: fix consumer prices, set each supplier's price so it
+ships exactly $a_i$; fix supplier prices, set each consumer's so it receives exactly $b_j$.
+At convergence the plan $P_\varepsilon$ has both marginals right and the penalty term in $D$
+vanishes ($\sum_{ij}P_{ij} = 1$), so $\mathrm{OT}_\varepsilon = \langle f^\star,a\rangle +
+\langle g^\star,b\rangle$, the same form as Kantorovich duality.
+</Intuition>
+
+<Theorem name="Linear convergence (Franklin–Lorenz 1989)" label="Thm 3">
+In Hilbert's projective metric $d(u,u') = \log\max_{i,k}\frac{u_iu'_k}{u_ku'_i}$, the map
+$v\mapsto v^{(k+1)}$ is a contraction with rate $\lambda(K)^2$, where
+$\lambda(K) = \frac{\sqrt{\eta(K)}-1}{\sqrt{\eta(K)}+1}$ and
+$\eta(K) = \max_{i,j,k,l}\frac{K_{ij}K_{kl}}{K_{kj}K_{il}}\le e^{2\|C\|_\infty/\varepsilon}$.
+Consequently $d(v^{(k)},v^\star)\le\lambda(K)^{2k}d(v^{(0)},v^\star)$, and the plans converge
+at the same rate.
+</Theorem>
+
+The idea (Birkhoff's theorem): a matrix with strictly positive entries maps the positive
+cone strictly inside itself, and any such map contracts Hilbert's metric; the contraction
+ratio is governed by the largest cross-ratio $\eta(K)$ of $K$'s entries. The dependence on
+$\varepsilon$ is the practical content: $\eta\le e^{2\|C\|_\infty/\varepsilon}$ means
+$1-\lambda\approx 2e^{-\|C\|_\infty/\varepsilon}$ for small $\varepsilon$, so the iteration
+count to a fixed tolerance grows like $e^{\|C\|_\infty/\varepsilon}$. Small $\varepsilon$ is
+sharp but slow, and $K$ underflows in floating point, which is why implementations run the
+updates on $(f,g)$ with log-sum-exp (Exercise 4).
+
+<Proposition name="The two limits" label="Prop 4">
+1. As $\varepsilon\to\infty$: $P_\varepsilon\to ab^\top$ and $\langle C,P_\varepsilon\rangle\to\langle C,ab^\top\rangle$.
+2. As $\varepsilon\to 0$: $0\le\mathrm{OT}_\varepsilon - \mathrm{OT}_0\le\varepsilon\log\min(n,m)$, and
+   $P_\varepsilon$ converges to the optimal plan of $\mathrm{OT}_0$ with the largest entropy
+   (Cominetti & San Martín 1994, who also prove the convergence is exponentially fast in $1/\varepsilon$).
+</Proposition>
+
+<Proof>
+(1) Comparing $P_\varepsilon$ with the feasible $ab^\top$:
+$\varepsilon\,\mathrm{KL}(P_\varepsilon\|a\otimes b)\le\langle C,P_\varepsilon\rangle +
+\varepsilon\,\mathrm{KL}(P_\varepsilon\|a\otimes b)\le\langle C,ab^\top\rangle$, so
+$\mathrm{KL}(P_\varepsilon\|a\otimes b)\le\|C\|_\infty/\varepsilon\to 0$. Pinsker's inequality
+(from the [KL page](/concepts/kl-divergence-and-variational-bounds)) gives
+$\|P_\varepsilon - ab^\top\|_1\le\sqrt{2\,\mathrm{KL}}\to 0$, and $\langle C,\cdot\rangle$ is continuous.
+
+(2) Lower bound: $\mathrm{OT}_\varepsilon\ge\langle C,P_\varepsilon\rangle\ge\mathrm{OT}_0$ since
+$P_\varepsilon$ is feasible for the unregularized problem. Upper bound: take any optimal
+$P^\star$ for $\mathrm{OT}_0$; it is feasible for the regularized problem, so
+$\mathrm{OT}_\varepsilon\le\langle C,P^\star\rangle + \varepsilon\,\mathrm{KL}(P^\star\|a\otimes b)
+\le\mathrm{OT}_0 + \varepsilon\log\min(n,m)$ by the mutual-information bound. The
+identification of the limit plan we do not prove. $\blacksquare$
+</Proof>
+
+<Warning>
+$\mathrm{OT}_\varepsilon(a,a)\neq 0$: the plan $P = \operatorname{diag}(a)$ has
+$\mathrm{KL} = -\sum a_i\log a_i > 0$, and the minimizer blurs it. So
+$\mathrm{OT}_\varepsilon$ is not a distance, and using it as a training loss biases the model
+toward spread-out targets. The *Sinkhorn divergence*
+$S_\varepsilon(a,b) = \mathrm{OT}_\varepsilon(a,b) - \tfrac12\mathrm{OT}_\varepsilon(a,a) -
+\tfrac12\mathrm{OT}_\varepsilon(b,b)$ (Genevay et al. 2018; Feydy et al. 2019) fixes this:
+it is nonnegative, zero iff $a = b$, and interpolates between $\mathrm{OT}_0$ and MMD.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Three points to three points, two Sinkhorn sweeps">
+Points $x = y = (0,1,2)$ on the line, uniform weights $a = b = (\tfrac13,\tfrac13,\tfrac13)$,
+cost $C_{ij} = (x_i-y_j)^2$, so $C = \begin{pmatrix}0&1&4\\1&0&1\\4&1&0\end{pmatrix}$, and
+$\varepsilon = 1$. Exact OT is the identity plan with $\mathrm{OT}_0 = 0$.
+
+*Gibbs kernel.* $e^{-1} = 0.3679$, $e^{-4} = 0.0183$:
+$$
+K = \begin{pmatrix}1 & 0.3679 & 0.0183\\ 0.3679 & 1 & 0.3679\\ 0.0183 & 0.3679 & 1\end{pmatrix}.
+$$
+
+*Sweep 1.* With $v = (1,1,1)$, $Kv$ is the vector of row sums,
+$Kv = (1.3862,\ 1.7358,\ 1.3862)$, so
+$$
+u = \tfrac13\big/Kv = (0.2405,\ 0.1920,\ 0.2405).
+$$
+Then $K^\top u$: first entry $1(0.2405) + 0.3679(0.1920) + 0.0183(0.2405) = 0.2405 + 0.0706 + 0.0044 = 0.3155$;
+second entry $0.3679(0.2405)\cdot 2 + 0.1920 = 0.1770 + 0.1920 = 0.3690$; third $= 0.3155$ by symmetry. So
+$$
+v = \tfrac13\big/K^\top u = (1.0565,\ 0.9034,\ 1.0565).
+$$
+
+*Sweep 2.* $Kv$: first entry $1.0565 + 0.3679(0.9034) + 0.0183(1.0565) = 1.0565 + 0.3324 + 0.0193 = 1.4082$;
+second $0.3679(1.0565)\cdot2 + 0.9034 = 0.7773 + 0.9034 = 1.6807$; third $1.4082$. So
+$u = (0.2367,\ 0.1983,\ 0.2367)$. Then $K^\top u = (0.3140,\ 0.3725,\ 0.3140)$ (same
+arithmetic pattern), and $v = (1.0615,\ 0.8949,\ 1.0615)$.
+
+*The plan after two sweeps.* $P_{ij} = u_iK_{ij}v_j$:
+$$
+P \approx \begin{pmatrix}
+0.2513 & 0.0779 & 0.0046\\
+0.0775 & 0.1775 & 0.0775\\
+0.0046 & 0.0779 & 0.2513
+\end{pmatrix},
+\qquad
+P^\top\mathbf 1 = (0.3333, 0.3333, 0.3333),\quad
+P\mathbf 1 = (0.3338, 0.3324, 0.3338).
+$$
+Columns are exact (the $v$-update was last), rows are off by $5\times10^{-4}$. Transport cost
+$\langle C,P\rangle = 1\cdot(0.0779+0.0775+0.0775+0.0779) + 4\cdot(0.0046+0.0046) = 0.3108 + 0.0368 = 0.3476$.
+
+*Sanity checks.* Running to convergence gives diagonal $0.2510$, middle $0.1779$, off-diagonals
+$0.0777$ and $0.0046$, cost $0.3477$, and $\mathrm{KL}(P_\varepsilon\|a\otimes b) = 0.3524$, so
+$\mathrm{OT}_1 = 0.3477 + 0.3524 = 0.7001$. Prop 4(2) predicts
+$0 = \mathrm{OT}_0\le\mathrm{OT}_1\le 0 + 1\cdot\log 3 = 1.0986$: consistent. Two sweeps already
+give the cost to three decimals, as Thm 3 predicts for this well-conditioned $K$
+($\eta(K) = e^{4}$, $\lambda = (e^2-1)/(e^2+1) = 0.762$, so each sweep shrinks the error by about
+$0.58$ in Hilbert's metric; in practice faster). The plan is symmetric because $C$ is and
+$a = b$. The corner entries $P_{13} = 0.0046$ show the blur: exact OT would put zero there,
+and as $\varepsilon\to\infty$ every entry tends to $\tfrac19 = 0.111$ with cost $\langle C,ab^\top\rangle
+= 12/9 = 1.333$.
+</Example>
+
+## Where it shows up
+
+- **Cuturi 2013** (<Cite id="1306.0895" />): the algorithm above, with the observation that
+  the whole thing is $K$ times a vector, hence GPU-friendly and batchable.
+- **OT-CFM / SB-CFM** (Tong et al. 2023, Alg. 1 and §3.3): the minibatch coupling of noise
+  and data is the exact plan for OT-CFM and the entropic plan $P_\varepsilon$ for the
+  Schrödinger-bridge variant, whose conditional paths are then Brownian bridges rather than
+  straight lines.
+- **Diffusion Schrödinger Bridge** (<Cite id="2106.01357" />, §3): iterative proportional
+  fitting alternates "fix the terminal marginal" and "fix the initial marginal"; in the static
+  picture these are the $v$- and $u$-updates. See [Schrödinger bridge](/concepts/schrodinger-bridge).
+- **Feature matching** (SuperGlue, Sarlin et al. 2020): the assignment between keypoints in two
+  images is a Sinkhorn plan with a dustbin row and column for unmatched points; the same
+  layer appears in learned data association for SLAM and multi-object tracking.
+- **Losses on point clouds and trajectories**: Sinkhorn divergences (Feydy et al. 2019,
+  GeomLoss) and OT-based imitation rewards (Dadashi et al. 2021, Primal Wasserstein Imitation
+  Learning; Luo et al. 2023, Optimal Transport Reward) compare agent and expert state
+  distributions with $\mathrm{OT}_\varepsilon$ or $S_\varepsilon$.
+
+## Exercises
+
+<Exercise hint="By symmetry P = [[p, 1/2 - p], [1/2 - p, p]]; differentiate the objective in p and solve for p/(1/2 - p).">
+Let $a = b = (\tfrac12,\tfrac12)$ and $C = \begin{pmatrix}0&1\\1&0\end{pmatrix}$. Show
+$P_\varepsilon$ has diagonal entries $p_\varepsilon = \tfrac12\,\sigma(1/\varepsilon)$ with
+$\sigma$ the logistic function, and check the two limits of Prop 4.
+</Exercise>
+
+<Exercise hint="Compute the second-order term of the Taylor expansion of D in f, or observe that D is a linear term minus a sum of convex functions of f.">
+Prove that $D(f,g)$ is jointly concave in $(f,g)$ and that its gradient is
+$\nabla_f D = a - P(f,g)\mathbf 1$, $\nabla_g D = b - P(f,g)^\top\mathbf 1$ where
+$P(f,g)_{ij} = a_ib_je^{(f_i+g_j-C_{ij})/\varepsilon}$. Conclude that Sinkhorn is exact block
+coordinate ascent and that the marginal violations $\|P\mathbf 1 - a\|_1$ are the gradient norms.
+</Exercise>
+
+<Exercise hint="Compare KL(P || a (x) b) and -H(P) term by term on U(a, b).">
+Show that on $U(a,b)$, $\mathrm{KL}(P\|a\otimes b) = -H(P) + \text{const}$ with
+$H(P) = -\sum_{ij}P_{ij}(\log P_{ij}-1)$, and find the constant. Then show the minimizer
+with $-H$ in place of KL is $\operatorname{diag}(u)K\operatorname{diag}(v)$ with the same $K$.
+</Exercise>
+
+<Exercise hint="Take logs of u = a / (K v) and write (K v)_i as a log-sum-exp over j.">
+Rewrite the Sinkhorn updates in the dual variables:
+$f_i\leftarrow -\varepsilon\log\sum_j b_j\exp\big((g_j - C_{ij})/\varepsilon\big)$ and the
+symmetric update for $g$. Explain why this form does not underflow for $\varepsilon = 10^{-2}$
+and $\|C\|_\infty = 10$, whereas $K = e^{-C/\varepsilon}$ does in float32.
+</Exercise>
+
+## Going deeper
+
+Peyré and Cuturi (<Cite id="1803.00567" />, Ch. 4) is the standard reference: convergence,
+log-domain stabilization, $\varepsilon$-scaling, the unbalanced and multi-marginal variants,
+and the derivation of gradients of $\mathrm{OT}_\varepsilon$ with respect to $a$, $b$ and the
+point positions (the dual potentials are the gradients, by the envelope theorem). Nutz's notes
+do the continuous-measure theory, where $P_\varepsilon$ becomes a density
+$e^{(f(x)+g(y)-c(x,y))/\varepsilon}$ with respect to $\mu\otimes\nu$ and Sinkhorn becomes
+Fortet's iteration; that is the form the Schrödinger bridge page uses. Cominetti and San
+Martín (1994) prove the exponential rate in Prop 4(2) via the structure of the LP's optimal face.

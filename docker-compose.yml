@@ -1,0 +1,44 @@
+services:
+  site:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - ${CONTENT_DIR:-./content}:/app/content:ro
+      - ${DATA_DIR:-./data}:/app/data
+    environment:
+      CONTENT_DIR: /app/content
+      DATA_DIR: /app/data
+      CHOKIDAR_USEPOLLING: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Unattended Claude Code runs that write draft pages into the live content directory.
+  # See docs/deployment.md.
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    depends_on:
+      - site
+    restart: unless-stopped
+    volumes:
+      - ${CONTENT_DIR:-./content}:/data/content
+      - ${AGENT_DIR:-./data/agent}:/data/agent
+      - ${PLUGIN_DIR:-../paper-to-guided-learning-plugin}:/plugin:ro
+    environment:
+      # Secrets pass through from the shell (.envrc); they are never baked into the image.
+      - CLAUDE_CODE_OAUTH_TOKEN
+      - ANTHROPIC_API_KEY
+      - XAI_API_KEY
+      - S2_API_KEY
+      - AGENT_SCHEDULE=${AGENT_SCHEDULE:-0 6 * * *}
+      - TZ=${AGENT_TZ:-UTC}
+      - AGENT_MAX_TURNS=${AGENT_MAX_TURNS:-80}
+      - AGENT_MODEL=${AGENT_MODEL:-}
+      - AGENT_RUN_NOW=${AGENT_RUN_NOW:-0}

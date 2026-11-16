@@ -1,0 +1,593 @@
+---
+title: "Diffusion Schrödinger Bridge (De Bortoli, Thornton, Heng, Doucet, 2021)"
+kind: paper
+summary: "How the Schrödinger bridge between two distributions is solved by alternating time reversals of a diffusion, why that is Sinkhorn in path space, and what the convergence proof actually uses."
+tags: [schrodinger-bridge, optimal-transport, diffusion-models, girsanov, ipf]
+track: papers
+level: 5
+prerequisites: [schrodinger-bridge, entropic-ot-and-sinkhorn, girsanov-theorem, time-reversal-of-diffusions, kl-divergence-and-variational-bounds, score-matching, diffusion-sde-framework]
+estimated_minutes: 120
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "2106.01357"
+    title: "Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: web
+    title: "A survey of the Schrödinger problem and some of its connections with optimal transport"
+    author: "Christian Léonard"
+    where: "Discrete and Continuous Dynamical Systems A, 2014"
+  - type: web
+    title: "I-divergence geometry of probability distributions and minimization problems"
+    author: "Imre Csiszár"
+    where: "Annals of Probability, 1975"
+  - type: web
+    title: "Convergence of the iterative proportional fitting procedure"
+    author: "Ludger Rüschendorf"
+    where: "Annals of Statistics, 1995"
+  - type: lecture
+    title: "Introduction to Entropic Optimal Transport"
+    author: "Marcel Nutz"
+    where: "Lecture notes, Columbia, 2021"
+paper:
+  arxiv_id: "2106.01357"
+  authors: ["Valentin De Bortoli", "James Thornton", "Jeremy Heng", "Arnaud Doucet"]
+  year: 2021
+  venue: "NeurIPS 2021"
+  recognition: ["NeurIPS 2021 spotlight"]
+  why_it_matters: "It is the first practical recipe for learning a diffusion that transports an arbitrary source distribution to an arbitrary target in few steps, which is exactly what a bridge policy or a behavior-to-behavior transport needs."
+  theorems: 4
+---
+
+## Why this paper
+
+Score-based generative models <Cite id="2011.13456" /> only work because the forward noising
+process has run long enough that its terminal law is almost Gaussian; the reverse process then
+starts from the Gaussian and undoes the noise. DSB removes the "long enough". It asks for the
+diffusion closest (in KL) to a reference process whose time-$0$ law is $p_{\mathrm{data}}$ and
+whose time-$T$ law is $p_{\mathrm{prior}}$ *exactly*: the Schrödinger bridge. The paper shows that
+the classical iterative proportional fitting (IPF) algorithm for this problem is a sequence of
+time reversals of diffusions, each of which is learnable by the same kind of regression as
+denoising score matching. That observation turned the Schrödinger bridge from a topic in
+stochastic control into a trainable generative model, and it is the ancestor of bridge matching,
+DSBM, and $\mathrm{I}^2\mathrm{SB}$. For a robotics reader, the point is that neither endpoint has
+to be Gaussian: one can bridge a prior policy's action distribution to an expert's, or one
+sensor modality to another, with a handful of integration steps.
+
+The paper also contains the first convergence theorem for score-based generative models (its
+Theorem 1, a total-variation bound in terms of score error, step size, and horizon). We do not
+decompose it here; it belongs with the [diffusion SDE page](/concepts/diffusion-sde-framework).
+
+## Setting and notation
+
+The paper works in discrete time first and passes to continuous time afterwards. We translate
+into the site's conventions: Brownian motion is $W_t$ (the paper writes $B_t$), and the
+paper's noise scale $\sqrt{2}$ is kept, so $g^2 = 2$ throughout.
+
+**Discrete time.** A path is $x_{0:N} = (x_0,\dots,x_N)\in(\mathbb{R}^d)^{N+1}$. The
+*reference* is a Markov chain with density
+
+$$
+p(x_{0:N}) = p_0(x_0)\prod_{k=0}^{N-1} p_{k+1|k}(x_{k+1}\mid x_k),
+\qquad
+p_{k+1|k}(x_{k+1}\mid x_k) = \mathcal N\big(x_{k+1};\, x_k + \gamma_{k+1} f(x_k),\, 2\gamma_{k+1} I\big),
+$$
+
+with $p_0 = p_{\mathrm{data}}$ and step sizes $\gamma_{k+1} > 0$. This is Euler–Maruyama for
+$\mathrm{d}X_t = f(X_t)\,\mathrm{d}t + \sqrt2\,\mathrm{d}W_t$ with $T = \sum_k \gamma_k$. We
+write $\mathcal P_{N+1}$ for probability measures on paths, $\pi_k$ for the marginal of $\pi$ at
+step $k$, $\pi_{0,N}$ for the joint law of $(x_0,x_N)$, and $\pi_{|0,N}$ for the conditional law
+of the interior $x_{1:N-1}$ given both endpoints. Every chain also has a backward factorization
+$p(x_{0:N}) = p_N(x_N)\prod_k p_{k|k+1}(x_k\mid x_{k+1})$ with
+$p_{k|k+1}(x_k\mid x_{k+1}) = p_{k+1|k}(x_{k+1}\mid x_k)\,p_k(x_k)/p_{k+1}(x_{k+1})$ (Bayes).
+
+**Continuous time.** $\mathbb P$ is the path measure of the reference SDE on $[0,T]$, $\Pi$ a
+candidate path measure, $\Pi_t$ its marginal at time $t$. KL between path measures is defined
+through Girsanov, see [Girsanov's theorem](/concepts/girsanov-theorem).
+
+**The problem.** The dynamic Schrödinger bridge (SB) is
+
+$$
+\pi^\star = \operatorname*{arg\,min}\big\{\operatorname{KL}(\pi\,|\,p) : \pi\in\mathcal P_{N+1},\ \pi_0 = p_{\mathrm{data}},\ \pi_N = p_{\mathrm{prior}}\big\}.
+$$
+
+Two facts from [KL divergence](/concepts/kl-divergence-and-variational-bounds) are used over
+and over. The *chain rule*: if $\pi\ll p$ and we split a path into a coordinate $y$ and the rest
+$z$, then $\operatorname{KL}(\pi|p) = \operatorname{KL}(\pi_y|p_y) + \mathbb{E}_{\pi_y}\big[\operatorname{KL}(\pi(\cdot\mid y)\,|\,p(\cdot\mid y))\big]$.
+And *strict convexity* of $\pi\mapsto\operatorname{KL}(\pi|p)$, which gives uniqueness of minimizers
+over convex constraint sets.
+
+## Results at a glance
+
+| Result | One line | Prerequisites |
+|---|---|---|
+| 1. Static reduction | The bridge is the reference's own bridge glued to an entropic-OT coupling of the endpoints. | [kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds), [entropic-ot-and-sinkhorn](/concepts/entropic-ot-and-sinkhorn), [schrodinger-bridge](/concepts/schrodinger-bridge) |
+| 2. IPF is half-bridges | Each IPF step keeps one direction's transitions and swaps one marginal; on endpoints it is Sinkhorn. | [entropic-ot-and-sinkhorn](/concepts/entropic-ot-and-sinkhorn), [kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds) |
+| 3. Half-bridges are time reversals | The swapped-marginal chain is the Anderson reversal; its Gaussian step mean is a regression target. | [time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions), [score-matching](/concepts/score-matching), [girsanov-theorem](/concepts/girsanov-theorem) |
+| 4. Convergence of IPF | Iterates converge in total variation; marginal KL gaps are $o(1/n)$; the limit is the bridge under an integrability condition. | [kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds), [schrodinger-bridge](/concepts/schrodinger-bridge) |
+
+## Result 1: the bridge is a KL projection, and it reduces to a static problem
+
+<Theorem name="Static reduction of the Schrödinger bridge">
+Assume some path measure $\tilde\pi$ with $\tilde\pi_0 = p_{\mathrm{data}}$, $\tilde\pi_N = p_{\mathrm{prior}}$ has $\operatorname{KL}(\tilde\pi|p)$ finite (the paper's sufficient condition is $\operatorname{KL}(p_{\mathrm{data}}\otimes p_{\mathrm{prior}}\,|\,p_{0,N})$ finite). Then:
+
+1. The dynamic SB $\pi^\star$ exists and is unique, and
+   $\pi^\star(x_{0:N}) = \pi^{s,\star}(x_0,x_N)\,p_{|0,N}(x_{1:N-1}\mid x_0,x_N)$: between the endpoints it is the *reference's* bridge.
+2. The endpoint coupling solves the static problem
+   $\pi^{s,\star} = \operatorname{arg\,min}\{\operatorname{KL}(\pi^s\,|\,p_{0,N}) : \pi^s_0 = p_{\mathrm{data}},\ \pi^s_N = p_{\mathrm{prior}}\}$.
+3. If the reference is driftless with $p_{N|0}(x_N\mid x_0) = \mathcal N(x_N; x_0, \sigma^2 I)$, the static problem is entropic OT with quadratic cost:
+   $\pi^{s,\star} = \operatorname{arg\,min}\{\mathbb{E}_{\pi^s}\|X_0 - X_N\|^2 - 2\sigma^2 H(\pi^s)\}$ over the same couplings, where $H$ is differential entropy.
+</Theorem>
+
+**Prerequisite check.** Chain rule of KL and strict convexity
+([kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds)); the
+definition of entropic OT ([entropic-ot-and-sinkhorn](/concepts/entropic-ot-and-sinkhorn)); the
+static/dynamic vocabulary of the [Schrödinger bridge page](/concepts/schrodinger-bridge).
+
+<Proof>
+*Reduction (1 and 2).* Apply the chain rule with $y = (x_0,x_N)$ and $z = x_{1:N-1}$:
+
+$$
+\operatorname{KL}(\pi|p) = \operatorname{KL}(\pi_{0,N}\,|\,p_{0,N}) + \mathbb{E}_{\pi_{0,N}}\Big[\operatorname{KL}\big(\pi_{|0,N}\,\big|\,p_{|0,N}\big)\Big].
+$$
+
+The constraints only touch $\pi_{0,N}$. The second term is a nonnegative expectation and can be
+set to zero, without changing $\pi_{0,N}$, by choosing $\pi_{|0,N} = p_{|0,N}$. So any minimizer
+has the reference bridge inside, and its endpoint coupling minimizes the first term: that is
+statement 2. Uniqueness is strict convexity of KL on the convex set of feasible couplings.
+Existence is the one step we do not prove: it uses that sublevel sets of
+$\pi\mapsto\operatorname{KL}(\pi|p)$ are weakly compact and that the constraint set is weakly closed
+(Léonard 2014, Section 2); the finiteness assumption guarantees the infimum is finite.
+
+*Entropic OT form (3).* With $p_{0,N}(x_0,x_N) = p_{\mathrm{data}}(x_0)\,p_{N|0}(x_N\mid x_0)$,
+
+$$
+\operatorname{KL}(\pi^s|p_{0,N})
+= \int \pi^s\log\pi^s - \int\pi^s\log p_{\mathrm{data}}(x_0) - \int \pi^s \log p_{N|0}(x_N\mid x_0)
+= -H(\pi^s) + H(p_{\mathrm{data}}) - \mathbb{E}_{\pi^s}\big[\log p_{N|0}(X_N\mid X_0)\big].
+$$
+
+The middle term is a constant because $\pi^s_0 = p_{\mathrm{data}}$ is fixed. For the Gaussian
+kernel, $-\log p_{N|0}(x_N\mid x_0) = \|x_N - x_0\|^2/(2\sigma^2) + \mathrm{const}$, so the
+objective is $\frac{1}{2\sigma^2}\mathbb{E}\|X_0-X_N\|^2 - H(\pi^s)$ up to constants; multiply by
+$2\sigma^2$. $\blacksquare$
+</Proof>
+
+**Continuous time.** The same chain rule holds for path measures with the endpoints
+$(x_0, x_T)$ as $y$, and the reference bridge $\mathbb P_{|0,T}$ is the reference SDE
+conditioned on both endpoints (for Brownian motion, the Brownian bridge). Girsanov turns the
+objective into a control cost: if $\Pi$ is the law of
+$\mathrm{d}X_t = u_t(X_t)\,\mathrm{d}t + \sqrt2\,\mathrm{d}W_t$, then
+
+$$
+\operatorname{KL}(\Pi|\mathbb P) = \operatorname{KL}(\Pi_0|\mathbb P_0) + \tfrac14\,\mathbb{E}_\Pi\int_0^T \|u_t(X_t) - f(X_t)\|^2\,\mathrm{d}t ,
+$$
+
+so the SB is the minimum-energy drift correction that hits both marginals. The $\tfrac14$ is
+$1/(2g^2)$ with $g^2 = 2$.
+
+**What the proof really uses.** Only the chain rule of KL and the fact that the constraints are
+functions of the endpoint marginals. Nothing about Gaussians, diffusions, or dimension enters
+until statement 3. That is why the same reduction is used for every reference process in the
+bridge-matching literature.
+
+## Result 2: IPF is alternating half-bridges, which is Sinkhorn in path space
+
+<Definition name="Iterative proportional fitting">
+Start from $\pi^0 = p$ and alternate KL projections onto the two marginal constraints:
+
+$$
+\pi^{2n+1} = \operatorname*{arg\,min}\{\operatorname{KL}(\pi|\pi^{2n}) : \pi_N = p_{\mathrm{prior}}\},
+\qquad
+\pi^{2n+2} = \operatorname*{arg\,min}\{\operatorname{KL}(\pi|\pi^{2n+1}) : \pi_0 = p_{\mathrm{data}}\}.
+$$
+
+Each projection is a *half-bridge*: one marginal is imposed, the other is left free.
+</Definition>
+
+<Proposition name="Half-bridges keep one direction's transitions (the paper's representation of the IPF iterates)">
+Under $\operatorname{KL}(p_{\mathrm{data}}\otimes p_{\mathrm{prior}}\,|\,p_{0,N})$ finite, every iterate has a positive density, $\pi^{2n} = p^n$, $\pi^{2n+1} = q^n$, with $p^0 = p$ and
+
+$$
+q^n(x_{0:N}) = p_{\mathrm{prior}}(x_N)\prod_{k=0}^{N-1} p^n_{k|k+1}(x_k\mid x_{k+1}),
+\qquad
+p^{n+1}(x_{0:N}) = p_{\mathrm{data}}(x_0)\prod_{k=0}^{N-1} q^n_{k+1|k}(x_{k+1}\mid x_k).
+$$
+
+In words: the odd iterate is the *backward* chain of the even one, re-started from $p_{\mathrm{prior}}$; the even iterate is the *forward* chain of the odd one, re-started from $p_{\mathrm{data}}$.
+</Proposition>
+
+**Prerequisite check.** Chain rule of KL again; Bayes for reverse transitions; the Sinkhorn
+update rule from [entropic OT](/concepts/entropic-ot-and-sinkhorn).
+
+<Proof>
+Take the odd step. Chain rule with $y = x_N$, $z = x_{0:N-1}$:
+
+$$
+\operatorname{KL}(\pi|\pi^{2n}) = \operatorname{KL}(\pi_N\,|\,\pi^{2n}_N) + \mathbb{E}_{\pi_N}\Big[\operatorname{KL}\big(\pi(\cdot\mid x_N)\,\big|\,\pi^{2n}(\cdot\mid x_N)\big)\Big].
+$$
+
+The constraint $\pi_N = p_{\mathrm{prior}}$ pins the first term at
+$\operatorname{KL}(p_{\mathrm{prior}}|\pi^{2n}_N)$, which does not depend on $\pi$. The second term is
+minimized, uniquely, by $\pi(\cdot\mid x_N) = \pi^{2n}(\cdot\mid x_N)$. So
+$\pi^{2n+1}(x_{0:N}) = p_{\mathrm{prior}}(x_N)\,\pi^{2n}(x_{0:N-1}\mid x_N)$, and since $\pi^{2n}$
+is Markov, its conditional given $x_N$ factorizes into the product of backward transitions
+$p^n_{k|k+1}$. The even step is the mirror image with $y = x_0$. Positivity of densities is
+inherited from $p>0$ by induction; the finiteness assumption is what makes each
+$\operatorname{arg\,min}$ exist (Result 4 shows the objective stays finite along the sequence).
+$\blacksquare$
+</Proof>
+
+**Why this is Sinkhorn.** Look at endpoints only. The odd step multiplies the joint by the ratio
+of the imposed to the current terminal marginal:
+
+$$
+\pi^{2n+1}_{0,N}(x,y) = \pi^{2n}_{0,N}(x,y)\,\frac{p_{\mathrm{prior}}(y)}{\pi^{2n}_N(y)} ,
+\qquad
+\pi^{2n+2}_{0,N}(x,y) = \pi^{2n+1}_{0,N}(x,y)\,\frac{p_{\mathrm{data}}(x)}{\pi^{2n+1}_0(x)} .
+$$
+
+By induction $\pi^{2n}_{0,N}(x,y) = a_n(x)\,p_{0,N}(x,y)\,b_{n-1}(y)$: a column rescaling, then a
+row rescaling, of the fixed kernel $p_{0,N}$, which is exactly the Sinkhorn iteration
+$u\odot K\odot v$ from the [entropic OT page](/concepts/entropic-ot-and-sinkhorn) with
+$K = p_{0,N}$, in continuous state space. And the interior of the path is never touched: if
+$\pi^{2n} = \pi^{2n}_{0,N}\otimes p_{|0,N}$, then
+$\pi^{2n+1} = p_{\mathrm{prior}}(x_N)\,\pi^{2n}(x_0\mid x_N)\,p_{|0,N}(x_{1:N-1}\mid x_0,x_N)$
+still has the reference bridge inside. So IPF on path space *is* Sinkhorn on the endpoint
+coupling, glued to the reference bridge, which is the paper's statement
+$\Pi^n = \pi^{s,n}\,\mathbb P_{|0,T}$ in continuous time.
+
+**What the proof really uses.** The chain rule, with the split chosen so that the constraint
+sits entirely in the first term. The Markov property is used only to write the conditional as a
+product of one-step transitions, which is what makes the half-bridge *simulable*.
+
+## Result 3: half-bridges are time reversals, and reversing a Gaussian step is a regression
+
+The paper's contribution is to notice that "the backward chain of $p^n$ re-started from
+$p_{\mathrm{prior}}$" is a thing one can *learn*, because backward transitions of a diffusion are
+given by Anderson's formula.
+
+<Proposition name="Continuous-time IPF iterates are diffusions (paraphrase of the paper's continuous-time proposition)">
+Suppose $\Pi^{2n}$ is the law of $\mathrm{d}X_t = f^n_t(X_t)\,\mathrm{d}t + \sqrt2\,\mathrm{d}W_t$, $X_0\sim p_{\mathrm{data}}$, with marginal densities $p^n_t$, and that the regularity needed for Anderson's theorem holds (the paper assumes a dominating reference diffusion with a confining potential and finite KL of every iterate to it). Then:
+
+- the time reversal of $\Pi^{2n+1}$ is the law of $\mathrm{d}Y_s = b^n_{T-s}(Y_s)\,\mathrm{d}s + \sqrt2\,\mathrm{d}W_s$, $Y_0\sim p_{\mathrm{prior}}$, with
+  $b^n_t = -f^n_t + 2\nabla\log p^n_t$;
+- $\Pi^{2n+2}$ is the law of $\mathrm{d}X_t = f^{n+1}_t(X_t)\,\mathrm{d}t + \sqrt2\,\mathrm{d}W_t$, $X_0\sim p_{\mathrm{data}}$, with $f^{n+1}_t = -b^n_t + 2\nabla\log q^n_t$, where $q^n_t$ is the marginal of $\Pi^{2n+1}$ at time $t$.
+</Proposition>
+
+**Prerequisite check.** Anderson's reverse-time SDE
+([time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions)): for
+$\mathrm{d}X_t = f\,\mathrm{d}t + g\,\mathrm{d}W_t$ with marginals $p_t$, the process
+$Y_s = X_{T-s}$ solves $\mathrm{d}Y_s = \big(-f + g^2\nabla\log p_{T-s}\big)(Y_s)\,\mathrm{d}s + g\,\mathrm{d}\bar W_s$.
+With $g^2 = 2$ this is the $b^n$ above.
+
+<Proof>
+By Result 2, $\Pi^{2n+1}$ has the backward transitions of $\Pi^{2n}$ and initial law
+$p_{\mathrm{prior}}$ at time $T$. A Markov process is determined by its transitions and its initial
+law, and Anderson's theorem says the backward transitions of $\Pi^{2n}$ are those of the SDE
+with drift $-f^n + 2\nabla\log p^n$. Re-starting that SDE from $p_{\mathrm{prior}}$ instead of
+$p^n_T$ changes nothing about the transitions. The even step is the same argument applied to the
+reversed process, whose marginals are $q^n_t$. $\blacksquare$
+</Proof>
+
+**Discrete time, and where the regression comes from.** With Euler steps the reverse transition
+is not exactly Gaussian, but it is close. From Bayes,
+
+$$
+p^n_{k|k+1}(x_k\mid x_{k+1}) = p^n_{k+1|k}(x_{k+1}\mid x_k)\exp\big[\log p^n_k(x_k) - \log p^n_{k+1}(x_{k+1})\big].
+$$
+
+Write $x_k = x_{k+1} + \delta$, Taylor-expand $\log p^n_k$ around $x_{k+1}$, replace
+$p^n_k$ by $p^n_{k+1}$ and $f(x_k)$ by $f(x_{k+1})$ (each an $O(\gamma)$ change), and complete
+the square in $\delta$: the exponent becomes $-\|\delta + \gamma f(x_{k+1}) - 2\gamma\nabla\log p^n_{k+1}(x_{k+1})\|^2/(4\gamma)$
+plus terms of higher order in $\gamma$. This is the paper's approximation
+
+$$
+p^n_{k|k+1}(x_k\mid x_{k+1}) \approx \mathcal N\big(x_k;\ x_{k+1} + \gamma_{k+1} b^n_{k+1}(x_{k+1}),\ 2\gamma_{k+1}I\big),
+\qquad b^n_{k+1} = -f^n_k + 2\nabla\log p^n_{k+1},
+$$
+
+the discrete shadow of Anderson. One could now estimate $\nabla\log p^n_{k+1}$ by score matching,
+but that would require keeping every past score network, since $f^{n+1}$ is defined through
+$b^n$, which is defined through $f^n$, and so on. The paper's alternative is the following identity.
+
+<Proposition name="Mean-matching characterization of the reverse step (the paper's regression proposition)">
+Suppose the forward and backward steps at IPF stage $n$ have the Gaussian forms
+$p^n_{k+1|k}(x_{k+1}\mid x_k) = \mathcal N(x_{k+1}; F^n_k(x_k), 2\gamma_{k+1}I)$ and
+$q^n_{k|k+1}(x_k\mid x_{k+1}) = \mathcal N(x_k; B^n_{k+1}(x_{k+1}), 2\gamma_{k+1}I)$ with
+$F^n_k(x) = x + \gamma_{k+1}f^n_k(x)$, $B^n_{k+1}(x) = x + \gamma_{k+1}b^n_{k+1}(x)$ and
+$b^n_{k+1} = -f^n_k + 2\nabla\log p^n_{k+1}$. Then
+
+$$
+B^n_{k+1} = \operatorname*{arg\,min}_{B\in L^2}\ \mathbb{E}_{p^n_{k,k+1}}\Big[\big\|B(X_{k+1}) - \big(X_{k+1} + F^n_k(X_k) - F^n_k(X_{k+1})\big)\big\|^2\Big],
+$$
+
+and symmetrically $F^{n+1}_k = \operatorname{arg\,min}_F \mathbb{E}_{q^n_{k,k+1}}\big[\|F(X_k) - (X_k + B^n_{k+1}(X_{k+1}) - B^n_{k+1}(X_k))\|^2\big]$.
+</Proposition>
+
+**Prerequisite check.** Tweedie's formula from [score matching](/concepts/score-matching): if
+$X' = m(X) + \sqrt{2\gamma}\,Z$ with $Z\sim\mathcal N(0,I)$ independent of $X$, then
+$2\gamma\,\nabla\log p_{X'}(x') = \mathbb{E}[m(X) - x'\mid X' = x']$. And the fact that the
+$L^2$-optimal predictor of a target given $X'$ is the conditional expectation
+([conditional expectation](/concepts/conditional-expectation)).
+
+<Proof>
+Under $p^n$, $X_{k+1} = F^n_k(X_k) + \sqrt{2\gamma_{k+1}}\,Z$, so
+$p^n_{k+1}(x') = (4\pi\gamma)^{-d/2}\int p^n_k(x)\exp[-\|F^n_k(x) - x'\|^2/(4\gamma)]\,\mathrm{d}x$.
+Differentiate under the integral (dominated convergence, using $p^n_k$ bounded) and divide by
+$p^n_{k+1}(x')$:
+
+$$
+\nabla\log p^n_{k+1}(x') = \int \frac{F^n_k(x) - x'}{2\gamma}\,p^n_{k|k+1}(x\mid x')\,\mathrm{d}x
+= \mathbb{E}\Big[\frac{F^n_k(X_k) - X_{k+1}}{2\gamma}\ \Big|\ X_{k+1} = x'\Big],
+$$
+
+which is Tweedie. Substitute into $b^n_{k+1} = -f^n_k + 2\nabla\log p^n_{k+1}$:
+
+$$
+\gamma\,b^n_{k+1}(x') = -\gamma f^n_k(x') + \mathbb{E}[F^n_k(X_k) - x'\mid X_{k+1} = x']
+= \mathbb{E}\big[F^n_k(X_k) - F^n_k(x')\ \big|\ X_{k+1} = x'\big],
+$$
+
+using $F^n_k(x') = x' + \gamma f^n_k(x')$. Adding $x'$ to both sides,
+$B^n_{k+1}(x') = \mathbb{E}[X_{k+1} + F^n_k(X_k) - F^n_k(X_{k+1})\mid X_{k+1} = x']$, and a
+conditional expectation is the $L^2$ minimizer of the squared error to its target. $\blacksquare$
+</Proof>
+
+<Warning>
+The target is $X_{k+1} + F^n_k(X_k) - F^n_k(X_{k+1})$, not the naive $X_k$. The two differ by
+$\gamma_{k+1}\big(f^n_k(X_k) - f^n_k(X_{k+1})\big) = O(\gamma^{3/2})$ since
+$\|X_k - X_{k+1}\| = O(\gamma^{1/2})$. Regressing on $X_k$ would give the exact Gaussian
+projection of the true reverse kernel; the paper's target is the one consistent with the
+Anderson-type approximation above, and it is what Algorithm 1 in the paper trains. In
+practice the network is parametrized as $B_\beta(k,x)$ and trained on samples of the forward
+chain; then $F_\alpha(k,x)$ is trained on samples of the backward chain; and so on.
+</Warning>
+
+**What the proof really uses.** Two things only: that the forward step is Gaussian with a known
+mean map, which is what makes Tweedie apply, and that the reverse drift is
+"$-f$ plus twice the score". No optimality of the bridge is used. This is why the same trick
+works for any pair of forward/backward Gaussian chains, and why DSB can be run with a learned
+drift as reference.
+
+## Result 4: convergence of IPF
+
+<Theorem name="IPF converges (paraphrase of the paper's two convergence propositions)">
+Assume (the paper's A1): $p_N > 0$, $p_{\mathrm{prior}} > 0$, $|H(p_{\mathrm{prior}})|$ finite, and
+$\int |\log p_{N|0}(x_N\mid x_0)|\,p_{\mathrm{data}}(x_0)\,p_{\mathrm{prior}}(x_N)\,\mathrm{d}x_0\,\mathrm{d}x_N$ finite. Then:
+
+1. The IPF sequence is well defined, and it is monotone: for $n\ge1$,
+   $\operatorname{KL}(\pi^{n+1}|\pi^n)\le\operatorname{KL}(\pi^{n-1}|\pi^n)$, and $\|\pi^{n+1}-\pi^n\|_{\mathrm{TV}}$ is non-increasing.
+2. The marginal errors vanish faster than $1/n$:
+   $n\,\big\{\operatorname{KL}(\pi^n_0|p_{\mathrm{data}}) + \operatorname{KL}(\pi^n_N|p_{\mathrm{prior}})\big\}\to0$.
+3. There is a probability measure $\pi^\infty$ with $\|\pi^n - \pi^\infty\|_{\mathrm{TV}}\to0$.
+4. If in addition $h = p_{0,N}/(p_0\otimes p_N)$ is continuous and positive, bounded by a product $\Phi_0(x_0)\Phi_N(x_N)$ of continuous positive functions with $\log h,\log\Phi_0,\log\Phi_N$ integrable against $p_{\mathrm{data}}\otimes p_{\mathrm{prior}}$, and $p\ll\pi^\infty$, then $\pi^\infty = \pi^\star$.
+</Theorem>
+
+The paper's discussion is careful to say that earlier results (Rüschendorf 1995) needed $h$
+bounded below, and that quantitative rates in the non-compact case were essentially absent; the
+$o(1/n)$ is new. Geometric rates hold in the Gaussian case (the paper's Appendix G), and we see
+one by hand below.
+
+**Prerequisite check.** Chain rule and Pinsker's inequality
+([kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds));
+the potential form $a(x)\,p_{0,N}(x,y)\,b(y)$ of the bridge ([schrodinger-bridge](/concepts/schrodinger-bridge)).
+
+<Proof>
+We prove the two identities that drive everything and then say what they do and do not give.
+
+*Pythagoras for a marginal projection.* Let $\pi^{2n+1}$ be the projection of $\pi^{2n}$ onto
+$\mathcal C_N = \{\pi : \pi_N = p_{\mathrm{prior}}\}$, and let $\pi\in\mathcal C_N$ be any measure with
+$\operatorname{KL}(\pi|\pi^{2n})$ finite. Then
+
+$$
+\operatorname{KL}(\pi|\pi^{2n}) = \operatorname{KL}(\pi|\pi^{2n+1}) + \operatorname{KL}(\pi^{2n+1}|\pi^{2n}),
+$$
+
+with equality, not just inequality. Indeed, by the chain rule with $y = x_N$ and Result 2:
+$\operatorname{KL}(\pi|\pi^{2n}) = \operatorname{KL}(p_{\mathrm{prior}}|\pi^{2n}_N) + \mathbb{E}_{p_{\mathrm{prior}}}[\operatorname{KL}(\pi(\cdot|x_N)|\pi^{2n}(\cdot|x_N))]$;
+$\operatorname{KL}(\pi|\pi^{2n+1}) = 0 + \mathbb{E}_{p_{\mathrm{prior}}}[\operatorname{KL}(\pi(\cdot|x_N)|\pi^{2n}(\cdot|x_N))]$ because $\pi^{2n+1}$ has the same conditionals as $\pi^{2n}$ and terminal law $p_{\mathrm{prior}}$;
+and $\operatorname{KL}(\pi^{2n+1}|\pi^{2n}) = \operatorname{KL}(p_{\mathrm{prior}}|\pi^{2n}_N) + 0$. Add up. The
+same holds for even steps with $\mathcal C_0$.
+
+*Csiszár's telescoping identity.* Let $\tilde\pi$ satisfy both constraints with
+$\operatorname{KL}(\tilde\pi|p)$ finite (the product coupling glued to the reference bridge works, by
+the assumption). Apply Pythagoras at every step and sum:
+
+$$
+\operatorname{KL}(\tilde\pi|\pi^0) = \operatorname{KL}(\tilde\pi|\pi^n) + \sum_{k=0}^{n-1}\operatorname{KL}(\pi^{k+1}|\pi^k)
+\qquad\text{for all } n.
+$$
+
+Consequences: every $\operatorname{KL}(\tilde\pi|\pi^n)$ is finite, so the next projection exists
+(this is item 1's "well defined"); the increments $\operatorname{KL}(\pi^{k+1}|\pi^k)$ are summable;
+and since $\operatorname{KL}(\pi^{2n+1}|\pi^{2n}) = \operatorname{KL}(p_{\mathrm{prior}}|\pi^{2n}_N)$ and
+$\operatorname{KL}(\pi^{2n+2}|\pi^{2n+1}) = \operatorname{KL}(p_{\mathrm{data}}|\pi^{2n+1}_0)$, the marginal
+errors (in this direction of KL) are summable.
+
+*From summable to $o(1/n)$.* The paper shows the increments are also non-increasing (item 1;
+its proof is another application of the chain rule to the two-step composition, which we skip).
+A non-increasing summable sequence $c_n$ satisfies $n c_n\to0$: for $n\ge 2n_0$,
+$(n/2)\,c_n\le\sum_{k\ge n_0}c_k$, which is small. That is item 2, after using the chain rule
+once more to swap the direction of the marginal KL.
+
+*What we do not reproduce.* Item 3, convergence of the whole sequence in TV, is the delicate
+step. Pinsker gives $\|\pi^{k+1}-\pi^k\|_{\mathrm{TV}}\le\sqrt{\operatorname{KL}(\pi^{k+1}|\pi^k)/2}$, and a
+square root of a summable sequence is not automatically summable, so one needs more than the
+identities above; see the paper's Appendix F and Rüschendorf 1995. Item 4, identifying the
+limit with $\pi^\star$, uses that each iterate has the product form
+$a_n(x)\,p_{0,N}(x,y)\,b_n(y)$ (Result 2), passes the products $a_n b_n$ to the limit along the
+TV-convergent sequence, and shows the limit is again a product $a(x)b(y)$ times $p_{0,N}$ with
+the right marginals, which characterizes the bridge (the Schrödinger system). The extra
+condition on $h$ is what controls the limit of the potentials on a set of full measure.
+$\blacksquare$
+</Proof>
+
+**What the proof really uses.** Pythagoras for KL projections onto sets defined by a marginal
+constraint, which is exact because the constraint sits in one term of the chain rule. Sinkhorn
+convergence proofs are the same argument in discrete state space. Nothing about diffusions is
+used, which is why the result transfers to continuous time verbatim through
+$\Pi^n = \pi^{s,n}\,\mathbb P_{|0,T}$.
+
+## Worked example by hand
+
+<Example title="The Schrödinger bridge between two 1-D Gaussians under Brownian reference">
+**Data.** Reference: Brownian motion with unit diffusion on $[0,1]$, so
+$p_{1|0}(y\mid x) = \mathcal N(y; x, 1)$. Marginals: $p_0 = \mathcal N(0,1)$, $p_1 = \mathcal N(3,1)$.
+The reference initial law does not matter (it only shifts the objective by a constant, as in
+Result 1), so take it to be $p_0$; then the reference endpoint joint is
+$R = \mathcal N\big((0,0), \Sigma_R\big)$ with $\Sigma_R = \begin{pmatrix}1&1\\1&2\end{pmatrix}$,
+$\det\Sigma_R = 1$, $\Sigma_R^{-1} = \begin{pmatrix}2&-1\\-1&1\end{pmatrix}$.
+
+**Step 1: the static problem.** By Result 1 we minimize $\operatorname{KL}(\pi|R)$ over couplings of
+$\mathcal N(0,1)$ and $\mathcal N(3,1)$. Among couplings with the same second moments, the Gaussian
+has the largest entropy, and by Result 1(3) the objective is
+$\tfrac12\mathbb{E}[(Y-X)^2] - H(\pi) + \mathrm{const}$, which depends on $\pi$ only through its
+second moments and its entropy. So the minimizer is Gaussian,
+$\pi_\rho = \mathcal N\big((0,3), \Sigma_\rho\big)$, $\Sigma_\rho = \begin{pmatrix}1&\rho\\\rho&1\end{pmatrix}$,
+and one scalar $\rho\in(-1,1)$ remains. Use the Gaussian KL formula from
+[Gaussian computations](/concepts/gaussian-computations):
+
+$$
+\operatorname{KL}(\pi_\rho|R) = \tfrac12\Big[\operatorname{tr}(\Sigma_R^{-1}\Sigma_\rho) + \mu^\top\Sigma_R^{-1}\mu - 2 + \log\tfrac{\det\Sigma_R}{\det\Sigma_\rho}\Big],
+\qquad \mu = (0,3)^\top .
+$$
+
+Compute each piece: $\Sigma_R^{-1}\Sigma_\rho = \begin{pmatrix}2-\rho & 2\rho-1\\ \rho-1 & 1-\rho\end{pmatrix}$, trace $3-2\rho$;
+$\mu^\top\Sigma_R^{-1}\mu = 9\cdot 1 = 9$; $\det\Sigma_\rho = 1-\rho^2$. So
+
+$$
+\operatorname{KL}(\pi_\rho|R) = \tfrac12\big[10 - 2\rho - \log(1-\rho^2)\big],
+\qquad
+\frac{\mathrm{d}}{\mathrm{d}\rho}: \ -2 + \frac{2\rho}{1-\rho^2} = 0
+\ \Longleftrightarrow\ \rho^2 + \rho - 1 = 0 .
+$$
+
+Hence $\rho^\star = \tfrac{\sqrt5 - 1}{2}\approx 0.618$, and the minimum is
+$\tfrac12[10 - 1.236 + 0.481] \approx 4.62$. Two sanity checks. With $\rho = 0.5$ (the reference's
+own correlation) the value is $4.644$, and with $\rho = 0.7$ it is $4.637$, both larger. And
+$\rho^\star$ is the inverse golden ratio, so $1 - \rho^{\star2} = \rho^\star$, a relation we will
+reuse. Cross-check against the general Gaussian entropic-OT formula: for unit variances and
+cost $|x-y|^2$ with regularization $\varepsilon = 2$ the cross-covariance is
+$\tfrac12\sqrt{4 + \varepsilon^2/4} - \varepsilon/4 = \tfrac12\sqrt5 - \tfrac12$. Same number.
+
+**Why the stationarity condition is "no cross term".** Compute
+$\log\pi_\rho - \log R$ as a quadratic in $(x,y)$: the $xy$ coefficient is
+$\rho/(1-\rho^2) - 1$, which vanishes exactly when $\rho^2+\rho = 1$. At the optimum the ratio
+$\pi^\star/R$ therefore factorizes as $a(x)\,b(y)$ with
+
+$$
+a(x)\propto\exp\!\big(\tfrac{1-\rho}{2}x^2 - 3x\big),
+\qquad
+b(y)\propto\exp\!\big(-\tfrac{\rho}{2}y^2 + 3(1+\rho)\,y\big),
+$$
+
+which is the Schrödinger-system structure from the [bridge page](/concepts/schrodinger-bridge):
+the first-order condition of the KL minimization *is* the product form.
+
+**Step 2: one IPF sweep.** Track the endpoint joint as (mean, covariance). Start at
+$\pi^0 = R$: mean $(0,0)$, covariance $\Sigma_R$. Its terminal marginal is $\mathcal N(0,2)$, wrong
+on both counts.
+
+*First half-bridge (impose the terminal law).* Keep the reference's backward conditional
+$X_0\mid X_1 = y\sim\mathcal N(y/2,\ 1/2)$ (Gaussian conditioning: slope $1/2$, residual
+variance $1 - 1/2$) and re-start from $X_1\sim\mathcal N(3,1)$. Then $X_0 = X_1/2 + \eta$ with
+$\eta\sim\mathcal N(0,1/2)$:
+
+$$
+\pi^1:\quad \mathbb{E} = (1.5,\ 3),\qquad \Sigma = \begin{pmatrix}0.75 & 0.5\\ 0.5 & 1\end{pmatrix}.
+$$
+
+The terminal law is now correct and the initial law has drifted to $\mathcal N(1.5, 0.75)$. In path
+space this iterate is the time reversal of Result 3: the reference has marginals
+$\mathcal N(0,1+t)$, score $-y/(1+t)$, so $\pi^1$ reversed is
+$\mathrm{d}Y_s = -Y_s/(2-s)\,\mathrm{d}s + \mathrm{d}\bar W_s$, $Y_0\sim\mathcal N(3,1)$. Its mean
+solves $\dot m = -m/(2-s)$, $m(s) = 3(2-s)/2$, and $m(1) = 1.5$. Same answer.
+
+*Second half-bridge (impose the initial law).* Keep $\pi^1$'s forward conditional
+$X_1\mid X_0 = x\sim\mathcal N\big(3 + \tfrac{0.5}{0.75}(x-1.5),\ 1 - \tfrac{0.25}{0.75}\big) = \mathcal N\big(2 + \tfrac23x,\ \tfrac23\big)$
+and re-start from $X_0\sim\mathcal N(0,1)$:
+
+$$
+\pi^2:\quad \mathbb{E} = (0,\ 2),\qquad \Sigma = \begin{pmatrix}1 & 2/3\\ 2/3 & 10/9\end{pmatrix}.
+$$
+
+The initial law is correct again; the terminal law is $\mathcal N(2, 1.11)$, much closer to
+$\mathcal N(3,1)$ than the $\mathcal N(0,2)$ we started from. The correlation went
+$0.707\to0.577\to0.632$, bracketing $0.618$.
+
+Continuing, the forward slopes are $\tfrac12,\tfrac23,\tfrac35,\tfrac58,\tfrac8{13},\dots$, ratios of
+consecutive Fibonacci numbers converging to $\rho^\star$ (Exercise 2), and the terminal-mean errors
+are $3,\ 1,\ 0.375,\ 0.143,\ 0.055,\dots$, contracting by a factor approaching
+$\rho^{\star2}\approx0.38$ per full sweep: geometric convergence, as the paper's Gaussian
+appendix predicts.
+
+**Step 3: the bridge drift.** By Result 1, $\pi^\star$ on paths is the optimal coupling glued to
+Brownian bridges. Given endpoints $(x,y)$, a Brownian bridge on $[0,1]$ has drift
+$(y - X_t)/(1-t)$, so the bridge's drift is
+
+$$
+u(t,x) = \frac{\mathbb{E}[X_1\mid X_t = x] - x}{1-t}.
+$$
+
+Everything is jointly Gaussian: $X_t = (1-t)X_0 + tX_1 + \beta_t$ with $\beta_t\sim\mathcal N(0,t(1-t))$
+independent of the endpoints, so $\mathbb{E}X_t = 3t$,
+$v_t := \operatorname{Var}X_t = 1 + (2\rho-1)t(1-t)$, $c_t := \operatorname{Cov}(X_t,X_1) = \rho + t(1-\rho)$,
+and $\mathbb{E}[X_1\mid X_t = x] = 3 + (c_t/v_t)(x - 3t)$. Substituting and simplifying with
+$\rho^2 = 1-\rho$ (so $2\rho - 1 = \rho^3$ and $1-\rho = \rho^2$) gives
+
+$$
+u(t,x) = \frac{3(1+\rho) - \rho\,x}{1 + \rho(1-t)}
+\approx \frac{4.854 - 0.618\,x}{1.618 - 0.618\,t}.
+$$
+
+Linear in $x$ at every $t$, with coefficients that are smooth (rational) in $t$. Checks: at
+$t=0$, $u = 3 - (1-\rho)x = 3 - 0.382x$, which is directly $\mathbb{E}[X_1\mid X_0 = x] - x$ from
+the optimal coupling; at $(t,x) = (0.5, 0)$ the formula gives $3.708$, and the unsimplified
+mixture formula gives $3.708$ as well. And it matches the Schrödinger-system form: the
+bridge drift is $\nabla_x\log\varphi(t,x)$ with $\varphi(t,x) = \mathbb{E}[b(X_1)\mid X_t = x]$ under
+the reference; for $b(y)\propto\exp(-\tfrac{\rho}{2}y^2 + 3(1+\rho)y)$ from Step 1 and a
+$\mathcal N(x, 1-t)$ kernel, completing the square gives
+$\nabla_x\log\varphi = \big(3(1+\rho) - \rho x\big)/\big(1 + \rho(1-t)\big)$. Same expression, from
+the potential rather than from the mixture, so the two halves of Result 1 agree.
+</Example>
+
+## Exercises
+
+<Exercise hint="Chain rule with y = x_0 instead of y = x_N; the constraint set is now the initial marginal.">
+Write out the even IPF step of Result 2 in full: show that
+$\pi^{2n+2}(x_{0:N}) = p_{\mathrm{data}}(x_0)\,\pi^{2n+1}(x_{1:N}\mid x_0)$ and that this is a product
+of forward transitions of $\pi^{2n+1}$.
+</Exercise>
+
+<Exercise hint="After a half step the imposed variable has variance 1, the covariance is the previous slope a, and the residual variance equals a; so the next slope is a/(a + a^2).">
+In the worked example, let $a_n$ be the regression slope kept at IPF step $n$ ($a_1 = 1/2$).
+Show that $a_{n+1} = 1/(1 + a_n)$, deduce the Fibonacci pattern, and verify that the fixed point
+is $\rho^\star$.
+</Exercise>
+
+<Exercise hint="Anderson with g^2 = 1 and the Gaussian marginals of the bridge, whose mean is 3t and variance is v_t.">
+Compute the reverse-time drift of the optimal bridge in the example,
+$-u(t,x) + \nabla\log p^\star_t(x)$, and check that at $t = 1$ it equals
+$\mathbb{E}[X_0\mid X_1 = y] - y$ computed from the optimal coupling, namely $\rho y - 3\rho - y$.
+</Exercise>
+
+<Exercise hint="Write the Gaussian log-densities and use that the difference is a quadratic in (x,y) with no xy term if and only if the potentials factorize.">
+Redo Step 1 of the example with $p_1 = \mathcal N(3, 4)$ instead of $\mathcal N(3,1)$. The optimal
+cross-covariance $c$ now satisfies a different quadratic; find it, and check that the ratio
+$\pi^\star/R$ still factorizes.
+</Exercise>
+
+## Reading order
+
+1. [KL divergence and variational bounds](/concepts/kl-divergence-and-variational-bounds): the chain rule and strict convexity carry Results 1, 2, and 4.
+2. [Girsanov's theorem](/concepts/girsanov-theorem): KL between path measures as a control cost.
+3. [Time reversal of diffusions](/concepts/time-reversal-of-diffusions): Anderson's formula, the engine of Result 3.
+4. [Score matching](/concepts/score-matching): Tweedie's identity, which turns the reverse drift into a regression.
+5. [Diffusion SDE framework](/concepts/diffusion-sde-framework): the model DSB generalizes, and the discretization conventions.
+6. [Entropic OT and Sinkhorn](/concepts/entropic-ot-and-sinkhorn): the static problem and the iteration IPF is a copy of.
+7. [Schrödinger bridge](/concepts/schrodinger-bridge): the static/dynamic dictionary and the potentials $(\varphi,\hat\varphi)$; read it last and then the paper's Section 3 will read as a summary.

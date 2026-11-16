@@ -1,0 +1,303 @@
+---
+title: "The diffusion SDE framework"
+kind: concept
+summary: "Forward noising as an SDE, sampling as its time reversal or as a probability-flow ODE, and where DDPM, NCSN, likelihood weighting, and predictor–corrector samplers sit inside one picture."
+tags: [diffusion-models, sde, score-based, probability-flow-ode, ddpm]
+track: generative-modeling
+level: 3
+prerequisites: [time-reversal-of-diffusions, score-matching, linear-sde-and-ou]
+estimated_minutes: 70
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+  - type: arxiv
+    id: "2101.09258"
+    title: "Maximum Likelihood Training of Score-Based Diffusion Models"
+  - type: arxiv
+    id: "2206.00364"
+    title: "Elucidating the Design Space of Diffusion-Based Generative Models"
+  - type: web
+    title: "Reverse-time diffusion equation models"
+    author: "Brian D. O. Anderson, Stochastic Processes and their Applications 1982"
+---
+
+## Why you need this
+
+Song et al. 2021 showed that DDPM (Ho et al. 2020) and NCSN (Song and Ermon 2019) are two
+discretisations of one continuous-time object: a forward SDE that destroys data, whose
+time reversal, driven by the score, regenerates it. Reading any later diffusion paper
+requires this vocabulary: "VP" and "VE" SDEs, perturbation kernels, the reverse SDE, the
+probability-flow ODE (which is what DDIM, DPM-Solver, and the flow-matching samplers of
+$\pi_0$ integrate), predictor–corrector sampling, and the likelihood weighting of Song,
+Durkan, Murray and Ermon 2021. Diffusion Policy runs the DDPM sampler on action chunks; the
+Schrödinger-bridge methods of De Bortoli et al. 2021 use the VP-SDE as their reference
+process. This page assembles the pieces proved elsewhere on the site and works one
+Gaussian instance end to end.
+
+## Setup
+
+Fix a horizon $T$ (papers use $T = 1$). The **forward SDE** is
+$$
+\mathrm{d}X_t = f(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t,\qquad X_0\sim p_{\mathrm{data}},
+$$
+with $f$ affine in $x$ and $g$ scalar, so every marginal $p_t$ is a Gaussian smoothing of
+$p_{\mathrm{data}}$. Two families cover the literature.
+
+<Definition name="VE and VP SDEs">
+*Variance exploding (VE):* $f = 0$, $g(t) = \sqrt{\mathrm{d}\sigma^2(t)/\mathrm{d}t}$ for an
+increasing $\sigma(t)$. *Variance preserving (VP):* $f(x,t) = -\tfrac12\beta(t)x$,
+$g(t) = \sqrt{\beta(t)}$ for a positive schedule $\beta$. The VP-SDE is a time-inhomogeneous
+[Ornstein–Uhlenbeck process](/concepts/linear-sde-and-ou); NCSN is a discretised VE-SDE and
+DDPM a discretised VP-SDE.
+</Definition>
+
+<Proposition name="Perturbation kernels" label="Prop 1">
+Write $p_{0t}(x_t|x_0)$ for the law of $X_t$ given $X_0 = x_0$. Then
+$$
+\text{VE: } p_{0t} = \mathcal N\big(x_0,\;[\sigma^2(t)-\sigma^2(0)]\,I\big),
+\qquad
+\text{VP: } p_{0t} = \mathcal N\big(e^{-\frac12\int_0^t\beta}\,x_0,\;[1-e^{-\int_0^t\beta}]\,I\big).
+$$
+</Proposition>
+
+<Proof>
+Both SDEs are linear with additive noise, so $X_t\mid X_0$ is Gaussian and it suffices to
+track mean and covariance. VE: $X_t = x_0 + \int_0^t g\,\mathrm{d}W_s$, a Gaussian with
+variance $\int_0^t g^2\,\mathrm{d}s = \sigma^2(t)-\sigma^2(0)$ by the Itô isometry. VP: the
+integrating factor $e^{\frac12\int_0^t\beta}$ (see the OU example on the
+[Itô](/concepts/ito-lemma) page) gives
+$X_t = e^{-\frac12\int_0^t\beta}x_0 + \int_0^t e^{-\frac12\int_s^t\beta}\sqrt{\beta(s)}\,\mathrm{d}W_s$,
+whose variance is $\int_0^t\beta(s)e^{-\int_s^t\beta}\mathrm{d}s = 1-e^{-\int_0^t\beta}$.
+$\blacksquare$
+</Proof>
+
+For VP, $\bar\alpha_t = e^{-\int_0^t\beta}$ recovers DDPM's
+$q(x_t|x_0) = \mathcal N(\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)$. If $\int_0^T\beta$ is large,
+$p_T\approx\mathcal N(0,I)$ regardless of the data: the prior $\pi$.
+
+## The idea
+
+Three statements, each proved on its own page and quoted here with hypotheses, plus one
+new proof.
+
+<Theorem name="Reverse-time SDE (Anderson 1982)" label="Thm 2">
+Suppose $p_t$ is $C^1$ in $t$, $C^2$ in $x$, positive, and $\nabla\log p_t$ grows at most
+linearly. Then the process $\bar X_t = X_{T-t}$, run from $\bar X_0\sim p_T$, is a diffusion
+with the same marginals $p_{T-t}$, solving (in the original clock, $\mathrm{d}t<0$)
+$$
+\mathrm{d}X_t = \big[f(X_t,t) - g(t)^2\,\nabla\log p_t(X_t)\big]\mathrm{d}t + g(t)\,\mathrm{d}\bar W_t ,
+$$
+with $\bar W$ a Brownian motion in reversed time.
+</Theorem>
+
+The derivation, from the Fokker–Planck equation forward and backward, is on the
+[time reversal](/concepts/time-reversal-of-diffusions) page. Sampling then means: draw
+$X_T\sim\pi$, replace $\nabla\log p_t$ by a network $s_\theta(x,t)$, integrate backward.
+
+<Theorem name="Probability-flow ODE" label="Thm 3">
+Under the same hypotheses, the deterministic ODE
+$$
+\frac{\mathrm{d}x}{\mathrm{d}t} = f(x,t) - \tfrac12 g(t)^2\,\nabla\log p_t(x)
+$$
+transports $p_s$ to $p_t$ for every $s,t$: if $x(s)\sim p_s$ then $x(t)\sim p_t$.
+</Theorem>
+
+<Proof>
+The forward SDE's marginals satisfy the [Fokker–Planck](/concepts/fokker-planck) equation
+$$
+\partial_t p_t = -\nabla\!\cdot(f\,p_t) + \tfrac12 g^2\,\Delta p_t .
+$$
+Write the Laplacian as a divergence of a flux: $\Delta p_t = \nabla\!\cdot(\nabla p_t) = \nabla\!\cdot(p_t\nabla\log p_t)$.
+Then
+$$
+\partial_t p_t = -\nabla\!\cdot\Big(\big[f - \tfrac12 g^2\nabla\log p_t\big]\,p_t\Big),
+$$
+which is the [continuity equation](/concepts/continuity-equation) for the velocity field
+$v(x,t) = f - \tfrac12 g^2\nabla\log p_t$. A density transported by the ODE $\dot x = v$
+satisfies the continuity equation with the same $v$; uniqueness of solutions (for $v$
+locally Lipschitz with linear growth, which the hypotheses give) shows the transported
+density and $p_t$ agree. $\blacksquare$
+</Proof>
+
+The reverse SDE and the ODE share every marginal; they differ in the joint law of a
+trajectory. The ODE gives a deterministic bijection noise $\leftrightarrow$ data and, via
+the instantaneous change of variables formula (continuity-equation page),
+$\log p_0(x_0) = \log p_T(x_T) + \int_0^T\nabla\!\cdot v(x_t,t)\,\mathrm{d}t$, an exact
+likelihood.
+
+**Training.** Replace $\nabla\log p_t$ by $s_\theta$ fitted with
+[denoising score matching](/concepts/score-matching) at every $t$, using Prop 1 for the
+conditional score:
+$$
+\theta^\star = \arg\min_\theta\;\mathbb{E}_{t\sim\mathcal U[0,T]}\,\lambda(t)\,
+\mathbb{E}_{x_0}\mathbb{E}_{x_t|x_0}\Big\|s_\theta(x_t,t) - \nabla_{x_t}\log p_{0t}(x_t|x_0)\Big\|^2 .
+$$
+With $\lambda(t) = 1/\mathbb{E}\|\nabla\log p_{0t}\|^2$ (proportional to the kernel variance) this
+is the $\epsilon$-loss of DDPM.
+
+<Theorem name="Likelihood weighting (Song, Durkan, Murray, Ermon 2021), statement" label="Thm 4">
+Let $p_0^\theta$ be the law at time $0$ of the reverse SDE of Thm 2 with $\nabla\log p_t$
+replaced by $s_\theta$ and started from $\pi$. Under Novikov-type integrability,
+$$
+\operatorname{KL}\big(p_{\mathrm{data}}\,\|\,p_0^\theta\big)
+\;\le\; \tfrac12\,\mathbb{E}_t\,g(t)^2\,\mathbb{E}_{x_t}\big\|s_\theta(x_t,t)-\nabla\log p_t(x_t)\big\|^2\cdot T
++ \operatorname{KL}(p_T\|\pi).
+$$
+So the score-matching objective with $\lambda(t) = g(t)^2$ upper-bounds the negative
+log-likelihood (up to entropy of the data). The proof is the
+[KL between path measures](/concepts/kl-divergence-and-variational-bounds) via
+[Girsanov](/concepts/girsanov-theorem): two SDEs with the same diffusion coefficient and
+drifts differing by $g^2(s_\theta - \nabla\log p_t)$ have path-KL equal to half the
+time-integrated squared drift difference over $g^2$, and marginalising to the endpoint can
+only lower KL (data processing).
+</Theorem>
+
+**Samplers.**
+
+- *Predictor:* Euler–Maruyama on the reverse SDE with step $\Delta$ going backward,
+  $x_{t-\Delta} = x_t - \big[f(x_t,t) - g(t)^2 s_\theta(x_t,t)\big]\Delta + g(t)\sqrt{\Delta}\,z$,
+  $z\sim\mathcal N(0,I)$; or any ODE solver on Thm 3.
+- *Corrector:* a few Langevin steps at fixed $t$,
+  $x\leftarrow x + \varepsilon\,s_\theta(x,t) + \sqrt{2\varepsilon}\,z$, which leave $p_t$
+  invariant when $s_\theta = \nabla\log p_t$ (its Fokker–Planck operator annihilates $p_t$;
+  Exercise 3). The corrector repairs discretisation error of the predictor without changing
+  the target.
+
+<Proposition name="DDPM ancestral sampling is Euler–Maruyama on the reverse VP-SDE" label="Prop 5">
+Discretise the VP-SDE on $N$ steps with $\beta_i = \beta(t_i)\Delta$. The DDPM update
+$x_{i-1} = \frac{1}{\sqrt{1-\beta_i}}\big(x_i + \beta_i\,s_\theta(x_i,i)\big) + \sqrt{\beta_i}\,z$
+agrees with the Euler–Maruyama step of Thm 2 up to $O(\beta_i^2)$.
+</Proposition>
+
+<Proof>
+In units where the step is one, $f = -\tfrac12\beta_i x$ and $g^2 = \beta_i$, so the
+predictor step reads
+$x_{i-1} = x_i + \tfrac12\beta_i x_i + \beta_i s_\theta + \sqrt{\beta_i}\,z = (1+\tfrac12\beta_i)x_i + \beta_i s_\theta + \sqrt{\beta_i}\,z$.
+DDPM's coefficient is $(1-\beta_i)^{-1/2} = 1 + \tfrac12\beta_i + O(\beta_i^2)$ on $x_i$ and
+$\beta_i(1+O(\beta_i))$ on $s_\theta$. $\blacksquare$
+</Proof>
+
+<Warning>
+Papers differ on the direction of time. Song et al. run $t$ from $T$ down to $0$ and write
+$\mathrm{d}t<0$ in Thm 2; flow-matching papers run $t$ from $0$ (noise) to $1$ (data). When
+you change the clock, the sign of the drift flips but the diffusion term does not. Also,
+Thm 3 with $s_\theta$ in place of the true score no longer has $p_t$ as its marginals: the
+ODE and SDE samplers then produce different distributions, and neither is exactly $p_0$.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Gaussian data through the VP-SDE, forward and back">
+Data $p_0 = \mathcal N(1,\tfrac14)$, constant $\beta = 2$, horizon $T = 1$, $d = 1$.
+
+*Forward.* By Prop 1, $X_t\mid X_0\sim\mathcal N(e^{-t}X_0,\,1-e^{-2t})$. Since $X_0$ is
+Gaussian, $p_t = \mathcal N(m(t),v(t))$ with
+$$
+m(t) = e^{-t},\qquad v(t) = \tfrac14 e^{-2t} + 1 - e^{-2t} = 1 - \tfrac34 e^{-2t},
+$$
+which solve the OU moment ODEs $\dot m = -m$, $\dot v = -2v + 2$. At $T = 1$:
+$m(1) = 0.3679$, $v(1) = 1 - 0.75\cdot0.1353 = 0.8985$. The prior mismatch is
+$\operatorname{KL}(p_1\|\mathcal N(0,1)) = \tfrac12[0.8985 + 0.1353 - 1 - \ln 0.8985] = \tfrac12[0.0338+0.1070] = 0.0704$
+nats; this is the $\operatorname{KL}(p_T\|\pi)$ term of Thm 4.
+
+*Score.* $\nabla\log p_t(x) = -(x-m(t))/v(t)$ ([score of a Gaussian](/concepts/gaussian-computations)).
+
+*Reverse SDE.* With $f = -x$, $g^2 = 2$, Thm 2 gives the backward-time drift
+$-f + g^2\nabla\log p_t = x - 2(x-m)/v$. In reversed clock $\tau = 1-t$,
+$$
+\mathrm{d}Y_\tau = \Big[\big(1-\tfrac{2}{v}\big)Y_\tau + \tfrac{2m}{v}\Big]\mathrm{d}\tau + \sqrt2\,\mathrm{d}B_\tau,
+\qquad Y_0\sim p_1 .
+$$
+Check that it really returns to $p_0$: the mean $M(\tau)$ and variance $V(\tau)$ of $Y$ obey
+$\dot M = (1-\tfrac2v)M + \tfrac{2m}{v}$ and $\dot V = 2(1-\tfrac2v)V + 2$. Substituting
+$M = m$ gives $\dot M = m - \tfrac{2m}{v}+\tfrac{2m}{v} = m$, and indeed
+$\mathrm{d}m/\mathrm{d}\tau = -\dot m = m$. Substituting $V = v$ gives
+$\dot V = 2v - 4 + 2 = 2v-2$, and $\mathrm{d}v/\mathrm{d}\tau = -(-2v+2) = 2v-2$. Both ODEs
+are satisfied, so the reverse SDE retraces the forward marginals exactly and lands on
+$\mathcal N(1,\tfrac14)$ at $\tau = 1$.
+
+*Probability-flow ODE.* Thm 3: $\dot x = -x + (x-m)/v$, linear, so it maps Gaussians to
+Gaussians with $\dot M = -M + (M-m)/v$ and $\dot V = 2(-1+\tfrac1v)V$. With $M = m$, $V = v$:
+$\dot M = -m$ and $\dot V = -2v+2$, the forward moment ODEs again. Same marginals, no noise.
+
+*One Euler–Maruyama step by hand.* Step $\Delta = 0.1$ backward from $t = 1$, where
+$m = 0.3679$, $v = 0.8985$:
+$$
+x_{0.9} = x_1 - \big[-x_1 - 2\,s(x_1)\big]\Delta + \sqrt{2\Delta}\,z
+= \underbrace{\big(1+\Delta-\tfrac{2\Delta}{v}\big)}_{0.8774}x_1 + \underbrace{\tfrac{2\Delta m}{v}}_{0.0819} + \sqrt{0.2}\,z .
+$$
+Starting from $x_1\sim p_1$ exactly, the new mean is $0.8774\cdot0.3679 + 0.0819 = 0.4047$
+and the new variance $0.8774^2\cdot0.8985 + 0.2 = 0.6917 + 0.2 = 0.8917$. The true
+$p_{0.9}$ has $m = e^{-0.9} = 0.4066$ and $v = 1-0.75e^{-1.8} = 0.8760$. Errors: $0.002$ in
+the mean, $0.016$ in the variance, both $O(\Delta)$ as expected. Redo it with $\Delta = 0.5$:
+coefficient $0.3870$, offset $0.4094$, noise variance $1$, giving variance $1.135$ against
+the true $0.724$; a single coarse step overshoots badly, which is why DDPM needs hundreds
+of steps and why the corrector exists.
+
+*The same step on the ODE.* $x_{0.9} = x_1 + \Delta\big[x_1 + s(x_1)\big] = 0.9887\,x_1 + 0.0409$:
+mean $0.4047$, variance $0.9887^2\cdot0.8985 = 0.8783$. The variance error drops to $0.002$
+because no noise is injected and then re-contracted; this is the practical reason ODE
+samplers take fewer steps.
+</Example>
+
+## Where it shows up
+
+- **Score SDE** <Cite id="2011.13456" />: eq. (5) forward SDE, eq. (6) reverse SDE, eq. (7)
+  training objective, eq. (13) probability-flow ODE, Appendix E for Prop 5 and
+  predictor–corrector; the [paper page](/papers/score-sde-song-2021) decomposes it.
+- **DDPM** <Cite id="2006.11239" />: eq. (4) is Prop 1 (VP), Algorithm 2 is Prop 5. The
+  $\sigma_t^2 = \beta_t$ choice is the Euler–Maruyama noise scale.
+- **Likelihood weighting** <Cite id="2101.09258" />: Theorems 1–2 there are Thm 4; setting
+  $\lambda = g^2$ turns diffusion training into (bounded) maximum likelihood.
+- **EDM** <Cite id="2206.00364" />: re-parametrises VE with $\sigma$ as the clock, so the
+  ODE of Thm 3 becomes $\mathrm{d}x/\mathrm{d}\sigma = -\sigma\nabla\log p_\sigma(x)$ and
+  Heun steps replace Euler; all samplers there are Thm 2 and Thm 3 in different coordinates.
+- **Diffusion Policy** (Chi et al. 2023) samples action chunks with DDPM (Prop 5) or DDIM
+  (Thm 3, with $\hat x_0$ from Tweedie). **$\pi_0$** (Black et al. 2024) integrates a
+  [flow-matching](/concepts/flow-matching) ODE, which is Thm 3 in the noise-to-data clock.
+- **Diffusion Schrödinger bridge** (De Bortoli et al. 2021): the reference process is the
+  VP-SDE, and each half-bridge is a time reversal of the previous one (Thm 2 with a learned
+  drift); see [Schrödinger bridge](/concepts/schrodinger-bridge).
+
+## Exercises
+
+<Exercise hint="Use the Ito isometry on the stochastic integral and the geometric ladder sigma(t) = sigma_min (sigma_max / sigma_min)^t.">
+For the VE-SDE with $\sigma(t) = \sigma_{\min}(\sigma_{\max}/\sigma_{\min})^t$, compute
+$g(t)$ and the perturbation kernel of Prop 1, and show $p_T\approx\mathcal N(x_0,\sigma_{\max}^2I)$
+is not data-independent. What prior do NCSN-style samplers use instead, and what does that
+cost in Thm 4?
+</Exercise>
+
+<Exercise hint="The ODE is linear in x with time-dependent coefficients; solve for x(t) given x(1), then compute mean and variance of the image of N(m(1), v(1)).">
+In the worked example, solve Thm 3's ODE exactly from $t = 1$ to $t = 0$ and verify that it
+maps $\mathcal N(m(1),v(1))$ onto $\mathcal N(1,\tfrac14)$. Where does the trajectory
+starting at $x_1 = m(1)$ end?
+</Exercise>
+
+<Exercise hint="Write the Fokker–Planck equation of the Langevin SDE and substitute p_t; the drift and diffusion terms cancel identically.">
+Show that $\mathrm{d}x = \nabla\log p_t(x)\,\mathrm{d}s + \sqrt2\,\mathrm{d}B_s$ (with $t$
+frozen) has $p_t$ as a stationary density, and deduce that the corrector step leaves
+$p_t$ invariant in the limit of small $\varepsilon$.
+</Exercise>
+
+<Exercise hint="Path KL = (1/2) integral of |drift difference|^2 / g^2; the drift difference is g^2 (s_theta - grad log p_t).">
+Using the path-measure KL formula on the [KL page](/concepts/kl-divergence-and-variational-bounds),
+derive the integrand of Thm 4 and explain where the factor $g(t)^2$ comes from. Why does
+the VP schedule with constant $\beta$ make Thm 4 and the DDPM $\epsilon$-loss differ only
+by the weighting $\beta/(1-\bar\alpha_t)$?
+</Exercise>
+
+## Going deeper
+
+Song et al. 2021, Appendices A–E, contain every derivation quoted here; read them after the
+[time reversal](/concepts/time-reversal-of-diffusions) and
+[Fokker–Planck](/concepts/fokker-planck) pages. Anderson 1982 is the original reversal
+theorem with its measurability hypotheses. Karras et al. 2022 is the best guide to the
+design choices (noise schedule, preconditioning, solver) once the framework is understood.

@@ -1,0 +1,221 @@
+---
+title: "Itô's lemma"
+kind: concept
+summary: "The chain rule for functions of a Brownian path, and why a second-order term appears that ordinary calculus never has."
+tags: [stochastic-calculus, sde, diffusion-models, brownian-motion]
+track: stochastic-analysis
+level: 2
+prerequisites: [brownian-motion, stochastic-integral]
+estimated_minutes: 45
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 4"
+  - type: book
+    title: "Brownian Motion and Stochastic Calculus"
+    author: "Karatzas & Shreve"
+    where: "Ch. 3.3"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+---
+
+## Why you need this
+
+Every diffusion model paper writes a forward process as an SDE,
+$\mathrm{d}X_t = f(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t$, and then reasons about
+$\log p_t(X_t)$, $\|X_t\|^2$, or $e^{-\int \beta}X_t$ as if they were ordinary functions of
+$X_t$. They are not: $X_t$ has infinite variation, so the classical chain rule fails. Itô's lemma
+is the corrected chain rule. It is the single computation behind the Ornstein–Uhlenbeck
+closed form used in DDPM, the derivation of the Fokker–Planck equation, and the
+time-reversal formula of Anderson that makes score-based sampling work.
+
+## Setup
+
+Let $W_t$ be a standard Brownian motion and let $X_t$ solve
+
+$$
+\mathrm{d}X_t = \mu(X_t,t)\,\mathrm{d}t + \sigma(X_t,t)\,\mathrm{d}W_t ,
+$$
+
+which is shorthand for $X_t = X_0 + \int_0^t \mu\,\mathrm{d}s + \int_0^t \sigma\,\mathrm{d}W_s$
+with the second integral an [Itô integral](/concepts/stochastic-integral). Let
+$f:\mathbb{R}\times[0,\infty)\to\mathbb{R}$ be $C^{2,1}$: twice continuously differentiable in
+$x$, once in $t$.
+
+<Definition name="Quadratic variation">
+For a process $Y$, the quadratic variation on $[0,t]$ is the limit in probability of
+$\sum_k (Y_{t_{k+1}}-Y_{t_k})^2$ over partitions whose mesh goes to zero. For Brownian motion
+$[W]_t = t$. For a smooth function, $[Y]_t = 0$. This is the whole story: Brownian increments
+are of size $\sqrt{\mathrm{d}t}$, so their squares are of size $\mathrm{d}t$ and cannot be
+dropped.
+</Definition>
+
+## The idea
+
+<Theorem name="Itô's lemma (one dimension)" label="Thm 1">
+With $X$ and $f$ as above,
+$$
+\mathrm{d}f(X_t,t)
+= \Big( \partial_t f + \mu\,\partial_x f + \tfrac12 \sigma^2\,\partial_{xx} f \Big)\mathrm{d}t
++ \sigma\,\partial_x f\,\mathrm{d}W_t ,
+$$
+where every partial derivative is evaluated at $(X_t,t)$.
+</Theorem>
+
+<Intuition>
+Taylor-expand $f$ to second order and keep the rules
+$\mathrm{d}t\cdot\mathrm{d}t = 0$, $\mathrm{d}t\cdot\mathrm{d}W_t = 0$,
+$\mathrm{d}W_t\cdot\mathrm{d}W_t = \mathrm{d}t$. The last rule is quadratic variation. The
+extra $\tfrac12\sigma^2 \partial_{xx}f$ term is called the Itô correction.
+</Intuition>
+
+<Proof>
+Fix $t$ and a partition $0 = t_0 < \dots < t_n = t$ with mesh $\to 0$. Write
+$\Delta X_k = X_{t_{k+1}} - X_{t_k}$ and $\Delta t_k = t_{k+1}-t_k$. Taylor's theorem with
+remainder gives, for some point on the segment,
+
+$$
+f(X_{t_{k+1}},t_{k+1}) - f(X_{t_k},t_k)
+= \partial_t f\,\Delta t_k + \partial_x f\,\Delta X_k + \tfrac12 \partial_{xx} f\,(\Delta X_k)^2
++ R_k ,
+$$
+
+where $R_k$ collects terms of order $\Delta t_k\,\Delta X_k$, $(\Delta t_k)^2$, and
+$o((\Delta X_k)^2)$. Sum over $k$ and send the mesh to zero.
+
+1. $\sum_k \partial_t f\,\Delta t_k \to \int_0^t \partial_t f\,\mathrm{d}s$ (Riemann sum).
+2. $\sum_k \partial_x f\,\Delta X_k \to \int_0^t \partial_x f\,\mathrm{d}X_s
+   = \int_0^t \partial_x f\,\mu\,\mathrm{d}s + \int_0^t \partial_x f\,\sigma\,\mathrm{d}W_s$,
+   by definition of the Itô integral (the integrand is evaluated at the left endpoint, which is
+   exactly what Taylor's expansion around $t_k$ produced).
+3. $(\Delta X_k)^2 = \sigma^2 (\Delta W_k)^2 + 2\mu\sigma\,\Delta t_k \Delta W_k + \mu^2(\Delta t_k)^2$.
+   The last two terms are $o(\Delta t_k)$ and their sums vanish. For the first,
+   $\sum_k \partial_{xx} f\,\sigma^2 (\Delta W_k)^2 \to \int_0^t \partial_{xx} f\,\sigma^2\,\mathrm{d}s$
+   because $\sum_k h(t_k)(\Delta W_k)^2 \to \int h\,\mathrm{d}s$ in $L^2$ for continuous
+   adapted $h$: the summands have mean $h(t_k)\Delta t_k$ and variance $2h(t_k)^2(\Delta t_k)^2$,
+   and the sum of variances is $O(\text{mesh})\to 0$.
+4. $\sum_k R_k \to 0$ by the same size counting.
+
+Collecting the limits gives the integral form of the statement. $\blacksquare$
+</Proof>
+
+<Theorem name="Itô's lemma (vector form)" label="Thm 2">
+If $X_t\in\mathbb{R}^d$ solves $\mathrm{d}X_t = \mu\,\mathrm{d}t + \Sigma\,\mathrm{d}W_t$ with
+$W$ an $m$-dimensional Brownian motion and $\Sigma\in\mathbb{R}^{d\times m}$, then for
+$f\in C^{2,1}(\mathbb{R}^d\times[0,\infty))$
+$$
+\mathrm{d}f = \Big(\partial_t f + \nabla f^{\top}\mu
++ \tfrac12\operatorname{tr}\!\big(\Sigma\Sigma^{\top}\nabla^2 f\big)\Big)\mathrm{d}t
++ \nabla f^{\top}\Sigma\,\mathrm{d}W_t .
+$$
+</Theorem>
+
+The trace term is the only new thing: the product rule
+$\mathrm{d}W^{(i)}\mathrm{d}W^{(j)} = \delta_{ij}\,\mathrm{d}t$ turns the quadratic form
+$\tfrac12\,\mathrm{d}X^{\top}\nabla^2 f\,\mathrm{d}X$ into $\tfrac12\operatorname{tr}(\Sigma\Sigma^\top \nabla^2 f)\,\mathrm{d}t$.
+
+<Warning>
+The correction term has the sign and factor $+\tfrac12\sigma^2 f''$ for an Itô integral. If
+you see $\circ\,\mathrm{d}W_t$ (Stratonovich), the classical chain rule holds and the
+correction is absorbed into the drift. Diffusion-model papers use Itô unless they say otherwise.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Geometric Brownian motion">
+Let $\mathrm{d}X_t = a X_t\,\mathrm{d}t + b X_t\,\mathrm{d}W_t$ with $X_0 = 1$, $a = 0.1$,
+$b = 0.3$. Guess: $X_t$ should be an exponential. Apply Itô to $f(x) = \log x$, so
+$\partial_x f = 1/x$ and $\partial_{xx} f = -1/x^2$, and $\partial_t f = 0$.
+
+Plug into Thm 1 with $\mu = ax$, $\sigma = bx$:
+
+$$
+\mathrm{d}\log X_t
+= \Big( ax\cdot\tfrac1x + \tfrac12 b^2x^2\cdot\big(-\tfrac{1}{x^2}\big) \Big)\mathrm{d}t
++ bx\cdot\tfrac1x\,\mathrm{d}W_t
+= \big(a - \tfrac12 b^2\big)\mathrm{d}t + b\,\mathrm{d}W_t .
+$$
+
+The right-hand side has constant coefficients, so integrate directly:
+
+$$
+\log X_t = \big(a - \tfrac12 b^2\big)t + bW_t ,
+\qquad
+X_t = \exp\!\Big(\big(a-\tfrac12 b^2\big)t + bW_t\Big).
+$$
+
+With the numbers: $a - \tfrac12 b^2 = 0.1 - 0.045 = 0.055$. At $t = 1$ on a path with
+$W_1 = 0.5$, $X_1 = e^{0.055 + 0.15} = e^{0.205} \approx 1.228$.
+
+Check the mean. Since $W_1 \sim \mathcal N(0,1)$ and $\mathbb{E}[e^{bW_1}] = e^{b^2/2}$,
+$$
+\mathbb{E}[X_1] = e^{0.055}\,e^{0.045} = e^{0.1} = e^{a}.
+$$
+That is what you get from the drift alone, as it should be: the Itô correction in the
+exponent exactly cancels the Jensen gap $\mathbb{E}[e^{bW}] > e^{\mathbb{E}[bW]}$. Without the
+correction you would have predicted $\mathbb{E}[X_1] = e^{0.145}$, wrong by 4.6%.
+</Example>
+
+<Example title="The DDPM forward process is an Ornstein–Uhlenbeck SDE">
+Take $\mathrm{d}X_t = -\tfrac12\beta X_t\,\mathrm{d}t + \sqrt{\beta}\,\mathrm{d}W_t$ with
+constant $\beta$. Apply Itô to $f(x,t) = e^{\beta t/2}x$:
+$\partial_t f = \tfrac{\beta}{2}e^{\beta t/2}x$, $\partial_x f = e^{\beta t/2}$,
+$\partial_{xx} f = 0$. Then
+
+$$
+\mathrm{d}\big(e^{\beta t/2}X_t\big)
+= \Big(\tfrac{\beta}{2}e^{\beta t/2}X_t - \tfrac{\beta}{2}e^{\beta t/2}X_t\Big)\mathrm{d}t
++ e^{\beta t/2}\sqrt{\beta}\,\mathrm{d}W_t
+= \sqrt{\beta}\,e^{\beta t/2}\,\mathrm{d}W_t .
+$$
+
+Integrate and divide: $X_t = e^{-\beta t/2}X_0 + \sqrt{\beta}\int_0^t e^{-\beta(t-s)/2}\mathrm{d}W_s$.
+The integral is Gaussian with variance
+$\beta\int_0^t e^{-\beta(t-s)}\mathrm{d}s = 1 - e^{-\beta t}$, so
+
+$$
+X_t \mid X_0 \;\sim\; \mathcal N\!\big(e^{-\beta t/2}X_0,\;(1-e^{-\beta t})I\big),
+$$
+
+which is exactly $q(x_t\mid x_0) = \mathcal N(\sqrt{\bar\alpha_t}\,x_0,(1-\bar\alpha_t)I)$ with
+$\bar\alpha_t = e^{-\beta t}$. No correction term appeared here because $f$ is linear in $x$;
+it does appear as soon as you ask about $\|X_t\|^2$ (try Exercise 2).
+</Example>
+
+## Where it shows up
+
+- The Fokker–Planck equation is Itô's lemma applied to $f(X_t)$ for a test function $f$,
+  then taking expectations and integrating by parts. See
+  [Fokker–Planck](/concepts/fokker-planck).
+- Anderson's time-reversal formula, the basis of score-based sampling in
+  <Cite id="2011.13456" />, is derived by applying Fokker–Planck forward and backward.
+- The probability-flow ODE is what remains of the SDE when you move the diffusion term
+  into the drift through Fokker–Planck.
+
+## Exercises
+
+<Exercise hint="Use Thm 1 with f(x) = x^2 and note the correction is constant.">
+Show that $W_t^2 - t$ is a martingale by computing $\mathrm{d}(W_t^2)$.
+</Exercise>
+
+<Exercise hint="Vector form: f(x) = |x|^2, so the Hessian is 2I and the trace term is d·β.">
+For the OU process above in $\mathbb{R}^d$, compute $\mathrm{d}\|X_t\|^2$ and find
+$\mathbb{E}\|X_t\|^2$ as a function of $t$ and $\|X_0\|^2$.
+</Exercise>
+
+<Exercise hint="Apply Itô to f(x,t) = exp(θx − θ²t/2) and check the drift vanishes.">
+Show that $M_t = \exp(\theta W_t - \tfrac12\theta^2 t)$ satisfies
+$\mathrm{d}M_t = \theta M_t\,\mathrm{d}W_t$ and is therefore a martingale. This is the
+building block of Girsanov's theorem.
+</Exercise>
+
+## Going deeper
+
+Øksendal Ch. 4 gives the proof above with all the $L^2$ estimates written out. Karatzas and
+Shreve Ch. 3.3 treats general continuous semimartingales, which is what you need to read papers
+that write "$\mathrm{d}[X]_t$" without comment.

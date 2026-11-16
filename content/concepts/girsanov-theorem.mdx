@@ -1,0 +1,327 @@
+---
+title: "Girsanov's theorem"
+kind: concept
+summary: "Changing the drift of an SDE is a change of probability measure with an explicit density, which turns KL divergences between path measures into integrated squared drift differences."
+tags: [stochastic-calculus, sde, change-of-measure, kl-divergence, schrodinger-bridge, diffusion-models]
+track: stochastic-analysis
+level: 3
+prerequisites: [stochastic-integral, ito-lemma, kl-divergence-and-variational-bounds]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 8.6"
+  - type: book
+    title: "Brownian Motion and Stochastic Calculus"
+    author: "Karatzas & Shreve"
+    where: "Ch. 3.5"
+  - type: arxiv
+    id: "2101.09258"
+    title: "Maximum Likelihood Training of Score-Based Diffusion Models"
+  - type: arxiv
+    id: "2106.01357"
+    title: "Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling"
+---
+
+## Why you need this
+
+Two SDEs with the same noise but different drifts produce path distributions that are mutually
+absolutely continuous, and Girsanov's theorem writes down the density of one with respect to the
+other. Take a logarithm and an expectation and you get the KL divergence between the two path
+measures as $\tfrac12\int\mathbb{E}\|\text{drift difference}\|^2/g^2\,\mathrm{d}t$. That single
+formula is the variational bound of <Cite id="2101.09258" /> (their Theorem 1: the score-matching
+loss upper-bounds negative log-likelihood), the objective of the dynamic
+[Schrödinger bridge](/concepts/schrodinger-bridge) and of <Cite id="2106.01357" />, and the
+KL penalty in RL fine-tuning of diffusion policies, where the fine-tuned and base samplers are two
+reverse SDEs differing only in drift.
+
+## Setup
+
+Work on $[0,T]$ with a $d$-dimensional Brownian motion $W$ under a probability measure
+$\mathbb{P}$, with its filtration $(\mathcal{F}_t)$. Let $\theta_t\in\mathbb{R}^d$ be an adapted
+process with $\int_0^T\|\theta_t\|^2\mathrm{d}t$ finite almost surely.
+
+Recall from the [KL page](/concepts/kl-divergence-and-variational-bounds): if $\mathbb{Q}\ll\mathbb{P}$
+with density $Z = \mathrm{d}\mathbb{Q}/\mathrm{d}\mathbb{P}$, then
+$\mathbb{E}_{\mathbb{Q}}[Y] = \mathbb{E}_{\mathbb{P}}[ZY]$ and
+$\mathrm{KL}(\mathbb{Q}\,\|\,\mathbb{P}) = \mathbb{E}_{\mathbb{Q}}[\log Z]$. Here $\mathbb{P}$ and
+$\mathbb{Q}$ will be measures on the space of continuous paths, and $Z$ will be a functional of
+the whole path.
+
+<Definition name="Stochastic exponential">
+$$
+Z_t = \exp\!\Big(\int_0^t\theta_s^{\top}\mathrm{d}W_s - \tfrac12\int_0^t\|\theta_s\|^2\mathrm{d}s\Big),
+\qquad 0\le t\le T .
+$$
+</Definition>
+
+<Lemma name="Z is a positive local martingale" label="Lemma 1">
+$\mathrm{d}Z_t = Z_t\,\theta_t^{\top}\mathrm{d}W_t$, so $Z$ is a nonnegative local martingale, hence
+a supermartingale with $\mathbb{E}Z_T\le 1$. It is a true martingale on $[0,T]$ if and only if
+$\mathbb{E}Z_T = 1$.
+</Lemma>
+
+<Proof>
+Let $Y_t = \int_0^t\theta^{\top}\mathrm{d}W - \tfrac12\int_0^t\|\theta\|^2\mathrm{d}s$, so
+$\mathrm{d}Y = \theta^{\top}\mathrm{d}W - \tfrac12\|\theta\|^2\mathrm{d}t$ and
+$\mathrm{d}Y\,\mathrm{d}Y = \|\theta\|^2\mathrm{d}t$. [Itô's lemma](/concepts/ito-lemma) for
+$f(y) = e^y$ gives $\mathrm{d}Z = Z\,\mathrm{d}Y + \tfrac12 Z\,\mathrm{d}Y\,\mathrm{d}Y = Z\theta^{\top}\mathrm{d}W - \tfrac12 Z\|\theta\|^2\mathrm{d}t + \tfrac12 Z\|\theta\|^2\mathrm{d}t$.
+The $\mathrm{d}t$ terms cancel; that is what the $-\tfrac12\int\|\theta\|^2$ in the definition is for.
+A stochastic integral is a local martingale; Fatou's lemma turns a nonnegative local martingale
+into a supermartingale; and a supermartingale with constant expectation is a martingale. $\blacksquare$
+</Proof>
+
+<Theorem name="Novikov's condition" label="Thm 2">
+If $\mathbb{E}\exp\!\big(\tfrac12\int_0^T\|\theta_t\|^2\mathrm{d}t\big)$ is finite, then $Z$ is a
+martingale on $[0,T]$. In particular this holds whenever $\theta$ is bounded.
+</Theorem>
+
+We use Novikov as a black box; Karatzas and Shreve 3.5.D has the proof. In every example on this
+site $\theta$ is either bounded or Gaussian with bounded variance, and Novikov is checked in one line.
+
+## The idea
+
+<Theorem name="Girsanov" label="Thm 3">
+Suppose $Z$ is a martingale on $[0,T]$ and define $\mathbb{Q}$ on $\mathcal{F}_T$ by
+$\mathrm{d}\mathbb{Q} = Z_T\,\mathrm{d}\mathbb{P}$. Then
+
+$$
+\tilde W_t = W_t - \int_0^t\theta_s\,\mathrm{d}s , \qquad 0\le t\le T,
+$$
+
+is a $d$-dimensional Brownian motion under $\mathbb{Q}$.
+</Theorem>
+
+<Intuition>
+Under $\mathbb{P}$, $W$ has no drift. Reweighting paths by $Z_T$ favours paths that move along
+$\theta$: the weight $e^{\int\theta^{\top}\mathrm{d}W}$ is large exactly when the increments of
+$W$ align with $\theta$. Girsanov says the reweighted process looks precisely like a Brownian
+motion plus the drift $\theta$, no more and no less, and the $-\tfrac12\int\|\theta\|^2$ term is
+the normalisation that keeps total mass one.
+</Intuition>
+
+The proof uses two tools. The first is a Bayes rule for conditional expectations under a change
+of measure; the second is Lévy's characterisation of Brownian motion, which we quote.
+
+<Lemma name="Bayes rule under a change of measure" label="Lemma 4">
+For $s\le t\le T$ and $Y$ bounded and $\mathcal{F}_t$-measurable,
+$\mathbb{E}_{\mathbb{Q}}[Y\mid\mathcal{F}_s] = \mathbb{E}_{\mathbb{P}}[Z_tY\mid\mathcal{F}_s]/Z_s$.
+</Lemma>
+
+<Proof>
+Let $A\in\mathcal{F}_s$. Then $\mathbb{E}_{\mathbb{Q}}[Y\mathbf{1}_A] = \mathbb{E}_{\mathbb{P}}[Z_TY\mathbf{1}_A] = \mathbb{E}_{\mathbb{P}}[Z_tY\mathbf{1}_A]$ by the tower property and the martingale property of $Z$,
+since $Y\mathbf{1}_A$ is $\mathcal{F}_t$-measurable. Conditioning on $\mathcal{F}_s$,
+this equals $\mathbb{E}_{\mathbb{P}}\big[\mathbf{1}_A\,\mathbb{E}_{\mathbb{P}}[Z_tY\mid\mathcal{F}_s]\big] = \mathbb{E}_{\mathbb{P}}\big[Z_s\mathbf{1}_A\,\mathbb{E}_{\mathbb{P}}[Z_tY\mid\mathcal{F}_s]/Z_s\big] = \mathbb{E}_{\mathbb{Q}}\big[\mathbf{1}_A\,\mathbb{E}_{\mathbb{P}}[Z_tY\mid\mathcal{F}_s]/Z_s\big]$,
+using $\mathbb{E}_{\mathbb{Q}}[X] = \mathbb{E}_{\mathbb{P}}[Z_sX]$ for $\mathcal{F}_s$-measurable $X$.
+That is the defining property of the conditional expectation. $\blacksquare$
+</Proof>
+
+**Lévy's characterisation** (Karatzas and Shreve 3.3.16): a continuous process $M$ with $M_0 = 0$
+that is a local martingale and has quadratic covariation $[M^{i},M^{j}]_t = \delta_{ij}\,t$ is a
+Brownian motion. This is the converse of "Brownian motion has $[W]_t = t$"; we quote it.
+
+<Proof>
+(Of Thm 3.) Take $d = 1$ to lighten notation; the vector case is identical componentwise.
+
+**Step 1: quadratic variation.** $\tilde W = W - \int\theta\,\mathrm{d}s$ differs from $W$ by a
+$C^1$ process, which has zero quadratic variation, so $[\tilde W]_t = [W]_t = t$ almost surely
+under $\mathbb{P}$. Since $\mathbb{Q}\ll\mathbb{P}$, an almost-sure statement under $\mathbb{P}$ is
+almost sure under $\mathbb{Q}$. (Quadratic variation is a limit of sums along the path; it does
+not depend on which measure you use to talk about the path.)
+
+**Step 2: $\tilde W$ is a $\mathbb{Q}$-local martingale.** By Lemma 4 it suffices to show that
+$Z\tilde W$ is a $\mathbb{P}$-local martingale, because then
+$\mathbb{E}_{\mathbb{Q}}[\tilde W_t\mid\mathcal{F}_s] = \mathbb{E}_{\mathbb{P}}[Z_t\tilde W_t\mid\mathcal{F}_s]/Z_s = Z_s\tilde W_s/Z_s = \tilde W_s$
+(with localisation handled by stopping times). Itô's product rule with $\mathrm{d}Z = Z\theta\,\mathrm{d}W$
+and $\mathrm{d}\tilde W = \mathrm{d}W - \theta\,\mathrm{d}t$:
+
+$$
+\mathrm{d}(Z\tilde W) = Z\,\mathrm{d}\tilde W + \tilde W\,\mathrm{d}Z + \mathrm{d}Z\,\mathrm{d}\tilde W
+= Z\,\mathrm{d}W - Z\theta\,\mathrm{d}t + \tilde W Z\theta\,\mathrm{d}W + Z\theta\,\mathrm{d}t
+= Z\big(1 + \theta\tilde W\big)\mathrm{d}W .
+$$
+
+The $\mathrm{d}t$ terms cancel, so $Z\tilde W$ is a stochastic integral, hence a local martingale.
+
+**Step 3.** $\tilde W$ is continuous, starts at $0$, is a $\mathbb{Q}$-local martingale, and has
+$[\tilde W]_t = t$. Lévy's characterisation makes it a $\mathbb{Q}$-Brownian motion. $\blacksquare$
+</Proof>
+
+Now the statement that is actually used in papers.
+
+<Corollary name="Change of drift for SDEs" label="Cor 5">
+Let $X$ solve $\mathrm{d}X_t = b(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t$ under $\mathbb{P}$, with
+$g(t)>0$ scalar. Let $\tilde b$ be another drift and set
+$\theta_t = \big(\tilde b(X_t,t) - b(X_t,t)\big)/g(t)$. If Novikov holds for $\theta$ and
+$\mathrm{d}\mathbb{Q} = Z_T\,\mathrm{d}\mathbb{P}$, then under $\mathbb{Q}$ the *same* process $X$
+solves
+
+$$
+\mathrm{d}X_t = \tilde b(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}\tilde W_t
+$$
+
+with $\tilde W$ a $\mathbb{Q}$-Brownian motion. Consequently, writing $\mathbb{P}^{b}$ and
+$\mathbb{P}^{\tilde b}$ for the laws on path space $C([0,T],\mathbb{R}^d)$ of the two SDEs started
+from the same $X_0$,
+
+$$
+\frac{\mathrm{d}\mathbb{P}^{\tilde b}}{\mathrm{d}\mathbb{P}^{b}}(X)
+= \exp\!\Big(\int_0^T\frac{(\tilde b - b)(X_t,t)^{\top}}{g(t)^2}\big(\mathrm{d}X_t - b(X_t,t)\,\mathrm{d}t\big)
+- \tfrac12\int_0^T\frac{\|\tilde b - b\|^2(X_t,t)}{g(t)^2}\,\mathrm{d}t\Big).
+$$
+</Corollary>
+
+<Proof>
+Substituting $\mathrm{d}W_t = \mathrm{d}\tilde W_t + \theta_t\,\mathrm{d}t$ into the $\mathbb{P}$-SDE
+gives $\mathrm{d}X = b\,\mathrm{d}t + g\theta\,\mathrm{d}t + g\,\mathrm{d}\tilde W = \tilde b\,\mathrm{d}t + g\,\mathrm{d}\tilde W$.
+So under $\mathbb{Q}$, $X$ is a weak solution of the $\tilde b$-SDE, and if that SDE has a unique
+law (Lipschitz coefficients suffice), the law of $X$ under $\mathbb{Q}$ is $\mathbb{P}^{\tilde b}$.
+The density formula is $Z_T$ with $\theta$ substituted and $g\,\mathrm{d}W_t = \mathrm{d}X_t - b\,\mathrm{d}t$,
+which expresses $Z_T$ as a functional of the path $X$ alone. $\blacksquare$
+</Proof>
+
+<Theorem name="KL divergence between path measures" label="Thm 6">
+In the setting of Cor 5, if $\mathbb{E}_{\mathbb{P}^{\tilde b}}\int_0^T\|\theta_t\|^2\mathrm{d}t$ is finite, then
+
+$$
+\mathrm{KL}\big(\mathbb{P}^{\tilde b}\,\big\|\,\mathbb{P}^{b}\big)
+= \tfrac12\,\mathbb{E}_{\mathbb{P}^{\tilde b}}\int_0^T\frac{\big\|\tilde b(X_t,t) - b(X_t,t)\big\|^2}{g(t)^2}\,\mathrm{d}t ,
+$$
+
+where the expectation is over paths of the SDE with drift $\tilde b$. If the two SDEs start from
+different initial laws $\tilde p_0$ and $p_0$, add $\mathrm{KL}(\tilde p_0\,\|\,p_0)$ (Exercise 3).
+</Theorem>
+
+<Proof>
+$\mathrm{KL}(\mathbb{Q}\|\mathbb{P}) = \mathbb{E}_{\mathbb{Q}}[\log Z_T]$ with
+$\log Z_T = \int_0^T\theta^{\top}\mathrm{d}W - \tfrac12\int_0^T\|\theta\|^2\mathrm{d}t$. Under
+$\mathbb{Q}$ write $\mathrm{d}W = \mathrm{d}\tilde W + \theta\,\mathrm{d}t$:
+
+$$
+\log Z_T = \int_0^T\theta^{\top}\mathrm{d}\tilde W + \int_0^T\|\theta\|^2\mathrm{d}t - \tfrac12\int_0^T\|\theta\|^2\mathrm{d}t
+= \int_0^T\theta^{\top}\mathrm{d}\tilde W + \tfrac12\int_0^T\|\theta\|^2\mathrm{d}t .
+$$
+
+The first term is an Itô integral against the $\mathbb{Q}$-Brownian motion $\tilde W$ with
+square-integrable integrand, so its $\mathbb{Q}$-expectation is zero. What remains is
+$\tfrac12\mathbb{E}_{\mathbb{Q}}\int\|\theta\|^2$, and $\theta = (\tilde b - b)/g$. $\blacksquare$
+</Proof>
+
+<Warning>
+Three things people get wrong. (i) The expectation in Thm 6 is under the *first* argument of the
+KL, the process with drift $\tilde b$. (ii) The formula needs the *same* diffusion coefficient
+on both sides. If the $g$'s differ, the path measures are mutually singular (their quadratic
+variations differ almost surely) and the KL is $+\infty$. (iii) It is a statement on a finite
+horizon $[0,T]$; on $[0,\infty)$ even a constant drift makes the measures singular (Exercise 4).
+</Warning>
+
+## Worked example by hand
+
+<Example title="Brownian motion with and without a constant drift">
+Let $d = 1$, $T = 1$, and compare $\mathbb{P}$, under which $X_t = W_t$, with $\mathbb{Q}$, under
+which $X$ should be a Brownian motion with drift $c = 1$. Here $b = 0$, $\tilde b = c$, $g = 1$,
+so $\theta_t = c$ is constant and
+
+$$
+Z_1 = \exp\!\big(cW_1 - \tfrac12c^2\big) = \exp\!\big(W_1 - \tfrac12\big).
+$$
+
+**Novikov.** $\mathbb{E}\exp(\tfrac12\int_0^1 c^2\mathrm{d}t) = e^{1/2}$, finite.
+
+**Mass one.** $\mathbb{E}_{\mathbb{P}}Z_1 = e^{-1/2}\,\mathbb{E}[e^{W_1}] = e^{-1/2}e^{1/2} = 1$, using
+$\mathbb{E}[e^{aZ}] = e^{a^2/2}$ for $Z\sim\mathcal{N}(0,1)$ ([Gaussian computations](/concepts/gaussian-computations)).
+
+**Law of $X_1$ under $\mathbb{Q}$.** For bounded $h$,
+
+$$
+\mathbb{E}_{\mathbb{Q}}[h(W_1)] = \mathbb{E}_{\mathbb{P}}\big[h(W_1)\,e^{W_1 - 1/2}\big]
+= \int h(x)\,\frac{1}{\sqrt{2\pi}}\exp\!\Big(-\frac{x^2}{2} + x - \frac12\Big)\mathrm{d}x
+= \int h(x)\,\frac{1}{\sqrt{2\pi}}\exp\!\Big(-\frac{(x-1)^2}{2}\Big)\mathrm{d}x ,
+$$
+
+since $-\tfrac12x^2 + x - \tfrac12 = -\tfrac12(x-1)^2$. So $W_1\sim\mathcal{N}(1,1)$ under $\mathbb{Q}$,
+which is the marginal at time $1$ of $ct + \tilde W_t$ with $c = 1$, as Thm 3 predicts. On the
+particular path with $W_1 = 1.2$, $Z_1 = e^{0.7}\approx 2.01$: this path is twice as likely under
+the drifted model as under the driftless one. A path with $W_1 = -0.3$ has $Z_1 = e^{-0.8}\approx 0.45$.
+
+**KL between the path measures.** Thm 6 gives
+$\mathrm{KL}(\mathbb{Q}\|\mathbb{P}) = \tfrac12\int_0^1 c^2\,\mathrm{d}t = \tfrac12 c^2 T = 0.5$ nats.
+Cross-check directly: $\mathbb{E}_{\mathbb{Q}}[\log Z_1] = \mathbb{E}_{\mathbb{Q}}[cW_1] - \tfrac12c^2 = c\cdot cT - \tfrac12c^2 = \tfrac12$, since $W_1\sim\mathcal{N}(cT,T)$ under $\mathbb{Q}$.
+
+**Data processing check.** The marginals at time $1$ are $\mathcal{N}(1,1)$ and $\mathcal{N}(0,1)$, with
+$\mathrm{KL} = \tfrac12(1-0)^2/1 = 0.5$. Data processing says
+$\mathrm{KL}(\text{marginals})\le\mathrm{KL}(\text{paths})$, and here it is an equality. That is
+right: $Z_1$ depends on the path only through $W_1$, so $W_1$ is a sufficient statistic for
+telling the two models apart and the rest of the path carries no extra evidence. For a
+state-dependent drift, such as OU versus Brownian motion (Exercise 2), the inequality is strict.
+</Example>
+
+## Where it shows up
+
+- **Likelihood bounds for diffusion models.** In <Cite id="2101.09258" />, the true reverse SDE
+  and the learned one (drift $f - g^2\nabla\log p_t$ versus $f - g^2 s_\theta$) share $g$. Thm 6 plus the
+  chain rule of KL gives
+  $\mathrm{KL}(\text{true paths}\,\|\,\text{model paths}) = \mathrm{KL}(p_T\|\pi) + \tfrac12\int_0^T g(t)^2\,\mathbb{E}\|s_\theta - \nabla\log p_t\|^2\mathrm{d}t$,
+  and data processing to the time-$0$ marginal turns this into
+  $\mathrm{KL}(p_{\mathrm{data}}\|p_\theta)\le$ the weighted score-matching loss. That is their
+  Theorem 1; the weighting $\lambda(t) = g(t)^2$ is called likelihood weighting for this reason.
+- **Schrödinger bridges.** The dynamic SB problem minimises $\mathrm{KL}(\mathbb{P}\|\mathbb{P}^{\mathrm{ref}})$
+  over path measures with fixed endpoints. Thm 6 turns it into the stochastic control problem
+  $\min\tfrac12\mathbb{E}\int\|u_t\|^2/g^2\,\mathrm{d}t$ over drifts $u$ added to the reference,
+  which is how <Cite id="2106.01357" /> and the [Schrödinger bridge page](/concepts/schrodinger-bridge)
+  state it. Each half-bridge in IPF is a KL projection computed with this formula.
+- **RL fine-tuning of diffusion and flow policies.** When a Diffusion Policy or a flow-based policy
+  like $\pi_0$ is fine-tuned by [KL-regularised RL](/concepts/kl-regularized-rl), the KL between
+  the fine-tuned and the pretrained samplers (two reverse SDEs, same noise schedule) is exactly the
+  integrated squared drift difference of Thm 6. Adjoint-matching and stochastic-control style
+  fine-tuning methods take this as their starting point.
+- **Time reversal and the Schrödinger system.** Doob's $h$-transform, which conditions a diffusion
+  on its endpoint, is Girsanov with $\theta = g\nabla\log h$; see
+  [time reversal of diffusions](/concepts/time-reversal-of-diffusions) for the closely related
+  score drift.
+- **Importance sampling of rare events.** Simulating under a drift that pushes toward the event and
+  reweighting by $1/Z_T$ is Girsanov used as a variance reduction device; the same trick appears
+  in off-policy evaluation for continuous-time control.
+
+## Exercises
+
+<Exercise hint="Set Y = theta W - theta^2 t / 2 and apply Ito to exp(Y); this is Exercise 3 of the Ito page with theta constant.">
+Verify Lemma 1 directly for constant $\theta\in\mathbb{R}$ and $d = 1$: compute
+$\mathrm{d}\exp(\theta W_t - \tfrac12\theta^2 t)$ and confirm the $\mathrm{d}t$ term vanishes.
+</Exercise>
+
+<Exercise hint="Thm 6 with b = 0, tilde-b = -theta x, g = 1; you need the second moment of OU started at 0, which is (1 - exp(-2 theta t)) / (2 theta).">
+Let $\mathbb{P}^{\mathrm{OU}}$ be the law on $[0,T]$ of $\mathrm{d}X = -\theta X\,\mathrm{d}t + \mathrm{d}W$,
+$X_0 = 0$, and $\mathbb{P}^{\mathrm{BM}}$ the law of Brownian motion. Show
+$$
+\mathrm{KL}\big(\mathbb{P}^{\mathrm{OU}}\,\|\,\mathbb{P}^{\mathrm{BM}}\big)
+= \frac{\theta}{4}\Big(T - \frac{1 - e^{-2\theta T}}{2\theta}\Big),
+$$
+and compare with the KL of the time-$T$ marginals $\mathcal{N}(0,\tfrac{1-e^{-2\theta T}}{2\theta})$
+versus $\mathcal{N}(0,T)$ for $\theta = 1$, $T = 1$. Which is larger, and why must it be?
+</Exercise>
+
+<Exercise hint="Disintegrate each path measure as (law of X_0) times (law of the path given X_0), then use the chain rule of KL from the KL page.">
+Prove the addendum to Thm 6: if the $\tilde b$-SDE starts from $\tilde p_0$ and the $b$-SDE from
+$p_0$, then the KL between path measures is
+$\mathrm{KL}(\tilde p_0\|p_0) + \tfrac12\mathbb{E}\int_0^T\|\tilde b - b\|^2/g^2\,\mathrm{d}t$.
+</Exercise>
+
+<Exercise hint="Under P, W_t / t tends to 0 almost surely (strong law); under Q, it tends to c. Find an event with probability 1 under one measure and 0 under the other.">
+Show that for $c\neq 0$ the laws of $W_t$ and of $ct + W_t$ on $[0,\infty)$ are mutually singular,
+even though they are equivalent on every $[0,T]$. Conclude that the Novikov density $Z_T$ cannot
+converge in $L^1$ as $T\to\infty$, and reconcile this with $\mathrm{KL} = \tfrac12c^2T\to\infty$.
+</Exercise>
+
+## Going deeper
+
+Øksendal Ch. 8.6 states Girsanov in the form of Cor 5 with the vector, matrix-$\sigma$ case and
+proves it via Lévy's characterisation as above. Karatzas and Shreve Ch. 3.5 gives the full
+treatment, including the proof of Novikov's condition and the weaker Kazamaki criterion. For the
+path-space KL formula in the generality that Schrödinger-bridge papers use it (general
+semimartingale reference measures, initial-law terms), see Léonard, *A survey of the Schrödinger
+problem*, Section 2, and the appendix of <Cite id="2106.01357" />.

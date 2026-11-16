@@ -1,0 +1,340 @@
+---
+title: "Wasserstein distance"
+kind: concept
+summary: "Monge and Kantorovich optimal transport, the W_p metrics, Kantorovich–Rubinstein duality for W_1, the closed form for W_2 between Gaussians, and why generative models prefer W_2 to KL."
+tags: [optimal-transport, wasserstein, kantorovich-duality, gaussians, wgan]
+track: optimal-transport
+level: 2
+prerequisites: [measure-theoretic-probability, gaussian-computations]
+estimated_minutes: 60
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Optimal Transport for Applied Mathematicians"
+    author: "Filippo Santambrogio"
+    where: "Ch. 1, 2, 5"
+  - type: book
+    title: "Optimal Transport: Old and New"
+    author: "Cédric Villani"
+    where: "Ch. 5, 6"
+  - type: arxiv
+    id: "1803.00567"
+    title: "Computational Optimal Transport"
+  - type: arxiv
+    id: "1701.07875"
+    title: "Wasserstein GAN"
+  - type: arxiv
+    id: "1707.06887"
+    title: "A Distributional Perspective on Reinforcement Learning"
+---
+
+## Why you need this
+
+The Wasserstein GAN (Arjovsky et al. 2017) replaced the Jensen–Shannon objective by
+$W_1$, computed through Kantorovich–Rubinstein duality with a Lipschitz critic; that is
+the origin of gradient penalties and spectral normalization. Distributional RL (Bellemare
+et al. 2017, C51) proves the distributional Bellman operator is a $\gamma$-contraction in
+the maximal $W_p$ metric. Flow matching (Lipman et al. 2022, §4.1) calls its default
+conditional path the "OT path" because it is the $W_2$ geodesic between two Gaussians, and
+OT-CFM (Tong et al. 2023) pairs noise with data by solving a $W_2$ problem on each minibatch.
+Convergence guarantees for diffusion samplers (Chen et al. 2023; De Bortoli 2022) are stated
+in $W_2$ or $W_1$. This page defines the object all of those share and computes it in the two
+cases where you can do so by hand.
+
+## Setup
+
+All measures live on $\mathbb{R}^d$ and, for $W_p$ to be finite, have finite $p$-th moment:
+$\mathcal P_p(\mathbb{R}^d) = \{\mu : \int\|x\|^p\,\mathrm{d}\mu(x) < \infty\}$. Recall
+from [measure-theoretic probability](/concepts/measure-theoretic-probability) that a
+probability measure $\mu$ need not have a density; empirical measures
+$\frac1n\sum_i\delta_{x_i}$ are the case that matters most.
+
+<Definition name="Coupling">
+A *coupling* of $\mu$ and $\nu$ is a probability measure $\pi$ on
+$\mathbb{R}^d\times\mathbb{R}^d$ whose marginals are $\mu$ and $\nu$:
+$\pi(A\times\mathbb{R}^d) = \mu(A)$ and $\pi(\mathbb{R}^d\times B) = \nu(B)$. Equivalently,
+$\pi$ is the joint law of a pair $(X,Y)$ with $X\sim\mu$ and $Y\sim\nu$. Write $\Pi(\mu,\nu)$
+for the set of couplings; it is never empty, since $\mu\otimes\nu$ (independent $X$, $Y$) is in it.
+</Definition>
+
+<Definition name="Monge and Kantorovich problems">
+Fix a cost $c(x,y) = \|x-y\|^p$ with $p\ge 1$.
+
+*Monge (1781):* minimize $\int c(x,T(x))\,\mathrm{d}\mu(x)$ over measurable maps $T$ with
+$T_\#\mu = \nu$ (i.e. $T(X)\sim\nu$ when $X\sim\mu$).
+
+*Kantorovich (1942):* minimize $\int c\,\mathrm{d}\pi$ over $\pi\in\Pi(\mu,\nu)$.
+
+Every map $T$ gives the coupling $\pi = (\mathrm{id},T)_\#\mu$, the law of $(X,T(X))$, so
+Kantorovich's value is at most Monge's. Kantorovich's problem always has a minimizer
+(the constraint set is compact in the weak topology and the objective is lower
+semicontinuous); Monge's may have none, e.g. $\mu = \delta_0$ and $\nu = \tfrac12\delta_{-1} +
+\tfrac12\delta_1$, where no map can split a point mass.
+</Definition>
+
+<Definition name="Wasserstein distance">
+For $\mu,\nu\in\mathcal P_p(\mathbb{R}^d)$,
+$$
+W_p(\mu,\nu) = \Big(\inf_{\pi\in\Pi(\mu,\nu)}\int\|x-y\|^p\,\mathrm{d}\pi(x,y)\Big)^{1/p}
+= \inf_{(X,Y):\,X\sim\mu,\,Y\sim\nu}\big(\mathbb{E}\|X-Y\|^p\big)^{1/p}.
+$$
+</Definition>
+
+<Proposition name="W_p is a metric on P_p">
+$W_p$ is symmetric, finite, zero only when $\mu=\nu$, and satisfies the triangle inequality.
+Moreover $W_p \le W_q$ for $p\le q$, and $W_p(\mu_n,\mu)\to 0$ if and only if $\mu_n\to\mu$
+weakly and $\int\|x\|^p\mathrm{d}\mu_n\to\int\|x\|^p\mathrm{d}\mu$.
+</Proposition>
+
+Symmetry is the swap $(x,y)\mapsto(y,x)$; finiteness follows from the independent coupling
+and $\|x-y\|^p\le 2^{p-1}(\|x\|^p+\|y\|^p)$; $W_p\le W_q$ is Jensen applied to a coupling. The
+triangle inequality needs the *gluing lemma*: given an optimal $\pi_{12}$ for $(\mu_1,\mu_2)$
+and $\pi_{23}$ for $(\mu_2,\mu_3)$, construct a triple $(X_1,X_2,X_3)$ with those pairwise
+laws (condition both on $X_2$, then paste), and apply Minkowski's inequality in $L^p$ to
+$X_1 - X_3 = (X_1 - X_2) + (X_2 - X_3)$. The last claim is Villani Thm 6.9. We use the
+proposition as stated.
+
+## The idea
+
+### Duality
+
+<Theorem name="Kantorovich–Rubinstein duality for W_1" label="Thm 1">
+For $\mu,\nu\in\mathcal P_1(\mathbb{R}^d)$,
+$$
+W_1(\mu,\nu) = \sup_{f:\ \mathrm{Lip}(f)\le 1}\ \Big(\int f\,\mathrm{d}\mu - \int f\,\mathrm{d}\nu\Big),
+$$
+where $\mathrm{Lip}(f)\le 1$ means $|f(x)-f(y)|\le\|x-y\|$ for all $x,y$.
+</Theorem>
+
+<Proof>
+*Weak duality ($\ge$).* Take any coupling $\pi$ and any 1-Lipschitz $f$. Then
+$$
+\int f\,\mathrm{d}\mu - \int f\,\mathrm{d}\nu = \int\big(f(x) - f(y)\big)\,\mathrm{d}\pi(x,y)
+\le \int\|x-y\|\,\mathrm{d}\pi(x,y),
+$$
+using that $\pi$ has marginals $\mu$ and $\nu$ for the first equality and the Lipschitz bound
+for the inequality. Take the infimum over $\pi$ on the right and the supremum over $f$ on the left.
+
+*Strong duality ($\le$).* This is the step we do not prove: it is a minimax theorem for the
+linear program on the space of measures (Villani Thm 5.10, Santambrogio §1.6.2). The general
+version replaces the single 1-Lipschitz $f$ by a pair $(f,g)$ with $f(x)+g(y)\le c(x,y)$; for
+$c = \|x-y\|$ the optimal $g$ is $-f$ with $f$ 1-Lipschitz, which is why $W_1$ alone has this
+one-function form. $\blacksquare$
+</Proof>
+
+Weak duality is already useful: a 1-Lipschitz $f$ and a coupling $\pi$ that give the same
+number certify that both are optimal. That is what the worked example does.
+
+### Why W_2 and not KL
+
+<Proposition name="W_2 sees geometry; KL does not">
+Let $\mu_\theta = \delta_\theta$ on $\mathbb{R}$. Then $W_2(\mu_0,\mu_\theta) = |\theta|$, while
+$\mathrm{KL}(\mu_0\,\|\,\mu_\theta) = +\infty$ for every $\theta\neq 0$ and $0$ at $\theta=0$.
+The same holds for any two distributions with disjoint supports, e.g. uniform measures on two
+parallel lines at distance $|\theta|$.
+</Proposition>
+
+There is only one coupling of two point masses, so $W_2^2 = \theta^2$. KL is infinite
+because $\mu_0$ is not absolutely continuous with respect to $\mu_\theta$. A generative model
+whose samples lie on a low-dimensional set (an image manifold, a set of feasible robot
+trajectories) has exactly this relationship to the data distribution at initialization, so a
+KL-type loss gives no gradient signal in $\theta$, and $W_2$ does. This is the argument of
+<Cite id="1701.07875" /> §2 for the WGAN objective, and it is also why the same paper's
+Theorem 2 (Wasserstein metrizes weak convergence, KL does not) is more than a technicality.
+
+### Two exact formulas
+
+<Theorem name="One dimension: W_p from quantile functions" label="Thm 2">
+Let $\mu,\nu$ be measures on $\mathbb{R}$ with distribution functions $F,G$ and quantile
+functions $F^{-1}(u) = \inf\{x : F(x)\ge u\}$, $G^{-1}$ likewise. Then for every $p\ge 1$
+$$
+W_p^p(\mu,\nu) = \int_0^1\big|F^{-1}(u) - G^{-1}(u)\big|^p\,\mathrm{d}u ,
+$$
+and the optimal coupling is the *monotone* one: $(F^{-1}(U), G^{-1}(U))$ with $U$ uniform on
+$[0,1]$.
+</Theorem>
+
+<Proof>
+We prove the case $\mu = \frac1n\sum\delta_{x_i}$, $\nu = \frac1n\sum\delta_{y_j}$ with
+$x_1 < \dots < x_n$ and $y_1 < \dots < y_n$, which is the case you compute with and which
+implies the general one by a density argument (Santambrogio Thm 2.9). The statement becomes:
+among couplings of two uniform empirical measures, the monotone pairing $x_i\leftrightarrow y_i$
+is optimal. By Birkhoff's theorem the extreme points of the coupling polytope are
+permutation matrices, so it suffices to compare pairings $x_i\leftrightarrow y_{\sigma(i)}$.
+
+*Two-point lemma.* If $x_1 < x_2$ and $y_1 < y_2$ then for $h(r) = |r|^p$, which is convex,
+$$
+h(x_1 - y_1) + h(x_2 - y_2) \le h(x_1 - y_2) + h(x_2 - y_1).
+$$
+For $p=2$ expand: the inequality is $-2x_1y_1 - 2x_2y_2 \le -2x_1y_2 - 2x_2y_1$, i.e.
+$(x_2-x_1)(y_2-y_1)\ge 0$. For general $p$, set $a = x_1 - y_2$ and $b = x_2 - y_1$; then both $x_1-y_1$ and
+$x_2-y_2$ lie in $[a,b]$ and sum to $a+b$, and for a convex $h$ the function
+$s\mapsto h(s)+h(a+b-s)$ on $[a,b]$ is maximized at the endpoints.
+
+*Uncrossing.* If $\sigma$ is not the identity there is a pair $i<j$ with
+$\sigma(i)>\sigma(j)$. Swapping their targets does not increase the cost, by the lemma applied
+to $x_i<x_j$ and $y_{\sigma(j)}<y_{\sigma(i)}$, and strictly reduces the number of inversions.
+Repeat; the identity is reached with cost no larger than where you started. $\blacksquare$
+</Proof>
+
+<Theorem name="W_2 between Gaussians" label="Thm 3">
+For $\mu = \mathcal N(m_1,\Sigma_1)$ and $\nu = \mathcal N(m_2,\Sigma_2)$ on $\mathbb{R}^d$,
+$$
+W_2^2(\mu,\nu) = \|m_1 - m_2\|^2
++ \operatorname{tr}\!\Big(\Sigma_1 + \Sigma_2 - 2\big(\Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2}\big)^{1/2}\Big).
+$$
+In one dimension this reads $W_2^2 = (m_1-m_2)^2 + (\sigma_1-\sigma_2)^2$. If $\Sigma_1$ is
+positive definite, an optimal map is $T(x) = m_2 + A(x - m_1)$ with
+$A = \Sigma_1^{-1/2}\big(\Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2}\big)^{1/2}\Sigma_1^{-1/2}$.
+</Theorem>
+
+<Proof>
+We assume $\Sigma_1,\Sigma_2$ positive definite; the singular case follows by a limit.
+
+*Reduce to a cross-covariance.* Let $(X,Y)$ be *any* coupling, Gaussian or not, and write
+$C = \operatorname{Cov}(X,Y) = \mathbb{E}[(X-m_1)(Y-m_2)^\top]$. Then
+$$
+\mathbb{E}\|X-Y\|^2 = \|m_1-m_2\|^2 + \operatorname{tr}\Sigma_1 + \operatorname{tr}\Sigma_2 - 2\operatorname{tr}C .
+$$
+So the problem is to maximize $\operatorname{tr}C$ over admissible cross-covariances. The only
+constraint linking $C$ to the marginals is that the joint covariance
+$\begin{pmatrix}\Sigma_1 & C\\ C^\top & \Sigma_2\end{pmatrix}$ is positive semidefinite. By the
+Schur complement (see [Gaussian computations](/concepts/gaussian-computations)) this is
+equivalent to $\Sigma_2 - C^\top\Sigma_1^{-1}C\succeq 0$, i.e. to
+$\|K\|_{\mathrm{op}}\le 1$ where $K = \Sigma_1^{-1/2}C\,\Sigma_2^{-1/2}$.
+
+*Upper bound.* Write $C = \Sigma_1^{1/2}K\Sigma_2^{1/2}$ and $B = \Sigma_2^{1/2}\Sigma_1^{1/2}$,
+so $\operatorname{tr}C = \operatorname{tr}(KB)$. For any $K$ with $\|K\|_{\mathrm{op}}\le 1$,
+$\operatorname{tr}(KB)\le\sum_i s_i(B)$, the sum of singular values of $B$: with the SVD
+$B = PSQ^\top$, $\operatorname{tr}(KB) = \operatorname{tr}(Q^\top K P\,S) = \sum_i s_i\,
+(Q^\top KP)_{ii}\le\sum_i s_i$, since each diagonal entry of a matrix of operator norm at most
+$1$ is at most $1$. The singular values of $B$ are the square roots of the eigenvalues of
+$B^\top B = \Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2}$, so
+$\sum_i s_i(B) = \operatorname{tr}\big(\Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2}\big)^{1/2}$.
+This proves $W_2^2\ge$ the claimed value.
+
+*Attainment.* Choose $K = QP^\top$, which is orthogonal, so $\|K\|_{\mathrm{op}} = 1$ and
+$\operatorname{tr}(KB) = \operatorname{tr}(S)$. The Gaussian pair with this joint covariance
+exists (it is PSD) and achieves the bound. Finally, with this $K$ the pair is degenerate:
+$Y - m_2 = A(X - m_1)$ almost surely with the stated $A$, which one checks by verifying
+$\operatorname{Cov}(X, AX) = \Sigma_1 A^\top = C$ and $\operatorname{Var}(AX) = A\Sigma_1A^\top = \Sigma_2$;
+both are direct from the definition of $A$ and $(\Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2})^{1/2}$.
+So the optimum is a Monge map, linear and symmetric-positive in the $\Sigma_1$ geometry. $\blacksquare$
+</Proof>
+
+<Intuition>
+$W_2^2$ between Gaussians is a squared distance between means plus a squared distance between
+covariances. The covariance part, $\operatorname{tr}(\Sigma_1+\Sigma_2-2(\Sigma_1^{1/2}\Sigma_2\Sigma_1^{1/2})^{1/2})$,
+is called the Bures distance; when $\Sigma_1$ and $\Sigma_2$ commute it is
+$\|\Sigma_1^{1/2}-\Sigma_2^{1/2}\|_F^2$, the Frobenius distance between the square roots.
+Compare KL between the same Gaussians, which involves $\Sigma_1^{-1}$ and blows up as a
+covariance degenerates; $W_2$ stays finite all the way to point masses.
+</Intuition>
+
+## Worked example by hand
+
+<Example title="Three points to three points, with a duality certificate">
+Let $\mu = \tfrac13(\delta_0 + \delta_1 + \delta_3)$ and $\nu = \tfrac13(\delta_1+\delta_2+\delta_5)$.
+
+*Quantile functions.* $F^{-1}(u) = 0, 1, 3$ and $G^{-1}(u) = 1, 2, 5$ on
+$u\in(0,\tfrac13], (\tfrac13,\tfrac23], (\tfrac23,1]$. By Thm 2 the optimal coupling is
+$0\to1$, $1\to2$, $3\to5$ and
+$$
+W_2^2 = \tfrac13\big(1^2 + 1^2 + 2^2\big) = 2, \qquad W_2 = \sqrt2\approx 1.414,
+\qquad W_1 = \tfrac13(1+1+2) = \tfrac43 .
+$$
+Compare a crossed pairing $0\to5$, $1\to2$, $3\to1$: cost $\tfrac13(25+1+4) = 10$. Uncross
+the pair $(0\to5, 3\to1)$ to $(0\to1, 3\to5)$: cost drops by $\tfrac13(25+4-1-4) = 8$. That is
+the two-point lemma with numbers.
+
+*Certificate for $W_1$.* Take $f(x) = -x$, which is 1-Lipschitz. Then
+$\int f\,\mathrm{d}\mu - \int f\,\mathrm{d}\nu = -\tfrac43 + \tfrac83 = \tfrac43$.
+This equals the cost $\tfrac43$ of the monotone coupling, so by weak duality both are optimal
+and $W_1 = \tfrac43$ exactly. (Weak duality alone suffices here; no minimax theorem was needed.)
+
+*Sanity check.* $W_1\le W_2$: $1.333\le1.414$. And the absolute mean shift
+$\big|\int x\,\mathrm{d}\nu - \int x\,\mathrm{d}\mu\big| = \tfrac43$ is always at most $W_1$
+(take $f = \pm x$); here it is tight because the optimal transport moves every point to the right.
+</Example>
+
+<Example title="Two Gaussians in one dimension, three ways">
+$\mu = \mathcal N(0,1)$, $\nu = \mathcal N(2, \tfrac14)$, so $\sigma_1 = 1$, $\sigma_2 = \tfrac12$.
+
+*Thm 3.* $W_2^2 = (0-2)^2 + (1-\tfrac12)^2 = 4 + \tfrac14 = 4.25$.
+
+*Thm 2.* $F^{-1}(u) = \Phi^{-1}(u)$ and $G^{-1}(u) = 2 + \tfrac12\Phi^{-1}(u)$. Substituting
+$z = \Phi^{-1}(u)$, $z\sim\mathcal N(0,1)$:
+$$
+W_2^2 = \mathbb{E}\big[(2 - \tfrac12 z)^2\big] = 4 - 2\,\mathbb{E}[z] + \tfrac14\mathbb{E}[z^2] = 4.25 .
+$$
+The optimal map is $T(x) = 2 + \tfrac12 x$, the one-dimensional case of $A = \sigma_2/\sigma_1$.
+
+*A suboptimal coupling.* The independent coupling gives $\mathbb{E}(X-Y)^2 = 4 + 1 + \tfrac14 = 5.25$;
+the anti-monotone map $T(x) = 2 - \tfrac12 x$ gives $4 + \tfrac94 = 6.25$. Both exceed $4.25$.
+
+*KL for contrast.* $\mathrm{KL}(\mu\|\nu) = \log\tfrac{\sigma_2}{\sigma_1} +
+\tfrac{\sigma_1^2 + (m_1-m_2)^2}{2\sigma_2^2} - \tfrac12 = -0.693 + 10 - 0.5 = 8.81$, dominated
+by the $1/\sigma_2^2$ factor. Shrink $\sigma_2\to 0$: KL $\to\infty$ while $W_2^2\to 5$.
+</Example>
+
+## Where it shows up
+
+- **WGAN** (<Cite id="1701.07875" />, eq. 2–3): the critic $f_w$ is the dual variable of
+  Thm 1; weight clipping, and later the gradient penalty, enforce $\mathrm{Lip}\le 1$.
+- **Distributional RL** (<Cite id="1707.06887" />, Lemma 3): the distributional Bellman
+  operator is a $\gamma$-contraction in $\bar W_p(Z_1,Z_2) = \sup_{s,a}W_p(Z_1(s,a),Z_2(s,a))$;
+  the proof uses the scaling $W_p(aX, aY) = |a|W_p(X,Y)$ and the coupling of the two
+  next-state distributions. QR-DQN then minimizes the 1-D quantile form of Thm 2 directly.
+- **Flow matching** (Lipman et al. 2022, §4.1): the "OT conditional path"
+  $\mathcal N(tx_1, (1-(1-\sigma_{\min})t)^2 I)$ is the $W_2$ geodesic between $\mathcal N(0,I)$
+  and $\mathcal N(x_1,\sigma_{\min}^2 I)$, whose map is $T(x) = x_1 + \sigma_{\min}x$ by Thm 3.
+  See [Benamou–Brenier](/concepts/benamou-brenier) for why the geodesic is the straight line
+  in $T$. OT-CFM (Tong et al. 2023) replaces independent noise-data pairs by the optimal
+  coupling of Kantorovich's problem on each minibatch.
+- **Convergence of diffusion samplers**: the bounds in Chen et al. 2023 ("Sampling is as easy
+  as learning the score") and De Bortoli 2022 control $W_2$ or $W_1$ between generated and
+  true distributions under the manifold hypothesis, where KL and TV would be infinite.
+- **Entropic OT and Schrödinger bridges** regularize Kantorovich's problem by a KL term;
+  see [entropic OT and Sinkhorn](/concepts/entropic-ot-and-sinkhorn).
+
+## Exercises
+
+<Exercise hint="Use the gluing construction from the Proposition: build (X1, X2, X3) and apply Minkowski to X1 - X3.">
+Prove the triangle inequality for $W_p$ assuming optimal couplings exist and that, given
+$(X_1,X_2)$ and $(X_2',X_3)$ with $X_2\sim X_2'$, there is a triple $(X_1,X_2,X_3)$ with the
+prescribed pairwise laws.
+</Exercise>
+
+<Exercise hint="Sigma_2 = c Sigma_1 commutes with Sigma_1; the matrix square root becomes sqrt(c) Sigma_1.">
+Compute $W_2^2\big(\mathcal N(m,\Sigma),\mathcal N(m,c\Sigma)\big)$ for $c>0$ from Thm 3.
+Check it vanishes at $c=1$ and compare with the DDPM forward process, where
+$\Sigma_t = (1-\bar\alpha_t)I$: how far in $W_2$ is $q(x_t\mid x_0)$ from $\mathcal N(0,I)$?
+</Exercise>
+
+<Exercise hint="Both are computable from Thm 2; there is only one way to couple with a point mass.">
+Let $\mu = \tfrac12\delta_0 + \tfrac12\delta_1$ and $\nu = \delta_{1/2}$. Compute $W_1$ and
+$W_2$. Then compute $W_1(\mu,\nu_\theta)$ for $\nu_\theta = \delta_\theta$ as a function of
+$\theta$ and note it is piecewise linear with a kink at $\theta = \tfrac12$: the $W_1$ loss has
+bounded but discontinuous gradient, which is one reason the WGAN critic is hard to train.
+</Exercise>
+
+<Exercise hint="Write the weak-duality inequality for a general cost with a pair (f, g) satisfying f(x) + g(y) at most c(x, y).">
+State and prove weak duality for $W_2^2$: for any $f,g$ with $f(x)+g(y)\le\|x-y\|^2$,
+$\int f\,\mathrm{d}\mu + \int g\,\mathrm{d}\nu\le W_2^2(\mu,\nu)$. Then show that for
+$\mu = \nu$ the pair $f = g = 0$ is optimal, and find an optimal pair for
+$\mu = \delta_0$, $\nu = \delta_1$.
+</Exercise>
+
+## Going deeper
+
+Santambrogio Ch. 1 proves existence for Kantorovich and the duality theorem with the
+$c$-transform; Ch. 2 does the one-dimensional theory and Thm 2 in full; Ch. 5 has the metric
+properties and the topology of $\mathcal P_p$. Villani's *Old and New* Ch. 6 is the reference
+for the "$W_p$ metrizes weak convergence" statement. The Gaussian formula is due to
+Dowson–Landau (1982) and Givens–Shortt (1984); Peyré–Cuturi (<Cite id="1803.00567" />, §2.6)
+gives it with the algorithmic context. Brenier's theorem, which says that for absolutely
+continuous $\mu$ the $W_2$-optimal coupling is always a map $T = \nabla\psi$ with $\psi$
+convex, is the structural fact behind the Gaussian map being symmetric-positive; it is
+used on the [Benamou–Brenier](/concepts/benamou-brenier) page.

@@ -1,0 +1,347 @@
+---
+title: "Brownian motion"
+kind: concept
+summary: "The definition of standard Brownian motion, its Gaussian-process description, its scaling symmetries, why its paths are nowhere differentiable, and the quadratic-variation computation that all of Itô calculus rests on."
+tags: [brownian-motion, gaussian-process, stochastic-calculus, quadratic-variation, diffusion-models]
+track: stochastic-analysis
+level: 2
+prerequisites: [measure-theoretic-probability, gaussian-computations]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Brownian Motion and Stochastic Calculus"
+    author: "Karatzas & Shreve"
+    where: "Ch. 2.1–2.2, 2.9"
+  - type: book
+    title: "Brownian Motion"
+    author: "Mörters & Peres"
+    where: "Ch. 1"
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 2"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+---
+
+## Why you need this
+
+Every diffusion model destroys data by driving it with a Brownian motion $W_t$: the VP-SDE
+$\mathrm{d}x = -\tfrac12\beta(t)x\,\mathrm{d}t + \sqrt{\beta(t)}\,\mathrm{d}W_t$ of
+<Cite id="2011.13456" />, whose discretization is the DDPM forward chain of
+<Cite id="2006.11239" />; the reference process of a Schrödinger bridge (De Bortoli et al.
+2021) is Brownian motion itself; Anderson's reverse-time SDE is driven by a second Brownian
+motion running backwards. Three properties do all the work in those papers: independent
+Gaussian increments (which give the closed-form perturbation kernels
+$q(x_t\mid x_0)$), the covariance $\min(s,t)$ (which gives the variance of every stochastic
+integral), and quadratic variation equal to $t$ (which produces the Itô correction in
+[Itô's lemma](/concepts/ito-lemma)). This page proves the third and computes the other two.
+
+## Setup
+
+Work on a probability space $(\Omega,\mathcal F,\mathbb P)$. A stochastic process is a family
+$(X_t)_{t\ge 0}$ of random variables; for a fixed outcome $\omega$ the function
+$t\mapsto X_t(\omega)$ is a sample path. A filtration $(\mathcal F_t)_{t\ge0}$ is an increasing
+family of sigma-algebras, $\mathcal F_t$ being the information available at time $t$
+(see [measure-theoretic probability](/concepts/measure-theoretic-probability)); a process is
+adapted if $X_t$ is $\mathcal F_t$-measurable for every $t$.
+
+From [Gaussian computations](/concepts/gaussian-computations) we use: a random vector is
+Gaussian if every linear combination of its coordinates is a scalar Gaussian; its law is
+determined by its mean and covariance; affine images of Gaussians are Gaussian; and for jointly
+Gaussian variables, uncorrelated implies independent. A process is a Gaussian process if every
+finite collection $(X_{t_1},\dots,X_{t_n})$ is a Gaussian vector.
+
+<Definition name="Standard Brownian motion">
+A real-valued process $W = (W_t)_{t\ge 0}$ is a standard Brownian motion if
+
+1. $W_0 = 0$;
+2. (independent increments) for $0\le t_0 < t_1 < \dots < t_n$ the random variables
+   $W_{t_1}-W_{t_0},\;\dots,\;W_{t_n}-W_{t_{n-1}}$ are independent;
+3. (stationary Gaussian increments) $W_t - W_s \sim \mathcal N(0,\,t-s)$ for $0\le s\le t$;
+4. almost every sample path $t\mapsto W_t(\omega)$ is continuous.
+
+A $d$-dimensional Brownian motion is a vector of $d$ independent standard Brownian motions.
+The Brownian filtration is $\mathcal F_t = \sigma(W_s : s\le t)$, augmented by the null sets;
+by property 2, $W_t - W_s$ is independent of $\mathcal F_s$.
+</Definition>
+
+Properties 1–3 pin down every finite-dimensional distribution of $W$, so any two processes
+satisfying them have the same law on finitely many times. Property 4 is a separate demand and
+is where the existence proof spends its effort (Kolmogorov's continuity criterion, or Lévy's
+explicit construction by interpolating on dyadic points). We take existence as given; see
+Karatzas–Shreve 2.2 or Mörters–Peres 1.1.
+
+## The idea
+
+<Proposition name="Gaussian process view" label="Prop 1">
+Brownian motion is a centered Gaussian process with covariance
+$$
+\mathbb{E}[W_sW_t] = \min(s,t).
+$$
+Conversely, a centered Gaussian process with continuous paths and this covariance is a
+standard Brownian motion.
+</Proposition>
+
+<Proof>
+For $0 = t_0 \le t_1\le\dots\le t_n$, the vector $(W_{t_1},\dots,W_{t_n})$ is the image of the
+independent Gaussian increments $(W_{t_1}-W_{t_0},\dots,W_{t_n}-W_{t_{n-1}})$ under the linear
+map "cumulative sum", hence Gaussian. Its mean is zero. For $s\le t$,
+
+$$
+\mathbb{E}[W_sW_t] = \mathbb{E}\big[W_s\,(W_s + (W_t - W_s))\big]
+= \mathbb{E}[W_s^2] + \mathbb{E}[W_s]\,\mathbb{E}[W_t-W_s] = s + 0 = s ,
+$$
+
+using independence of $W_s = W_s - W_0$ from $W_t-W_s$.
+
+Conversely, let $X$ be centered Gaussian with covariance $\min(s,t)$ and continuous paths.
+Increments are linear functions of the $X_{t_i}$, so they are jointly Gaussian; it suffices to
+check that non-overlapping increments are uncorrelated and that
+$\operatorname{Var}(X_t-X_s) = t-s$. For $s\le t\le u\le v$,
+
+$$
+\mathbb{E}\big[(X_t-X_s)(X_v-X_u)\big]
+= \min(t,v)-\min(t,u)-\min(s,v)+\min(s,u) = t - t - s + s = 0 ,
+$$
+
+and $\mathbb{E}[(X_t-X_s)^2] = t - 2s + s = t-s$. Uncorrelated jointly Gaussian variables are
+independent, so properties 2 and 3 hold; $X_0$ has variance $\min(0,0)=0$, so property 1
+holds. $\blacksquare$
+</Proof>
+
+Prop 1 is the practical test for "is this a Brownian motion": check mean, covariance, and
+continuity. It immediately gives the symmetries that diffusion-model schedules exploit.
+
+<Proposition name="Symmetries" label="Prop 2">
+If $W$ is a standard Brownian motion, so are
+
+- (reflection) $-W_t$;
+- (scaling) $c^{-1}W_{c^2 t}$ for any constant $c$ with $c \ne 0$;
+- (restart) $W_{T+t} - W_T$ for any fixed $T\ge 0$, and it is independent of $\mathcal F_T$;
+- (time inversion) $tW_{1/t}$ for $t$ positive, extended by $0$ at $t=0$.
+</Proposition>
+
+<Proof>
+Each candidate is a centered Gaussian process with continuous paths (for time inversion,
+continuity at $0$ needs a strong-law argument that we skip; Mörters–Peres Thm 1.9). Compute
+the covariances and apply Prop 1. Scaling: $c^{-2}\min(c^2 s, c^2 t) = \min(s,t)$. Restart:
+$\min(T+s,T+t) - T = \min(s,t)$, and independence from $\mathcal F_T$ is property 2. Time
+inversion: $st\min(1/s,1/t) = \min(s,t)$. $\blacksquare$
+</Proof>
+
+<Intuition>
+Scaling says $W_t$ is of size $\sqrt t$: over a time step $\Delta t$ the increment is of size
+$\sqrt{\Delta t}$, which for small $\Delta t$ is much larger than $\Delta t$ itself. A path
+that moves $\sqrt{\Delta t}$ in time $\Delta t$ has "slope" $1/\sqrt{\Delta t}\to\infty$, so
+it cannot be differentiable, and the squares of its increments, of size $\Delta t$, add up to
+something finite and nonzero. Both facts are proved next.
+</Intuition>
+
+<Proposition name="Non-differentiability at a fixed time" label="Prop 3">
+Fix $t\ge 0$. Almost surely, $s\mapsto W_s$ is not differentiable at $s=t$.
+</Proposition>
+
+<Proof>
+Suppose $W$ is differentiable at $t$ with derivative $D$. Then there is a $K$ (depending on
+$\omega$) with $|W_{t+h}-W_t|\le Kh$ for all small $h$. But by property 3 and scaling,
+$(W_{t+h}-W_t)/\sqrt h \sim\mathcal N(0,1)$ for every $h$, so for any fixed $K$
+
+$$
+\mathbb P\big(|W_{t+h}-W_t|\le Kh\big) = \mathbb P\big(|Z|\le K\sqrt h\big)\xrightarrow[h\to0]{}0 ,
+\qquad Z\sim\mathcal N(0,1).
+$$
+
+Taking $h = 1/n$ and a countable union over integer $K$, the event "differentiable at $t$"
+has probability zero. $\blacksquare$
+</Proof>
+
+The much stronger statement "almost surely, differentiable at no $t$ whatsoever" (Paley,
+Wiener, Zygmund 1933) needs a uniform argument over uncountably many $t$; see Mörters–Peres
+Thm 1.30. For calculus purposes the decisive fact is not non-differentiability but the
+next theorem, which says what replaces $(\mathrm{d}W)^2$.
+
+<Theorem name="Quadratic variation of Brownian motion" label="Thm 4">
+Fix $t$ and partitions $\Pi_n = \{0 = t_0 < t_1 < \dots < t_{m_n} = t\}$ whose mesh
+$\max_k (t_{k+1}-t_k)$ tends to $0$. Write $\Delta W_k = W_{t_{k+1}}-W_{t_k}$ and
+$\Delta t_k = t_{k+1}-t_k$. Then
+
+$$
+S_n \;:=\; \sum_{k}(\Delta W_k)^2 \;\longrightarrow\; t
+\qquad\text{in } L^2, \text{ hence in probability.}
+$$
+
+We write $[W]_t = t$.
+</Theorem>
+
+<Proof>
+By property 3, $\mathbb{E}[(\Delta W_k)^2] = \Delta t_k$, so $\mathbb{E}[S_n] = \sum_k\Delta t_k = t$.
+The increments are independent (property 2), so the variances add:
+
+$$
+\operatorname{Var}(S_n) = \sum_k \operatorname{Var}\big((\Delta W_k)^2\big)
+= \sum_k\Big(\mathbb{E}[(\Delta W_k)^4] - (\Delta t_k)^2\Big)
+= \sum_k\big(3(\Delta t_k)^2 - (\Delta t_k)^2\big) = 2\sum_k(\Delta t_k)^2 ,
+$$
+
+using the Gaussian fourth moment $\mathbb{E}[Z^4] = 3$ (Isserlis; see
+[Gaussian computations](/concepts/gaussian-computations)) applied to
+$\Delta W_k = \sqrt{\Delta t_k}\,Z$. Finally
+$\sum_k(\Delta t_k)^2 \le \max_k \Delta t_k\cdot\sum_k\Delta t_k = \operatorname{mesh}(\Pi_n)\cdot t\to0$.
+Therefore $\mathbb{E}[(S_n-t)^2] = \operatorname{Var}(S_n)\to 0$. $\blacksquare$
+</Proof>
+
+If the meshes are summable, for instance dyadic partitions with mesh $2^{-n}t$, then
+Chebyshev plus Borel–Cantelli upgrade this to almost-sure convergence. The same computation
+with a continuous adapted weight $h(t_k)$ in front of $(\Delta W_k)^2$ gives
+$\sum_k h(t_k)(\Delta W_k)^2\to\int_0^t h(s)\,\mathrm{d}s$, which is the step used in the proof
+of [Itô's lemma](/concepts/ito-lemma).
+
+<Corollary name="Infinite total variation" label="Cor 5">
+Almost surely, $\sum_k|\Delta W_k|\to\infty$ along the dyadic partitions of $[0,t]$. So
+$\int_0^t H_s\,\mathrm{d}W_s$ cannot be defined path by path as a Riemann–Stieltjes integral.
+</Corollary>
+
+<Proof>
+On a partition, $S_n = \sum_k(\Delta W_k)^2 \le \max_k|\Delta W_k|\cdot\sum_k|\Delta W_k|$.
+By continuity of the path, $\max_k|\Delta W_k|\to0$ as the mesh goes to $0$. If the total
+variation $\sum_k|\Delta W_k|$ stayed bounded along a subsequence, $S_n$ would tend to $0$
+along it, contradicting $S_n\to t$ almost surely with $t$ positive. $\blacksquare$
+</Proof>
+
+<Proposition name="Martingale properties" label="Prop 6">
+With respect to the Brownian filtration, $W_t$ and $W_t^2 - t$ are martingales:
+$\mathbb{E}[W_t\mid\mathcal F_s] = W_s$ and $\mathbb{E}[W_t^2 - t\mid\mathcal F_s] = W_s^2 - s$ for $s\le t$.
+</Proposition>
+
+<Proof>
+$\mathbb{E}[W_t - W_s\mid\mathcal F_s] = \mathbb{E}[W_t-W_s] = 0$ because the increment is
+independent of $\mathcal F_s$ (see [conditional expectation](/concepts/conditional-expectation)
+for the rule "independent of the sigma-algebra means condition away"). For the second, write
+$W_t^2 = W_s^2 + 2W_s(W_t-W_s) + (W_t-W_s)^2$ and take $\mathbb{E}[\,\cdot\mid\mathcal F_s]$:
+the middle term gives $2W_s\cdot 0$, the last gives $t-s$. $\blacksquare$
+</Proof>
+
+<Warning>
+"Increments are $\mathcal N(0,\Delta t)$" and "increments are independent" are both needed.
+The process $X_t = \sqrt t\,Z$ with a single $Z\sim\mathcal N(0,1)$ has $X_t\sim\mathcal N(0,t)$
+for every $t$ and continuous paths, but its increments are perfectly correlated, its
+covariance is $\sqrt{st}$ rather than $\min(s,t)$, and its quadratic variation is $0$.
+When a paper writes "$\epsilon\sim\mathcal N(0,I)$" for the noise at time $t$, it is using
+the marginal law only; anything about the path (SDE, reverse process, likelihood) needs the
+full definition.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Four steps of a Brownian path, and the quadratic variation check">
+Take $t = 1$ and $n = 4$ equal steps, $\Delta t = 0.25$, so each increment is
+$\Delta W_k = \sqrt{0.25}\,Z_k = 0.5\,Z_k$ with independent $Z_k\sim\mathcal N(0,1)$. Fix the
+draws
+
+$$
+(Z_1,Z_2,Z_3,Z_4) = (0.8,\;-1.2,\;0.3,\;1.5),
+\qquad
+(\Delta W_1,\dots,\Delta W_4) = (0.4,\;-0.6,\;0.15,\;0.75).
+$$
+
+Cumulative sums give the path on the grid:
+
+$$
+W_0 = 0,\quad W_{0.25} = 0.4,\quad W_{0.5} = -0.2,\quad W_{0.75} = -0.05,\quad W_1 = 0.7 .
+$$
+
+Sanity checks.
+
+1. Marginal law. $W_1 = 0.5(Z_1+Z_2+Z_3+Z_4) = 0.5\cdot1.4 = 0.7$, and in general
+   $W_1 = 0.5\sum Z_k$ has variance $0.25\cdot 4 = 1$, as property 3 demands. Its z-score is
+   $0.7$, unremarkable.
+2. Quadratic variation. $\sum_k(\Delta W_k)^2 = 0.16 + 0.36 + 0.0225 + 0.5625 = 1.105$.
+   Thm 4 says the mean is $t = 1$ and the standard deviation is
+   $\sqrt{2\sum_k(\Delta t_k)^2} = \sqrt{2\cdot4\cdot0.0625} = \sqrt{0.5}\approx 0.707$, so
+   $1.105$ is within one standard deviation. For $n$ equal steps the standard deviation is
+   $\sqrt{2/n}$: about $0.14$ at $n=100$ and $0.014$ at $n = 10^4$. That is the sense in which
+   $(\mathrm{d}W)^2 = \mathrm{d}t$: not for each step, but in the sum.
+3. Total variation. $\sum_k|\Delta W_k| = 0.4+0.6+0.15+0.75 = 1.9$. With $n$ equal steps the
+   expected value is $n\,\mathbb{E}|\Delta W| = n\sqrt{\Delta t}\sqrt{2/\pi} = \sqrt{n}\sqrt{2/\pi}$,
+   which is $1.60$ at $n=4$ and grows without bound, as Cor 5 says. Refining the grid does not
+   change the limit of $\sum(\Delta W)^2$ but sends $\sum|\Delta W|$ to infinity.
+4. The dt·dW rule. $\sum_k\Delta W_k\,\Delta t_k = 0.25\cdot 0.7 = 0.175$ here; in general it
+   is $\Delta t\cdot W_1$, which for a fixed $t$ has variance $(\Delta t)^2 t\to0$. This is why
+   mixed terms are dropped in the Itô Taylor expansion.
+</Example>
+
+<Example title="The Brownian bridge by Gaussian conditioning">
+Given $W_1 = 0.7$, what is the law of $W_{0.5}$? By Prop 1, $(W_{0.5},W_1)$ is Gaussian with
+mean $0$ and covariance matrix $\begin{pmatrix}0.5 & 0.5\\ 0.5 & 1\end{pmatrix}$. The
+Gaussian conditioning formula gives
+
+$$
+\mathbb{E}[W_{0.5}\mid W_1] = \frac{0.5}{1}\,W_1 = 0.35,
+\qquad
+\operatorname{Var}(W_{0.5}\mid W_1) = 0.5 - \frac{0.5^2}{1} = 0.25 .
+$$
+
+In general, $W_s\mid W_t = y \sim\mathcal N\big(\tfrac{s}{t}y,\; s(1-\tfrac st)\big)$ for
+$s\le t$: the mean interpolates linearly and the variance vanishes at both ends. This
+conditioned process is the Brownian bridge. Check against the simulated path: $W_{0.5} = -0.2$
+has conditional z-score $(-0.2-0.35)/0.5 = -1.1$, plausible. The same computation with an
+Ornstein–Uhlenbeck process in place of $W$ is DDPM's posterior $q(x_{t-1}\mid x_t, x_0)$.
+</Example>
+
+## Where it shows up
+
+- The VE-SDE of <Cite id="2011.13456" />, $\mathrm{d}x = \sqrt{\mathrm{d}\sigma^2(t)/\mathrm{d}t}\,\mathrm{d}W_t$,
+  has solution $x_t = x_0 + W_{\sigma^2(t)}$, a time change of Brownian motion; its
+  perturbation kernel $\mathcal N(x_0,\sigma^2(t)I)$ is property 3 verbatim (Exercise 3). -
+DDPM, <Cite id="2006.11239" /> Eq. (4): $q(x_t\mid x_0) = \mathcal N(\sqrt{\bar\alpha_t}x_0,(1-\bar\alpha_t)I)$
+  is obtained by summing independent Gaussian increments, the same algebra as the proof of
+  Prop 1 with a time-dependent scaling; see
+  [linear SDEs and OU](/concepts/linear-sde-and-ou).
+- The Schrödinger bridge of De Bortoli et al. 2021 minimizes KL to the law of Brownian motion
+  on path space (Wiener measure); the solution is a Brownian bridge with a learned drift. The
+  bridge example above is the case with no learning. -
+The Itô correction $\tfrac12\sigma^2\partial_{xx}f$ in [Itô's lemma](/concepts/ito-lemma)
+  is Thm 4. The Itô isometry in the [stochastic integral](/concepts/stochastic-integral) is
+  Prop 1's covariance applied increment by increment.
+
+## Exercises
+
+<Exercise hint="Mean zero; the variance is the sum over k of (Δt_k)^3, which is at most mesh squared times t.">
+Show that $\sum_k \Delta W_k\,\Delta t_k\to 0$ in $L^2$ as the mesh goes to $0$. This is the
+rule $\mathrm{d}t\cdot\mathrm{d}W = 0$ used in Itô's lemma.
+</Exercise>
+
+<Exercise hint="Write the covariance matrix of (W_s, W_t) and apply Isserlis' theorem to the fourth moment.">
+For $s\le t$ compute $\mathbb{E}[W_s^2W_t^2]$ and $\mathbb{E}[W_sW_t^3]$. Check the first
+against the special case $s = t$, where it must equal $3t^2$.
+</Exercise>
+
+<Exercise hint="Use Prop 1: compute the covariance of B and check continuity of paths.">
+Let $\sigma^2:[0,\infty)\to[0,\infty)$ be continuous and strictly increasing with
+$\sigma^2(0)=0$, and set $B_t = W_{\sigma^2(t)}$. Show $B$ has independent Gaussian
+increments with $B_t - B_s\sim\mathcal N(0,\sigma^2(t)-\sigma^2(s))$. Conclude that the
+VE-SDE perturbation kernel is $\mathcal N(x_0,\sigma^2(t)I)$.
+</Exercise>
+
+<Exercise hint="Let M be the maximum on the finite grid; show P(M above a) equals 2 P(W_t above a) in the limit by reflecting the path after it first crosses a.">
+(Reflection principle, sketch.) Argue heuristically that
+$\mathbb P(\max_{s\le t}W_s \ge a) = 2\,\mathbb P(W_t\ge a)$ for $a$ positive, using the
+restart property of Prop 2 and the reflection symmetry. Use it to show the maximum on $[0,1]$
+exceeds $1$ with probability about $0.317$.
+</Exercise>
+
+## Going deeper
+
+Mörters–Peres Ch. 1 gives Lévy's construction, the full non-differentiability theorem, and the
+Hölder regularity of paths (exponent below $\tfrac12$, matching the scaling heuristic).
+Karatzas–Shreve Ch. 2 constructs Brownian motion through Kolmogorov's extension and
+continuity theorems and proves the strong Markov property, which the reflection principle
+needs. Øksendal Ch. 2 is the shortest route to the definitions used by the SDE chapters.

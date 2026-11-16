@@ -1,0 +1,404 @@
+---
+title: "Flow Matching for Generative Modeling (Lipman et al., 2022)"
+kind: paper
+summary: "Train a velocity field by regressing onto per-sample conditional velocities; the four results that make this a valid, simulation-free objective, and the straight-line path that makes it fast."
+tags: [flow-matching, generative-modeling, optimal-transport, continuity-equation]
+track: papers
+level: 4
+prerequisites: [continuity-equation, gaussian-computations, benamou-brenier, flow-matching, kl-divergence-and-variational-bounds]
+estimated_minutes: 90
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+paper:
+  arxiv_id: "2210.02747"
+  authors: ["Yaron Lipman", "Ricky T. Q. Chen", "Heli Ben-Hamu", "Maximilian Nickel", "Matt Le"]
+  year: 2022
+  venue: "ICLR 2023"
+  recognition: ["ICLR 2023", "foundational for flow-based policies and modern image/video generators"]
+  why_it_matters: "The conditional flow matching loss with the linear path is, verbatim, the training objective of flow-based action heads such as the one in pi0, so this paper is where you learn why regressing onto a per-sample straight-line velocity trains the correct policy."
+  theorems: 4
+sources:
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "1806.07366"
+    title: "Neural Ordinary Differential Equations"
+  - type: arxiv
+    id: "2209.03003"
+    title: "Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow"
+  - type: arxiv
+    id: "2209.15571"
+    title: "Building Normalizing Flows with Stochastic Interpolants"
+  - type: arxiv
+    id: "2410.24164"
+    title: "pi0: A Vision-Language-Action Flow Model for General Robot Control"
+---
+
+## Why this paper
+
+Before this paper, continuous normalizing flows (<Cite id="1806.07366" />) were trained by maximum likelihood, which needs an ODE solve and a divergence trace inside every gradient step. Diffusion models avoided the solve, but only for the specific Gaussian paths that an SDE produces. Lipman, Chen, Ben-Hamu, Nickel and Le (<Cite id="2210.02747" />) showed that you can train a velocity field $v_\theta$ for *any* family of conditional probability paths by regressing onto a *per-sample* velocity you can write down in closed form, with no simulation and no likelihood. The proof is four short results, and the payoff is a path (the "optimal transport" path) whose per-sample trajectories are straight lines, so the learned ODE can be integrated in a handful of Euler steps.
+
+For a robotics reader the paper matters because flow-based policies (the action expert of <Cite id="2410.24164" />, and the flow variants of Diffusion Policy) train with exactly the loss in the gradient-equivalence result below, on exactly the linear path of the last result. Concurrent and essentially equivalent formulations are rectified flow (<Cite id="2209.03003" />) and stochastic interpolants (<Cite id="2209.15571" />).
+
+## Setting and notation
+
+Data $x_1 \sim q$ on $\mathbb{R}^d$, unknown, accessible through samples. A *probability path* is a family of densities $p_t$, $t\in[0,1]$, with $p_0 = p$ a simple prior (the paper takes $p = \mathcal{N}(0, I)$) and $p_1 \approx q$. A time-dependent vector field $u_t:\mathbb{R}^d\to\mathbb{R}^d$ defines a *flow* $\phi_t$ by the ODE
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\phi_t(x) = u_t\big(\phi_t(x)\big), \qquad \phi_0(x) = x ,
+$$
+
+and we say $u_t$ *generates* $p_t$ when $p_t = (\phi_t)_\# p_0$, the push-forward of the prior along the flow. By the [continuity equation](/concepts/continuity-equation) page this is the same as
+
+$$
+\partial_t p_t(x) + \nabla\cdot\big(u_t(x)\,p_t(x)\big) = 0 \qquad\text{(CE)}
+$$
+
+whenever $u_t$ is locally Lipschitz and $p_t$ is a classical solution.
+
+<Warning>
+Time runs from noise to data: $t = 0$ is the prior, $t = 1$ is data. Diffusion papers (<Cite id="2011.13456" />) run the forward SDE from data at time $0$ to noise at time $T$. When the paper writes $\sigma_{1-t}$ or $\alpha_{1-t}$ it is reversing the diffusion clock; keep this in mind in the fourth result.
+</Warning>
+
+The paper's construction is: pick, for each data point $x_1$, a *conditional* path $p_t(x\mid x_1)$ with $p_0(\cdot\mid x_1) = p$ and $p_1(\cdot\mid x_1)$ concentrated near $x_1$, together with a conditional vector field $u_t(x\mid x_1)$ that generates it. Then define the *marginal* path and field
+
+$$
+p_t(x) = \int p_t(x\mid x_1)\, q(x_1)\,\mathrm{d}x_1 ,
+\qquad
+u_t(x) = \int u_t(x\mid x_1)\,\frac{p_t(x\mid x_1)\,q(x_1)}{p_t(x)}\,\mathrm{d}x_1 .
+$$
+
+Note that $p_t(x\mid x_1) q(x_1)/p_t(x)$ is the posterior density of $x_1$ given that the path is at $x$ at time $t$, so $u_t(x) = \mathbb{E}\big[u_t(x\mid X_1)\,\big|\,X_t = x\big]$: the marginal field is a [conditional expectation](/concepts/conditional-expectation) of the conditional field. The two losses are
+
+$$
+\mathcal{L}_{\mathrm{FM}}(\theta) = \mathbb{E}_{t,\,x\sim p_t}\big\|v_\theta(t,x) - u_t(x)\big\|^2 ,
+\qquad
+\mathcal{L}_{\mathrm{CFM}}(\theta) = \mathbb{E}_{t,\,x_1\sim q,\,x\sim p_t(\cdot\mid x_1)}\big\|v_\theta(t,x) - u_t(x\mid x_1)\big\|^2 ,
+$$
+
+with $t\sim\mathrm{Unif}[0,1]$. Only $\mathcal{L}_{\mathrm{CFM}}$ is computable, since $u_t(x)$ involves $q$.
+
+## Results at a glance
+
+| Result | Statement in one line | Prerequisite pages |
+|---|---|---|
+| Marginal vector field | If each $u_t(\cdot\mid x_1)$ generates $p_t(\cdot\mid x_1)$, then $u_t$ generates $p_t$. | [continuity-equation](/concepts/continuity-equation) |
+| Gradient equivalence | $\mathcal{L}_{\mathrm{FM}} = \mathcal{L}_{\mathrm{CFM}} + \text{const}$, so the gradients in $\theta$ agree. | [conditional-expectation](/concepts/conditional-expectation) |
+| Gaussian conditional flow | For $p_t(\cdot\mid x_1) = \mathcal{N}(\mu_t, \sigma_t^2 I)$ the affine flow $\sigma_t x + \mu_t$ has field $\frac{\sigma_t'}{\sigma_t}(x-\mu_t) + \mu_t'$. | [gaussian-computations](/concepts/gaussian-computations) |
+| Two instantiations | Diffusion paths give the score-based probability-flow ODE; the linear path gives $\frac{x_1 - (1-\sigma_{\min})x}{1-(1-\sigma_{\min})t}$ with straight trajectories. | [diffusion-sde-framework](/concepts/diffusion-sde-framework), [benamou-brenier](/concepts/benamou-brenier) |
+
+The paper numbers the first three as Theorems 1, 2 and 3; the fourth is Section 4.1 and 4.2 of the paper and is a calculation, not a theorem.
+
+## Result 1: the marginal vector field generates the marginal path
+
+<Theorem name="Marginal vector field" label="Paper Thm 1">
+Assume that for every $x_1$ the field $u_t(\cdot\mid x_1)$ generates $p_t(\cdot\mid x_1)$, i.e. the pair satisfies (CE), and that $p_t(x) > 0$ for all $t\in[0,1]$, $x\in\mathbb{R}^d$. Assume further that $p_t(x\mid x_1)$ and $u_t(x\mid x_1)p_t(x\mid x_1)$ are differentiable in $t$ and $x$ with derivatives dominated, uniformly in $(t,x)$ on compact sets, by a $q$-integrable function of $x_1$. Then the marginal $u_t$ generates the marginal $p_t$: the pair $(p_t, u_t)$ satisfies (CE).
+</Theorem>
+
+**Prerequisite check.** You need the continuity equation as the characterization of "generates" ([continuity-equation](/concepts/continuity-equation)), and the dominated convergence theorem to differentiate under an integral sign ([measure-theoretic-probability](/concepts/measure-theoretic-probability)). Nothing else.
+
+<Proof>
+Multiply the definition of $u_t$ by $p_t(x)$ to remove the division:
+
+$$
+u_t(x)\,p_t(x) = \int u_t(x\mid x_1)\,p_t(x\mid x_1)\,q(x_1)\,\mathrm{d}x_1 .
+$$
+
+This is the only place positivity of $p_t$ is used: it lets us define $u_t$ by dividing, and then the product $u_t p_t$ is the $q$-average of the conditional products. Now compute the two terms of (CE) for the marginal.
+
+$$
+\partial_t p_t(x)
+= \partial_t \int p_t(x\mid x_1)\,q(x_1)\,\mathrm{d}x_1
+= \int \partial_t p_t(x\mid x_1)\,q(x_1)\,\mathrm{d}x_1
+= -\int \nabla\cdot\big(u_t(x\mid x_1)\,p_t(x\mid x_1)\big)\,q(x_1)\,\mathrm{d}x_1 ,
+$$
+
+where the second equality is differentiation under the integral (the domination hypothesis) and the third is the conditional continuity equation. Swap the divergence with the $x_1$-integral, again by domination:
+
+$$
+-\int \nabla\cdot\big(u_t(x\mid x_1)\,p_t(x\mid x_1)\big)\,q(x_1)\,\mathrm{d}x_1
+= -\nabla\cdot\int u_t(x\mid x_1)\,p_t(x\mid x_1)\,q(x_1)\,\mathrm{d}x_1
+= -\nabla\cdot\big(u_t(x)\,p_t(x)\big) .
+$$
+
+So $\partial_t p_t + \nabla\cdot(u_t p_t) = 0$. $\blacksquare$
+</Proof>
+
+**What the proof really uses.** The continuity equation is *linear* in the pair $(p, j)$ where $j = u p$ is the flux. Averaging linear solutions over $x_1$ gives a solution. The theorem is really about fluxes, not velocities; the velocity $u_t$ is recovered by dividing the averaged flux by the averaged density, which is why $p_t > 0$ is a hypothesis. The paper also needs $u_t$ to be locally Lipschitz to conclude that the ODE flow exists and pushes $p_0$ to $p_t$; the paper states this as a regularity assumption rather than proving it, and for the Gaussian paths of Result 3 it holds for $t$ strictly less than $1$ when $\sigma_{\min} = 0$.
+
+<Intuition>
+Each data point $x_1$ drags a little Gaussian blob from the prior to itself. The blobs overlap. At a point $x$ inside several blobs, the marginal velocity is the average of the blobs' velocities, weighted by how much each blob contributes to the density at $x$. Mass conservation for each blob implies mass conservation for their sum.
+</Intuition>
+
+## Result 2: the conditional loss has the same gradient
+
+<Theorem name="Gradient equivalence of FM and CFM" label="Paper Thm 2">
+Assume $p_t(x) > 0$ for all $t, x$, and that $q(x_1)$ and $p_t(x\mid x_1)$ decay fast enough at infinity and $u_t$, $v_\theta$, $\nabla_\theta v_\theta$ are bounded, so that every expectation below is finite and $\nabla_\theta$ may be moved inside. Then $\mathcal{L}_{\mathrm{FM}}(\theta) = \mathcal{L}_{\mathrm{CFM}}(\theta) + C$ with $C$ independent of $\theta$, and hence $\nabla_\theta\mathcal{L}_{\mathrm{FM}} = \nabla_\theta\mathcal{L}_{\mathrm{CFM}}$.
+</Theorem>
+
+**Prerequisite check.** Fubini's theorem for swapping the order of integration ([measure-theoretic-probability](/concepts/measure-theoretic-probability)), and the tower property of [conditional expectation](/concepts/conditional-expectation) if you want the one-line version.
+
+<Proof>
+Fix $t$; the outer expectation over $t$ is a common average and can be ignored. Expand both squares:
+
+$$
+\|v_\theta - u_t(x)\|^2 = \|v_\theta\|^2 - 2\langle v_\theta, u_t(x)\rangle + \|u_t(x)\|^2 ,
+\qquad
+\|v_\theta - u_t(x\mid x_1)\|^2 = \|v_\theta\|^2 - 2\langle v_\theta, u_t(x\mid x_1)\rangle + \|u_t(x\mid x_1)\|^2 .
+$$
+
+The last term of each is independent of $\theta$. It remains to show that the first two terms have the same expectation under $p_t(x)$ as under $q(x_1)p_t(x\mid x_1)$.
+
+*First term.* By definition of the marginal,
+
+$$
+\mathbb{E}_{x\sim p_t}\|v_\theta(t,x)\|^2 = \int \|v_\theta(t,x)\|^2 \int p_t(x\mid x_1)q(x_1)\,\mathrm{d}x_1\,\mathrm{d}x
+= \mathbb{E}_{x_1\sim q,\,x\sim p_t(\cdot\mid x_1)}\|v_\theta(t,x)\|^2 ,
+$$
+
+by Fubini (the integrand is nonnegative, so Tonelli suffices).
+
+*Cross term.* Use $u_t(x)p_t(x) = \int u_t(x\mid x_1)p_t(x\mid x_1)q(x_1)\,\mathrm{d}x_1$ from the proof of Result 1:
+
+$$
+\mathbb{E}_{x\sim p_t}\langle v_\theta(t,x), u_t(x)\rangle
+= \int \Big\langle v_\theta(t,x),\, \int u_t(x\mid x_1)\,p_t(x\mid x_1)\,q(x_1)\,\mathrm{d}x_1\Big\rangle \mathrm{d}x
+= \mathbb{E}_{x_1\sim q,\,x\sim p_t(\cdot\mid x_1)}\langle v_\theta(t,x), u_t(x\mid x_1)\rangle ,
+$$
+
+moving $v_\theta$ inside the inner integral (it does not depend on $x_1$) and applying Fubini, which is where boundedness of $u_t, v_\theta$ and decay of $q, p_t$ are used. Therefore
+
+$$
+\mathcal{L}_{\mathrm{FM}}(\theta) - \mathcal{L}_{\mathrm{CFM}}(\theta)
+= \mathbb{E}_{t}\Big[\mathbb{E}_{x\sim p_t}\|u_t(x)\|^2 - \mathbb{E}_{x_1,\,x}\|u_t(x\mid x_1)\|^2\Big] =: C ,
+$$
+
+which does not involve $\theta$. Differentiating in $\theta$ under the expectation (bounded $\nabla_\theta v_\theta$) gives equality of the gradients. $\blacksquare$
+</Proof>
+
+**What the proof really uses.** Bilinearity of the squared norm plus the fact that $u_t(x)$ is the conditional expectation of $u_t(x\mid X_1)$ given $X_t = x$. The one-line version: for any square-integrable target $Y$ and any function $f$ of $X$, $\mathbb{E}\|f(X) - Y\|^2 = \mathbb{E}\|f(X) - \mathbb{E}[Y\mid X]\|^2 + \mathbb{E}\|Y - \mathbb{E}[Y\mid X]\|^2$. Take $X = X_t$, $Y = u_t(X_t\mid X_1)$, $f = v_\theta(t,\cdot)$. The constant is therefore $C = -\mathbb{E}_t\mathbb{E}_{x\sim p_t}\operatorname{tr}\operatorname{Cov}\big(u_t(x\mid X_1)\,\big|\,X_t = x\big) \le 0$: the conditional loss is the true loss plus an irreducible variance floor. The same structure is behind denoising score matching ([score-matching](/concepts/score-matching)), where the noisy target is the conditional score and the projection is the marginal score.
+
+<Warning>
+The theorem is about gradients of the *population* loss. A minibatch estimate of $\mathcal{L}_{\mathrm{CFM}}$ has variance from three sources ($t$, $x_1$, and $x$), and the variance floor $-C$ grows when conditional velocities disagree strongly at the same $(t,x)$. This is the quantitative reason the paper prefers paths whose conditional velocities vary slowly, and why the worked example below reports the floor explicitly.
+</Warning>
+
+## Result 3: the vector field of a Gaussian conditional path
+
+Fix $x_1$ and functions $\mu_t = \mu_t(x_1)\in\mathbb{R}^d$, $\sigma_t = \sigma_t(x_1) > 0$, differentiable in $t$, with $\mu_0 = 0$, $\sigma_0 = 1$, $\mu_1 = x_1$, $\sigma_1 = \sigma_{\min}$. Take
+
+$$
+p_t(x\mid x_1) = \mathcal{N}\big(x;\,\mu_t,\,\sigma_t^2 I\big),
+\qquad
+\psi_t(x) = \sigma_t\,x + \mu_t .
+$$
+
+Since $\psi_t$ is affine, $\psi_t$ pushes $\mathcal{N}(0,I)$ forward to $\mathcal{N}(\mu_t, \sigma_t^2 I) = p_t(\cdot\mid x_1)$ (affine images of Gaussians, [gaussian-computations](/concepts/gaussian-computations)). The question is which vector field has $\psi_t$ as its flow.
+
+<Theorem name="Gaussian conditional flow" label="Paper Thm 3">
+The unique vector field $u_t(\cdot\mid x_1)$ whose flow is $\psi_t$, i.e. $\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x) = u_t(\psi_t(x)\mid x_1)$ for all $x$, is
+
+$$
+u_t(x\mid x_1) = \frac{\sigma_t'}{\sigma_t}\,\big(x - \mu_t\big) + \mu_t' ,
+$$
+
+and it generates $p_t(\cdot\mid x_1)$.
+</Theorem>
+
+**Prerequisite check.** Affine maps of Gaussians and the score of a Gaussian, $\nabla_x \log\mathcal{N}(x;\mu,\sigma^2 I) = -(x-\mu)/\sigma^2$ ([gaussian-computations](/concepts/gaussian-computations)); the statement "a flow generates the push-forward path" from [continuity-equation](/concepts/continuity-equation).
+
+<Proof>
+*Derivation.* Differentiate $\psi_t(x) = \sigma_t x + \mu_t$ in $t$ for fixed $x$: $\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x) = \sigma_t' x + \mu_t'$. This is the velocity of the particle that started at $x$, expressed in terms of its *start* point. A vector field must be expressed in terms of the *current* point $y = \psi_t(x)$. Since $\sigma_t > 0$, $\psi_t$ is invertible with $x = (y - \mu_t)/\sigma_t$, so
+
+$$
+u_t(y\mid x_1) = \sigma_t'\,\frac{y - \mu_t}{\sigma_t} + \mu_t' .
+$$
+
+*Uniqueness.* If $\tilde u_t$ also satisfies $\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x) = \tilde u_t(\psi_t(x))$ for all $x$, then $\tilde u_t(y) = \sigma_t' \psi_t^{-1}(y) + \mu_t' = u_t(y\mid x_1)$ for every $y$, because $\psi_t$ is onto $\mathbb{R}^d$. So the field is pinned down pointwise; there is nothing to choose.
+
+*Generation.* $\psi_t$ is the flow of $u_t(\cdot\mid x_1)$ with $\psi_0 = \mathrm{id}$, and $p_t(\cdot\mid x_1) = (\psi_t)_\# p_0$, which is the definition of "generates". As a check, verify (CE) directly. Write $r = x - \mu_t$ and $p = p_t(x\mid x_1)$. From $\log p = -\frac{d}{2}\log(2\pi) - d\log\sigma_t - \|r\|^2/(2\sigma_t^2)$,
+
+$$
+\partial_t \log p = -d\,\frac{\sigma_t'}{\sigma_t} + \frac{\langle r, \mu_t'\rangle}{\sigma_t^2} + \frac{\sigma_t'\,\|r\|^2}{\sigma_t^3},
+\qquad
+\nabla \log p = -\frac{r}{\sigma_t^2} .
+$$
+
+Using $\nabla\cdot(u p) = p\,(\nabla\cdot u + \langle u, \nabla\log p\rangle)$ with $\nabla\cdot u = d\,\sigma_t'/\sigma_t$:
+
+$$
+\frac{\nabla\cdot(u p)}{p}
+= d\,\frac{\sigma_t'}{\sigma_t} - \Big\langle \frac{\sigma_t'}{\sigma_t}\,r + \mu_t',\ \frac{r}{\sigma_t^2}\Big\rangle
+= d\,\frac{\sigma_t'}{\sigma_t} - \frac{\sigma_t'\|r\|^2}{\sigma_t^3} - \frac{\langle r,\mu_t'\rangle}{\sigma_t^2}
+= -\partial_t\log p .
+$$
+
+So $\partial_t p + \nabla\cdot(up) = p\,(\partial_t\log p + \nabla\cdot(up)/p) = 0$. $\blacksquare$
+</Proof>
+
+**What the proof really uses.** Only that $\psi_t$ is a bijection for each $t$, so "velocity as a function of the start point" can be rewritten as "velocity as a function of the current point". The Gaussian shape is irrelevant to the formula; it matters only for the sampling step $x = \sigma_t x_0 + \mu_t$, $x_0\sim\mathcal{N}(0,I)$, that makes $\mathcal{L}_{\mathrm{CFM}}$ cheap. The direct (CE) check is worth doing once because it shows the score of the conditional Gaussian appearing: $u_t(x\mid x_1) = -\sigma_t\sigma_t'\,\nabla_x\log p_t(x\mid x_1) + \mu_t'$, which is the bridge to Result 4.
+
+## Result 4: diffusion paths and the linear (OT) path
+
+**Prerequisite check.** The VE and VP perturbation kernels and the probability-flow ODE from [diffusion-sde-framework](/concepts/diffusion-sde-framework) and [time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions); displacement interpolation between Gaussians from [benamou-brenier](/concepts/benamou-brenier). Everything else is Result 3 plus calculus.
+
+<Proposition name="Diffusion conditional paths recover the score-based fields">
+Let $s = 1 - t$ denote the diffusion clock.
+
+**Variance exploding.** Take $\mu_t = x_1$, $\sigma_t = \sigma_s^{\mathrm{VE}}$ with $\sigma^{\mathrm{VE}}$ increasing on the diffusion clock. Then
+
+$$
+u_t(x\mid x_1) = -\frac{(\sigma^{\mathrm{VE}})'_{s}}{\sigma^{\mathrm{VE}}_{s}}\,(x - x_1)
+= \sigma^{\mathrm{VE}}_{s}\,(\sigma^{\mathrm{VE}})'_{s}\,\nabla_x\log p_t(x\mid x_1) .
+$$
+
+**Variance preserving.** Take $\mu_t = \alpha_s x_1$, $\sigma_t = \sqrt{1 - \alpha_s^2}$ with $\alpha_s = e^{-\frac12 T(s)}$, $T(s) = \int_0^s\beta(r)\,\mathrm{d}r$. Then
+
+$$
+u_t(x\mid x_1) = \frac{\beta(s)}{2}\,\frac{\alpha_s x_1 - \alpha_s^2 x}{1 - \alpha_s^2}
+= \frac{\beta(s)}{2}\Big(x + \nabla_x\log p_t(x\mid x_1)\Big) .
+$$
+
+In both cases the marginal field of Result 1 is obtained by replacing the conditional score with the marginal score, and equals the drift of the reverse-time probability-flow ODE of <Cite id="2011.13456" />.
+</Proposition>
+
+<Proof>
+*VE.* $\mu_t' = 0$ and, by the chain rule with $\mathrm{d}s/\mathrm{d}t = -1$, $\sigma_t' = -(\sigma^{\mathrm{VE}})'_s$. Result 3 gives the first form. The second form is $\sigma_t'/\sigma_t\,(x-\mu_t) = -\sigma_t\sigma_t'\,\nabla\log p_t(x\mid x_1)$ with $\sigma_t\sigma_t' = -\sigma^{\mathrm{VE}}_s(\sigma^{\mathrm{VE}})'_s$.
+
+*VP.* First $\alpha_s' = -\tfrac12\beta(s)\alpha_s$ (derivative on the diffusion clock), so $\mu_t' = -\alpha_s' x_1 = \tfrac12\beta(s)\alpha_s x_1$. Next $\sigma_t^2 = 1-\alpha_s^2$ gives $2\sigma_t\sigma_t' = -2\alpha_s\cdot(-\alpha_s') = -\beta(s)\alpha_s^2$, i.e. $\sigma_t\sigma_t' = -\tfrac12\beta(s)\alpha_s^2$. Result 3:
+
+$$
+u_t(x\mid x_1)
+= \frac{\sigma_t\sigma_t'}{\sigma_t^2}(x - \alpha_s x_1) + \mu_t'
+= \frac{\beta(s)}{2}\left[-\frac{\alpha_s^2 (x - \alpha_s x_1)}{1-\alpha_s^2} + \alpha_s x_1\right]
+= \frac{\beta(s)}{2}\cdot\frac{-\alpha_s^2 x + \alpha_s^3 x_1 + \alpha_s x_1 - \alpha_s^3 x_1}{1-\alpha_s^2}
+= \frac{\beta(s)}{2}\cdot\frac{\alpha_s x_1 - \alpha_s^2 x}{1-\alpha_s^2} .
+$$
+
+For the second form, $\nabla\log p_t(x\mid x_1) = -(x-\alpha_s x_1)/(1-\alpha_s^2)$, so $x + \nabla\log p_t = \big(x - \alpha_s^2 x - x + \alpha_s x_1\big)/(1-\alpha_s^2) = (\alpha_s x_1 - \alpha_s^2 x)/(1-\alpha_s^2)$. Same expression.
+
+*Marginalization.* In both cases $u_t(x\mid x_1) = a_t\,x + b_t\,\nabla_x\log p_t(x\mid x_1)$ with $a_t, b_t$ not depending on $x_1$. Averaging against the posterior weights $p_t(x\mid x_1)q(x_1)/p_t(x)$ and using
+
+$$
+\int \nabla_x\log p_t(x\mid x_1)\,\frac{p_t(x\mid x_1)q(x_1)}{p_t(x)}\,\mathrm{d}x_1
+= \frac{\nabla_x\int p_t(x\mid x_1)q(x_1)\,\mathrm{d}x_1}{p_t(x)} = \nabla_x\log p_t(x)
+$$
+
+gives $u_t(x) = a_t x + b_t\nabla_x\log p_t(x)$. For VP this is $\tfrac12\beta(s)\,(x + \nabla\log p_t(x))$, which is the probability-flow ODE $\mathrm{d}x/\mathrm{d}s = -\tfrac12\beta(s)x - \tfrac12\beta(s)\nabla\log p_s(x)$ of the VP SDE after the sign flip $\mathrm{d}/\mathrm{d}t = -\mathrm{d}/\mathrm{d}s$. $\blacksquare$
+</Proof>
+
+<Proposition name="Linear (optimal transport) conditional path">
+Take $\mu_t = t\,x_1$ and $\sigma_t = 1 - (1-\sigma_{\min})\,t$. Then
+
+$$
+u_t(x\mid x_1) = \frac{x_1 - (1-\sigma_{\min})\,x}{1 - (1-\sigma_{\min})\,t},
+\qquad
+\psi_t(x_0) = \big(1 - (1-\sigma_{\min})t\big)\,x_0 + t\,x_1 ,
+$$
+
+and each conditional trajectory $t\mapsto\psi_t(x_0)$ is a straight line traversed at the constant velocity $x_1 - (1-\sigma_{\min})x_0$.
+</Proposition>
+
+<Proof>
+$\sigma_t' = -(1-\sigma_{\min})$ and $\mu_t' = x_1$. Result 3 gives
+
+$$
+u_t(x\mid x_1) = \frac{-(1-\sigma_{\min})\,(x - t x_1)}{1-(1-\sigma_{\min})t} + x_1
+= \frac{-(1-\sigma_{\min})x + (1-\sigma_{\min})t\,x_1 + x_1 - (1-\sigma_{\min})t\,x_1}{1-(1-\sigma_{\min})t}
+= \frac{x_1 - (1-\sigma_{\min})x}{1-(1-\sigma_{\min})t} .
+$$
+
+The flow $\psi_t(x_0) = \sigma_t x_0 + \mu_t$ is affine in $t$, hence a straight line. Substituting $x = \psi_t(x_0)$ into the field: the numerator is $x_1 - (1-\sigma_{\min})\sigma_t x_0 - (1-\sigma_{\min})t x_1 = \sigma_t\,x_1 - (1-\sigma_{\min})\sigma_t x_0$, and dividing by $\sigma_t$ gives $x_1 - (1-\sigma_{\min})x_0$, independent of $t$. $\blacksquare$
+</Proof>
+
+**What the computation really uses.** The name "optimal transport" refers to the *conditional* path: $\psi_1(x_0) = \sigma_{\min}x_0 + x_1$ is the $W_2$-optimal map from $\mathcal{N}(0,I)$ to $\mathcal{N}(x_1,\sigma_{\min}^2 I)$, and $\psi_t = (1-t)\,\mathrm{id} + t\,\psi_1$ is its displacement interpolation ([benamou-brenier](/concepts/benamou-brenier)). The *marginal* path is not an optimal transport plan between $p$ and $q$ in general; the paper does not claim it is, and the worked example below shows the marginal trajectories bend. What the straightness buys is that the conditional velocity has no $t$-dependence along each trajectory, which keeps the regression target smooth in $t$ and makes few-step Euler integration accurate in practice. Compare the VP field above, whose conditional velocity blows up as $s\to 0$ ($t\to 1$) and whose trajectories curve.
+
+## Worked example by hand
+
+<Example title="Two data points on the line">
+Let $d = 1$, $q = \tfrac12\delta_{-1} + \tfrac12\delta_{+1}$, $p_0 = \mathcal{N}(0,1)$, and use the linear path with $\sigma_{\min} = 0$: $\mu_t = t x_1$, $\sigma_t = 1 - t$.
+
+**Conditional paths and targets.** $p_t(x\mid x_1) = \mathcal{N}(x;\,t x_1,\,(1-t)^2)$ and, from the linear-path proposition with $\sigma_{\min}=0$,
+
+$$
+u_t(x\mid x_1) = \frac{x_1 - x}{1-t} .
+$$
+
+**Marginal density.** $p_t(x) = \tfrac12\mathcal{N}(x; t, (1-t)^2) + \tfrac12\mathcal{N}(x; -t, (1-t)^2)$, a two-component mixture whose centers separate linearly while its widths shrink linearly. It is positive for $t$ strictly less than $1$, so Results 1 and 2 apply there.
+
+**Posterior weights.** The weight on $x_1 = +1$ at $(t,x)$ is $w_+ = p_t(x\mid{+1})/\big(p_t(x\mid{+1}) + p_t(x\mid{-1})\big)$. The ratio of the two Gaussians is
+
+$$
+\frac{p_t(x\mid{+1})}{p_t(x\mid{-1})}
+= \exp\!\Big(\frac{(x+t)^2 - (x-t)^2}{2(1-t)^2}\Big)
+= \exp\!\Big(\frac{4xt}{2(1-t)^2}\Big)
+= e^{2a}, \qquad a := \frac{x\,t}{(1-t)^2} ,
+$$
+
+so $w_+ = e^{a}/(e^{a}+e^{-a}) = \tfrac12(1+\tanh a)$ and $w_- = \tfrac12(1-\tanh a)$. Hence $\mathbb{E}[X_1\mid X_t = x] = w_+ - w_- = \tanh a$.
+
+**Marginal vector field.** Result 1 says $u_t(x) = w_+ u_t(x\mid{+1}) + w_- u_t(x\mid{-1})$. Since the conditional target is affine in $x_1$,
+
+$$
+u_t(x) = \frac{\mathbb{E}[X_1\mid X_t = x] - x}{1-t}
+= \frac{\tanh\!\big(\tfrac{xt}{(1-t)^2}\big) - x}{1-t} .
+$$
+
+**Numbers at $t = 0.5$, $x = 0.2$.** $a = 0.2\cdot 0.5/0.25 = 0.4$, $\tanh 0.4 = 0.3799$. So
+
+$$
+u_{0.5}(0.2) = \frac{0.3799 - 0.2}{0.5} = 0.3599 .
+$$
+
+Cross-check by averaging the conditionals directly: $u(0.2\mid{+1}) = 0.8/0.5 = 1.6$, $u(0.2\mid{-1}) = -1.2/0.5 = -2.4$, $w_+ = \tfrac12(1.3799) = 0.6900$, $w_- = 0.3100$, and $0.6900\cdot 1.6 - 0.3100\cdot 2.4 = 1.1040 - 0.7440 = 0.3600$. Agreement to rounding. The two conditional targets at this point disagree by $4.0$; a network that fits $\mathcal{L}_{\mathrm{CFM}}$ perfectly outputs $0.36$ and still pays the variance floor from Result 2,
+$\operatorname{Var}(u_t(x\mid X_1)\mid x) = \operatorname{Var}(X_1\mid x)/(1-t)^2 = (1-\tanh^2 0.4)/0.25 = 0.8556/0.25 = 3.42$.
+
+**Sanity checks.**
+
+- *Symmetry.* $u_t(-x) = -u_t(x)$ because $\tanh$ is odd, and $u_t(0) = 0$ for all $t$: the origin is a fixed point of the marginal flow, so trajectories never cross zero.
+- *At $t = 0$.* $u_0(x) = \tanh(0) - x = -x$. The average of the conditional velocities $x_1 - x$ over $x_1\sim q$ is $\mathbb{E}[X_1] - x = -x$, as it should be.
+- *Limit $t\to 1$.* Fix a trajectory $x(t)$ with $x(t_0) > 0$. It stays positive (previous item), so $a = x t/(1-t)^2 \to +\infty$ and $\tanh a\to 1$. For $t$ near $1$ the ODE is $\dot x = (1 - x)/(1-t)$ up to an exponentially small error, whose solution is $x(t) = 1 + (x(t_0) - 1)\frac{1-t}{1-t_0}\to 1$. Likewise negative trajectories go to $-1$. Since $p_0 = \mathcal{N}(0,1)$ puts mass $\tfrac12$ on each sign, the marginal flow sends $p_0$ to $\tfrac12\delta_{-1} + \tfrac12\delta_{+1} = q$, exactly.
+- *Bending.* The conditional trajectories $x(t) = (1-t)x_0 + t x_1$ are straight, but the marginal trajectory from $x_0 = 0.2$ starts with velocity $-0.2$ (toward the origin) at $t = 0$ and ends with velocity toward $+1$; the marginal flow is not straight, which is the caveat under Result 4.
+</Example>
+
+<Intuition>
+The marginal field at $(t,x)$ answers "given that a particle sits at $x$ at time $t$, which data point is it probably headed to, and how fast must it go to arrive on time?" The $\tanh$ is the posterior odds between the two destinations; the $1/(1-t)$ is the "arrive on time" factor. Both pieces survive in high dimension: the posterior mean $\mathbb{E}[X_1\mid X_t]$ is what a trained $v_\theta$ implicitly computes.
+</Intuition>
+
+## Reading order
+
+Read these pages in order before the paper; the results above cite them in exactly these roles.
+
+1. [continuity-equation](/concepts/continuity-equation): the meaning of "$u_t$ generates $p_t$", push-forward, and the instantaneous change of variables used to evaluate likelihoods in the paper's experiments. Needed for Result 1.
+2. [gaussian-computations](/concepts/gaussian-computations): affine images of Gaussians and the Gaussian score $-(x-\mu)/\sigma^2$. Needed for Results 3 and 4.
+3. [flow-matching](/concepts/flow-matching): the site's concept-level treatment of the same construction with a slower first pass through Result 1 and the OT path. Read it before this page if the marginalization step felt abrupt.
+4. [benamou-brenier](/concepts/benamou-brenier): why $\psi_t = (1-t)\,\mathrm{id} + t\,\psi_1$ is the displacement interpolation and in what sense the conditional path is optimal. Needed to read Section 4.2 of the paper critically.
+5. [kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds): the paper compares against likelihood-trained CNFs and ELBO-trained diffusion models and reports NLL; this page gives you the bounds those baselines optimize and why the FM objective is an $L^2$ regression instead of a KL bound.
+
+Optional for Result 4: [diffusion-sde-framework](/concepts/diffusion-sde-framework), [time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions), and [score-matching](/concepts/score-matching) for the score identity used in the marginalization step.
+
+## Exercises
+
+<Exercise hint="Write the CFM loss as an expectation over x_0 and x_1 with x = sigma_t x_0 + mu_t, and substitute the conditional field of Result 3 evaluated at that x.">
+Show that on any Gaussian conditional path the CFM loss can be written as $\mathbb{E}_{t,x_1,x_0}\big\|v_\theta(t, \sigma_t x_0 + \mu_t) - (\sigma_t' x_0 + \mu_t')\big\|^2$, so no division by $\sigma_t$ is ever needed in code. Specialize to the linear path with $\sigma_{\min} = 0$ and recover the target $x_1 - x_0$.
+</Exercise>
+
+<Exercise hint="Repeat the two-point example with a general mixture; the posterior mean is a softmax-weighted average of the data points.">
+For $q = \sum_{k=1}^K w_k\delta_{y_k}$ in $\mathbb{R}^d$ and the linear path with $\sigma_{\min}=0$, derive $u_t(x) = \big(\sum_k \pi_k(t,x)\,y_k - x\big)/(1-t)$ with $\pi_k \propto w_k\exp\!\big(\langle x, t y_k\rangle/(1-t)^2 - t^2\|y_k\|^2/(2(1-t)^2)\big)$. Check that it reduces to the $\tanh$ formula when $K = 2$, $y_{1,2} = \pm 1$, $w_{1,2} = \tfrac12$.
+</Exercise>
+
+<Exercise hint="Compute the VP conditional velocity along its own trajectory and show it depends on t; then compare the magnitude near s = 0 with the linear path's constant velocity.">
+For the VP path with constant $\beta$, write the conditional trajectory $\psi_t(x_0) = \alpha_{1-t}x_1 + \sqrt{1-\alpha_{1-t}^2}\,x_0$ and its velocity. Show the velocity is unbounded as $t\to 1$ when $x_0\ne 0$, whereas the linear path's velocity is the constant $x_1 - x_0$. This is the paper's trajectory-comparison figure in one line.
+</Exercise>
+
+<Exercise hint="The constant C in Result 2 is minus the expected conditional variance of the target; compute Var(X_1 | X_t = x) in the two-point example and integrate against p_t.">
+In the two-point example, show that the variance floor $-C(t) = \mathbb{E}_{x\sim p_t}\operatorname{Var}(u_t(x\mid X_1)\mid x)$ satisfies $-C(t)\le 1/(1-t)^2$ and is exactly $1$ at $t = 0$. Explain why sampling $t$ uniformly therefore puts most of the gradient noise near $t = 1$, and what a non-uniform $t$-distribution (as used by <Cite id="2410.24164" />) does about it.
+</Exercise>
+
+## Going deeper
+
+The appendix of <Cite id="2210.02747" /> contains the proofs of the three theorems at the level of rigor above and the derivation of the diffusion conditional fields. Rectified flow (<Cite id="2209.03003" />) reaches the same linear-path objective from the question "which coupling makes trajectories straight" and adds the reflow procedure; stochastic interpolants (<Cite id="2209.15571" />) generalize the conditional path to $I_t(x_0,x_1)$ with a noise term, which is what you need for flow models that sample with an SDE rather than an ODE.

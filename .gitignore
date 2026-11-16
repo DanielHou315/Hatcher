@@ -24,3 +24,24 @@ docs/specs
 
 # IDE files
 .vscode/
+
+# Dependencies and build output
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+coverage/
+
+# Local progress data (SQLite)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Environment files
+.env*
+!.envrc.example
+
+# Browser automation output
+.playwright-mcp/
+next-env.d.ts

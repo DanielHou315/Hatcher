@@ -1,0 +1,10 @@
+node_modules
+.next
+data
+content
+.worktrees
+.git
+.envrc
+.env*
+coverage
+*.log

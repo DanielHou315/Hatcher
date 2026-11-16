@@ -1,0 +1,338 @@
+---
+title: "Lie groups SO(3) and SE(3)"
+kind: concept
+summary: "Rotations and rigid motions as matrix groups: the hat map, the exponential map derived as Rodrigues' formula, the logarithm, and how to compose and invert poses without ever touching Euler angles."
+tags: [lie-groups, rotations, se3, robotics, kinematics]
+track: geometry-and-robotics
+level: 1
+prerequisites: [matrix-calculus]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "1812.01537"
+    title: "A micro Lie theory for state estimation in robotics"
+  - type: book
+    title: "Modern Robotics: Mechanics, Planning, and Control"
+    author: "Lynch & Park"
+    where: "Ch. 3"
+  - type: book
+    title: "State Estimation for Robotics"
+    author: "Timothy Barfoot"
+    where: "Ch. 7"
+  - type: arxiv
+    id: "2303.04137"
+    title: "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
+---
+
+## Why you need this
+
+A robot's end-effector pose is not a vector. It is a rotation matrix $R$ together with a
+position $t$, and the set of such pairs is curved: adding two rotation matrices does not give a
+rotation matrix. Every robot-learning method that outputs poses has to face this. Diffusion
+Policy (<Cite id="2303.04137" />) sidesteps it by predicting a 6-D rotation representation and
+projecting back onto $SO(3)$ with Gram–Schmidt; SE(3)-DiffusionFields, FoldFlow, and Riemannian
+flow matching instead run the generative process on the group itself, which needs the
+exponential map, the logarithm, and the tangent space defined here. State estimators (every
+SLAM and visual-inertial pipeline, Barfoot Ch. 7, Solà et al. <Cite id="1812.01537" />)
+linearize about a pose using exactly the same maps. This page builds the two groups and their
+exponential and logarithm by hand; the next page,
+[Lie algebra and perturbations](/concepts/lie-algebra-and-perturbations), does calculus on them.
+
+## Setup
+
+A **group** is a set with an associative product, an identity, and inverses. A **matrix Lie
+group** is a group of invertible $n\times n$ matrices that is also a smooth surface inside
+$\mathbb{R}^{n\times n}$; we only ever need two.
+
+<Definition name="SO(3) and SE(3)">
+The special orthogonal group is
+
+$$
+SO(3) = \{ R\in\mathbb{R}^{3\times 3} : R^{\top}R = I,\ \det R = 1 \},
+$$
+
+with matrix multiplication as the product and $R^{-1} = R^{\top}$. The special Euclidean
+group is the set of rigid motions, written as $4\times 4$ homogeneous matrices
+
+$$
+SE(3) = \left\{ T = \begin{pmatrix} R & t \\ 0 & 1\end{pmatrix} : R\in SO(3),\ t\in\mathbb{R}^3 \right\},
+$$
+
+acting on a point $p$ by $T\bar p$ with $\bar p = (p,1)$, i.e. $p\mapsto Rp + t$. The product
+and inverse are
+
+$$
+T_1T_2 = \begin{pmatrix} R_1R_2 & R_1t_2 + t_1 \\ 0 & 1\end{pmatrix},
+\qquad
+T^{-1} = \begin{pmatrix} R^{\top} & -R^{\top}t \\ 0 & 1\end{pmatrix}.
+$$
+
+</Definition>
+
+$SO(3)$ is a 3-dimensional surface inside the 9-dimensional space of matrices (the constraint
+$R^\top R = I$ is six independent equations), and $SE(3)$ is 6-dimensional. Because the surface
+is curved, we describe it through its tangent directions at the identity.
+
+<Definition name="Hat and vee">
+For $\omega\in\mathbb{R}^3$ define the skew-symmetric matrix
+
+$$
+\omega^{\wedge} = [\omega]_\times =
+\begin{pmatrix} 0 & -\omega_3 & \omega_2 \\ \omega_3 & 0 & -\omega_1 \\ -\omega_2 & \omega_1 & 0\end{pmatrix},
+\qquad\text{so that}\qquad \omega^{\wedge} p = \omega\times p .
+$$
+
+The inverse map from skew-symmetric matrices back to vectors is $\vee$: $(\omega^\wedge)^\vee = \omega$.
+For $SE(3)$, a **twist** $\xi = (\omega, v)\in\mathbb{R}^6$ (rotational part first) has
+
+$$
+\xi^{\wedge} = \begin{pmatrix} \omega^{\wedge} & v \\ 0 & 0\end{pmatrix}\in\mathbb{R}^{4\times 4}.
+$$
+
+</Definition>
+
+The sets $\mathfrak{so}(3) = \{\omega^\wedge\}$ and $\mathfrak{se}(3) = \{\xi^\wedge\}$ are the
+**Lie algebras**: linear spaces of dimension 3 and 6 that we will identify with $\mathbb{R}^3$
+and $\mathbb{R}^6$ through $\wedge$ and $\vee$. Two identities you will use constantly, both
+checkable entry by entry:
+
+$$
+(\omega^{\wedge})^{\top} = -\omega^{\wedge},
+\qquad
+(\omega^{\wedge})^2 = \omega\omega^{\top} - \|\omega\|^2 I .
+$$
+
+## The idea
+
+Why is $\mathfrak{so}(3)$ the right tangent space? Take a smooth curve $R(s)$ in $SO(3)$ with
+$R(0) = I$ and differentiate $R^\top R = I$ at $s=0$: $\dot R(0)^\top + \dot R(0) = 0$, so
+$\dot R(0)$ is skew-symmetric. Conversely every skew-symmetric matrix is the velocity of some
+curve, namely the one produced by the matrix exponential (see [matrix
+calculus](/concepts/matrix-calculus) for $e^{A} = \sum_k A^k/k!$).
+
+<Theorem name="Exponential map on SO(3): Rodrigues' formula" label="Thm 1">
+For $\omega\in\mathbb{R}^3$ write $\theta = \|\omega\|$ and $a = \omega/\theta$ (any unit
+vector if $\theta = 0$). Then $\exp(\omega^\wedge)\in SO(3)$ and
+
+$$
+\exp(\omega^{\wedge}) = I + \sin\theta\, a^{\wedge} + (1-\cos\theta)\,(a^{\wedge})^2 .
+$$
+
+It is the rotation by angle $\theta$ about the axis $a$, counter-clockwise when looking down
+the axis toward the origin.
+</Theorem>
+
+<Proof>
+Since $\omega^\wedge = \theta a^\wedge$ with $\|a\| = 1$, the identity
+$(a^\wedge)^2 = aa^\top - I$ gives $(a^\wedge)^3 = a^\wedge aa^\top - a^\wedge = -a^\wedge$,
+because $a^\wedge a = a\times a = 0$. So the powers cycle:
+$(a^\wedge)^{2k+1} = (-1)^k a^\wedge$ and $(a^\wedge)^{2k+2} = (-1)^k (a^\wedge)^2$ for $k\ge 0$.
+Split the exponential series into odd and even powers:
+
+$$
+\exp(\theta a^\wedge)
+= I + \sum_{k\ge 0}\frac{(-1)^k\theta^{2k+1}}{(2k+1)!}\,a^\wedge
++ \sum_{k\ge 0}\frac{(-1)^k\theta^{2k+2}}{(2k+2)!}\,(a^\wedge)^2
+= I + \sin\theta\,a^\wedge + (1-\cos\theta)(a^\wedge)^2 .
+$$
+
+Membership in $SO(3)$: for skew $A$, $(e^{A})^\top e^{A} = e^{A^\top}e^{A} = e^{-A}e^{A} = I$
+(the two exponents commute), and $\det e^{A} = e^{\operatorname{tr}A} = e^{0} = 1$.
+Geometric meaning: $\exp(\theta a^\wedge)a = a$ because $a^\wedge a = 0$, so $a$ is the fixed
+axis; and for $p\perp a$, using $(a^\wedge)^2 p = (aa^\top - I)p = -p$,
+$\exp(\theta a^\wedge)p = \cos\theta\,p + \sin\theta\,(a\times p)$, which is a rotation by
+$\theta$ in the plane orthogonal to $a$. $\blacksquare$
+</Proof>
+
+<Intuition>
+$\exp(\omega^\wedge)$ is where you end up after spinning with constant angular velocity
+$\omega$ for one unit of time: the ODE $\dot R = R\,\omega^\wedge$, $R(0) = I$, has solution
+$R(s) = \exp(s\omega^\wedge)$. The angle is the speed $\|\omega\|$ and the axis is the direction
+$\omega/\|\omega\|$. This is the axis–angle representation, with the angle folded into the
+length of the vector.
+</Intuition>
+
+<Theorem name="Logarithm on SO(3)" label="Thm 2">
+Let $R\in SO(3)$ with $\operatorname{tr}R \neq -1$. Then
+$\theta = \arccos\!\big(\tfrac12(\operatorname{tr}R - 1)\big)\in[0,\pi)$ and
+
+$$
+\log R = \frac{\theta}{2\sin\theta}\,(R - R^{\top}),
+\qquad
+\operatorname{Log}R = (\log R)^{\vee},
+$$
+
+with $\log I = 0$. Then $\exp(\log R) = R$, and $\operatorname{Log}$ maps $SO(3)$ minus the
+$\theta=\pi$ rotations bijectively onto the open ball $\|\omega\| < \pi$.
+</Theorem>
+
+<Proof>
+Take the trace of Rodrigues: $\operatorname{tr}a^\wedge = 0$ and
+$\operatorname{tr}(a^\wedge)^2 = \operatorname{tr}(aa^\top) - 3 = -2$, so
+$\operatorname{tr}R = 3 - 2(1-\cos\theta) = 1 + 2\cos\theta$. Take the skew part: $I$ and
+$(a^\wedge)^2$ are symmetric while $a^\wedge$ is skew, so
+$R - R^\top = 2\sin\theta\,a^\wedge$. Solve for $\theta a^\wedge$. When $\theta = \pi$,
+$\sin\theta = 0$ and $R$ is symmetric, so the axis must be read off the eigenvector of $R$ with
+eigenvalue $1$; both $\pm\pi a$ give the same rotation, which is why the map is not injective
+there. $\blacksquare$
+</Proof>
+
+<Warning>
+$\operatorname{Log}$ is not a global chart. Rotations by exactly $\pi$ have two preimages, and
+$\theta$ is only defined modulo $2\pi$: $\exp(2\pi a^\wedge) = I$. Numerically, use
+$\theta = \operatorname{atan2}\big(\tfrac12\|(R-R^\top)^\vee\|,\ \tfrac12(\operatorname{tr}R-1)\big)$
+rather than $\arccos$, which loses precision near $\theta = 0$ and $\pi$, and replace
+$\theta/\sin\theta$ by its Taylor series $1 + \theta^2/6 + \dots$ for small $\theta$.
+</Warning>
+
+<Theorem name="Exponential map on SE(3)" label="Thm 3">
+For a twist $\xi = (\omega, v)$ with $\theta = \|\omega\|$,
+
+$$
+\exp(\xi^{\wedge}) = \begin{pmatrix} \exp(\omega^\wedge) & V(\omega)\,v \\ 0 & 1\end{pmatrix},
+\qquad
+V(\omega) = I + \frac{1-\cos\theta}{\theta^2}\,\omega^\wedge + \frac{\theta-\sin\theta}{\theta^3}\,(\omega^\wedge)^2 ,
+$$
+
+with $V(0) = I$. The inverse, $\operatorname{Log}T = \big(\operatorname{Log}R,\ V(\omega)^{-1}t\big)$,
+is defined wherever $\operatorname{Log}R$ is.
+</Theorem>
+
+<Proof>
+Block-multiply: $(\xi^\wedge)^k = \begin{pmatrix}(\omega^\wedge)^k & (\omega^\wedge)^{k-1}v\\0&0\end{pmatrix}$
+for $k\ge1$, so the top-right block of the series is
+$\sum_{k\ge1}(\omega^\wedge)^{k-1}v/k! = V(\omega)v$ with
+$V(\omega) = \sum_{k\ge0}(\omega^\wedge)^k/(k+1)!$. Now cycle the powers exactly as in Thm 1,
+with $\omega^\wedge = \theta a^\wedge$:
+
+$$
+V = I + \Big(\sum_{k\ge0}\frac{(-1)^k\theta^{2k+1}}{(2k+2)!}\Big)a^\wedge
++ \Big(\sum_{k\ge0}\frac{(-1)^k\theta^{2k+2}}{(2k+3)!}\Big)(a^\wedge)^2
+= I + \frac{1-\cos\theta}{\theta}\,a^\wedge + \frac{\theta - \sin\theta}{\theta^2}\,(a^\wedge)^2 ,
+$$
+
+which is the stated formula after substituting $a^\wedge = \omega^\wedge/\theta$. Since $V$
+equals $\int_0^1 \exp(s\omega^\wedge)\,\mathrm{d}s$ (integrate the series termwise), it is
+invertible whenever $\theta < 2\pi$. $\blacksquare$
+</Proof>
+
+The translation is $V(\omega)v$, not $v$: a body with constant body-frame velocity $v$ and
+angular velocity $\omega$ moves along a helix (a **screw motion**), and $V$ accounts for the
+fact that the direction of $v$ keeps turning. The example below makes this concrete.
+
+## Worked example by hand
+
+<Example title="Rotation by 90 degrees about the axis (1,1,1)">
+Let $a = (1,1,1)/\sqrt3$ and $\theta = \pi/2$, so $\omega = \theta a$, $\sin\theta = 1$,
+$\cos\theta = 0$. Rodrigues reduces to $R = I + a^\wedge + (a^\wedge)^2$, and
+$(a^\wedge)^2 = aa^\top - I$ cancels the $I$:
+
+$$
+R = aa^{\top} + a^{\wedge}
+= \frac13\begin{pmatrix}1&1&1\\1&1&1\\1&1&1\end{pmatrix}
++ \frac{1}{\sqrt3}\begin{pmatrix}0&-1&1\\1&0&-1\\-1&1&0\end{pmatrix}
+= \begin{pmatrix} 0.3333 & -0.2440 & 0.9107 \\ 0.9107 & 0.3333 & -0.2440 \\ -0.2440 & 0.9107 & 0.3333\end{pmatrix},
+$$
+
+using $\tfrac13 + \tfrac1{\sqrt3} = 0.9107$ and $\tfrac13 - \tfrac1{\sqrt3} = -0.2440$.
+
+Sanity checks.
+
+1. *Axis is fixed.* Every row of $R$ sums to $1$, so $R\,(1,1,1)^\top = (1,1,1)^\top$: $Ra = a$.
+2. *Trace.* $\operatorname{tr}R = 1 = 1 + 2\cos\theta$ gives $\cos\theta = 0$, $\theta = \pi/2$.
+3. *Orthogonality.* Row 1 dotted with row 2:
+   $0.3333\cdot0.9107 - 0.2440\cdot0.3333 + 0.9107\cdot(-0.2440) = 0.3036 - 0.0813 - 0.2222 = 0.0001$,
+   zero to rounding. Row 1 with itself: $0.1111 + 0.0595 + 0.8294 = 1.0000$.
+4. *Squaring.* Rotating twice by $\pi/2$ about $a$ is rotating by $\pi$, which by Rodrigues is
+   $I + 2(a^\wedge)^2 = 2aa^\top - I$. Multiply out: $R^2 = (aa^\top + a^\wedge)^2
+   = aa^\top + aa^\top a^\wedge + a^\wedge aa^\top + (a^\wedge)^2 = aa^\top + 0 + 0 + aa^\top - I$,
+   using $a^\top a^\wedge = (a^\wedge{}^\top a)^\top = -(a\times a)^\top = 0$. Correct.
+5. *Recover the log.* $R - R^\top$ has entries $\pm(0.9107 + 0.2440) = \pm1.1547 = \pm 2/\sqrt3$,
+   so $(R-R^\top)^\vee = (2/\sqrt3)(1,1,1) = 2a$, and Thm 2 gives
+   $\operatorname{Log}R = \frac{\pi/2}{2\cdot 1}\cdot 2a = (\pi/2)a = \omega$.
+
+Where does the $x$-axis go? $Re_1 = (0.3333, 0.9107, -0.2440)$, the first column. Its component
+along $a$ is $(0.3333 + 0.9107 - 0.2440)/\sqrt3 = 1/\sqrt3 = e_1\cdot a$, as it must be for a
+rotation about $a$.
+</Example>
+
+<Example title="A screw motion in the plane">
+Take the twist $\xi = (\omega, v)$ with $\omega = (0,0,\pi/2)$ and $v = (1,0,0)$: turn at
+$90^\circ$ per unit time about $z$ while moving forward along the body's own $x$-axis. Then
+$\theta = \pi/2$ and, writing $K = e_3^\wedge$ so that $K^2 = \operatorname{diag}(-1,-1,0)$,
+
+$$
+\frac{1-\cos\theta}{\theta^2} = \frac{4}{\pi^2} = 0.4053,
+\qquad
+\frac{\theta-\sin\theta}{\theta^3} = \frac{8(\pi/2 - 1)}{\pi^3} = 0.1473 .
+$$
+
+So $V = I + 0.4053\cdot\tfrac{\pi}{2}K + 0.1473\cdot\tfrac{\pi^2}{4}K^2
+= I + 0.6366\,K + 0.3634\,K^2$, i.e.
+
+$$
+V = \begin{pmatrix} 0.6366 & -0.6366 & 0 \\ 0.6366 & 0.6366 & 0 \\ 0 & 0 & 1\end{pmatrix},
+\qquad
+t = Vv = \begin{pmatrix} 0.6366 \\ 0.6366 \\ 0\end{pmatrix} = \frac{2}{\pi}\begin{pmatrix}1\\1\\0\end{pmatrix}.
+$$
+
+Check against kinematics. A body moving at unit speed while turning at rate $\pi/2$ traces a
+circle of radius $\|v\|/\|\omega\| = 2/\pi$. Starting at the origin heading along $+x$ and
+turning left, the circle's center is at $(0, 2/\pi)$. After a quarter turn the body is at
+center $+ (2/\pi)(1, 0) = (2/\pi, 2/\pi)$, facing $+y$. That is exactly $t$, and the rotation
+block $\exp(\omega^\wedge)$ is the $90^\circ$ rotation about $z$. Had we forgotten $V$ we would
+have predicted $t = (1,0,0)$, a straight line the body never travels.
+</Example>
+
+## Where it shows up
+
+- **Composing and inverting poses.** A camera pose $T_{wc}$ and a hand–eye calibration
+  $T_{ce}$ give the end-effector in the world as $T_{we} = T_{wc}T_{ce}$; relative motion
+  between two frames is $T_{ab} = T_{wa}^{-1}T_{wb}$. Every line of Barfoot Ch. 7 and of the
+  micro Lie theory paper (<Cite id="1812.01537" />) is a statement about these products.
+- **Action representations.** Diffusion Policy (<Cite id="2303.04137" />) predicts end-effector
+  actions as position plus a 6-D rotation representation; its Appendix on action spaces exists
+  because naive regression onto Euler angles or quaternions is discontinuous. The 6-D
+  representation is the first two columns of $R$, recovered by Gram–Schmidt.
+- **Generative models on the group.** SE(3)-DiffusionFields (Urain et al. 2022), FrameDiff
+  (Yim et al. 2023) and FoldFlow (Bose et al. 2023) noise and denoise directly in
+  $\mathfrak{se}(3)$ via $\exp$ and $\operatorname{Log}$; their score or vector field is a
+  twist in $\mathbb{R}^6$. See [Riemannian manifolds](/concepts/riemannian-manifolds-basics).
+- **Integrating IMU measurements.** Gyroscope readings are body-frame angular velocities
+  $\omega$, and the orientation update over $\Delta t$ is $R_{k+1} = R_k\exp((\omega\Delta t)^\wedge)$,
+  computed with Thm 1.
+
+## Exercises
+
+<Exercise hint="Expand (a^)^2 = aa^T - I entrywise and compare with the matrix.">
+Verify the identity $(\omega^\wedge)^2 = \omega\omega^\top - \|\omega\|^2 I$ by multiplying out
+the $3\times3$ matrices for general $\omega = (\omega_1,\omega_2,\omega_3)$.
+</Exercise>
+
+<Exercise hint="Apply Rodrigues with theta = 2pi/3 and use cos = -1/2, sin = sqrt(3)/2; the answer is a permutation matrix.">
+Compute $\exp(\omega^\wedge)$ for $\omega = \tfrac{2\pi}{3}\cdot(1,1,1)/\sqrt3$. Explain
+geometrically why the result permutes the coordinate axes, and check it by cubing.
+</Exercise>
+
+<Exercise hint="Write both sides as 4x4 block matrices and use exp(R w^ R^T) = R exp(w^) R^T, which follows from the series.">
+Show that for $T = (R, t)$ and any twist $\xi$, $T\exp(\xi^\wedge)T^{-1} = \exp((\operatorname{Ad}_T\xi)^\wedge)$
+where $\operatorname{Ad}_T\xi = (R\omega,\ t\times R\omega + Rv)$. This is the adjoint, the
+main tool of the next page.
+</Exercise>
+
+<Exercise hint="V(w) = integral of exp(s w^) ds from 0 to 1; evaluate that integral using Rodrigues.">
+Derive $V(\omega)$ in Thm 3 a second way by computing $\int_0^1\exp(s\omega^\wedge)\,\mathrm{d}s$
+with Rodrigues' formula, and check that as $\theta\to0$ you recover
+$V \to I + \tfrac12\omega^\wedge$.
+</Exercise>
+
+## Going deeper
+
+Solà, Deray and Atchuthan (<Cite id="1812.01537" />) is the reference to keep open while
+reading any robotics paper: it fixes conventions and tabulates $\exp$, $\operatorname{Log}$,
+adjoints and Jacobians for $SO(3)$, $SE(3)$ and their 2-D versions. Lynch and Park Ch. 3
+derives the screw interpretation of $SE(3)$ from first principles. Barfoot Ch. 7 does the same
+with the estimation-theoretic use in mind, including the treatment of $\theta$ near $\pi$.

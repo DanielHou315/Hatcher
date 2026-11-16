@@ -1,0 +1,405 @@
+---
+title: "The Schrödinger bridge"
+kind: concept
+summary: "The most likely diffusion joining two marginals: its reduction to entropic OT, the Schrödinger system of potentials, the SDE with drift given by a log-gradient, iterative proportional fitting as alternating half bridges, and a one-dimensional Gaussian bridge solved by hand."
+tags: [optimal-transport, schrodinger-bridge, entropic-ot, girsanov, diffusion-models, ipf]
+track: optimal-transport
+level: 4
+prerequisites: [entropic-ot-and-sinkhorn, girsanov-theorem, linear-sde-and-ou, time-reversal-of-diffusions]
+estimated_minutes: 75
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "1308.0215"
+    title: "A survey of the Schrödinger problem and some of its connections with optimal transport"
+  - type: arxiv
+    id: "2106.01357"
+    title: "Diffusion Schrödinger Bridge with Applications to Score-Based Generative Modeling"
+  - type: arxiv
+    id: "2110.11291"
+    title: "Likelihood Training of Schrödinger Bridge using Forward-Backward SDEs Theory"
+  - type: arxiv
+    id: "1412.4430"
+    title: "On the relation between optimal transport and Schrödinger bridges: A stochastic control viewpoint"
+  - type: arxiv
+    id: "2303.16852"
+    title: "Diffusion Schrödinger Bridge Matching"
+---
+
+## Why you need this
+
+A diffusion model runs a fixed noising SDE for long enough that the terminal law is
+approximately Gaussian, then learns to reverse it. The reversal is exact only if the
+terminal law was exactly Gaussian, which it never is, and the horizon has to be long for the
+error to be small. The Schrödinger bridge asks for the diffusion that starts *exactly* at the
+data distribution and ends *exactly* at the Gaussian (or at any other distribution, e.g. a
+second image domain, a second robot trajectory set) in finite time while staying as close as
+possible to a reference Brownian motion. Diffusion Schrödinger Bridge (De Bortoli et al. 2021)
+solves it by iterating time reversals; Chen, Liu and Theodorou (2022) train it by a
+forward–backward SDE likelihood; Diffusion Schrödinger Bridge Matching (Shi et al. 2023) and
+$\mathrm{I}^2\mathrm{SB}$ (Liu et al. 2023) are the current practical forms. Every one of these
+uses the four facts on this page: the bridge is entropic OT, its optimal coupling factorizes
+through two potentials, its dynamics are an SDE with drift $\sigma^2\nabla\log\varphi$, and
+the natural algorithm alternates two half bridges.
+
+## Setup
+
+Paths live in $\Omega = C([0,1];\mathbb{R}^d)$ and $X_t$ denotes the coordinate at time $t$. A
+*path measure* is a probability measure on $\Omega$, e.g. the law of an SDE solution. For a
+path measure $P$ write $P_t$ for the law of $X_t$, $P_{01}$ for the joint law of $(X_0,X_1)$,
+and $P^{xy}$ for the conditional law of the path given $X_0 = x$, $X_1 = y$ (the *bridge* of
+$P$). By disintegration, $P = \int P^{xy}\,P_{01}(\mathrm{d}x,\mathrm{d}y)$.
+
+The *reference* is $R$, the law of $\mathrm{d}X_t = \sigma\,\mathrm{d}W_t$ with $X_0\sim m$,
+where $m$ is any initial law with $\mu_0\ll m$; we take $m = \mu_0$ for definiteness. Its
+transition density is the heat kernel
+$r_t(x,y) = (2\pi\sigma^2t)^{-d/2}\exp\big(-\|y-x\|^2/(2\sigma^2t)\big)$, so
+$R_{01}(\mathrm{d}x,\mathrm{d}y) = m(x)\,r_1(x,y)\,\mathrm{d}x\,\mathrm{d}y$, and its bridges
+$R^{xy}$ are Brownian bridges: under $R^{xy}$,
+$X_t \sim \mathcal N\big((1-t)x + ty,\ \sigma^2t(1-t)I\big)$ with density
+$r_t(x,z)\,r_{1-t}(z,y)/r_1(x,y)$ in $z$.
+
+KL between path measures is the object from the [Girsanov page](/concepts/girsanov-theorem):
+for two diffusions with the same $\sigma$ and drifts $b^P$, $b^R$,
+$\mathrm{KL}(P\|R) = \mathrm{KL}(P_0\|R_0) + \frac{1}{2\sigma^2}\mathbb{E}_P\int_0^1\|b^P_t - b^R_t\|^2\mathrm{d}t$.
+
+<Definition name="Dynamic Schrödinger bridge">
+Given $\mu_0,\mu_1$ with finite second moments and finite entropy,
+$$
+P^\star = \operatorname*{arg\,min}\big\{\mathrm{KL}(P\,\|\,R) : P \text{ a path measure},\ P_0 = \mu_0,\ P_1 = \mu_1\big\}.
+$$
+</Definition>
+
+Schrödinger's 1931 question was: a cloud of Brownian particles is observed to have
+empirical law $\mu_0$ at time $0$ and $\mu_1$ at time $1$, which is not what diffusion would
+predict; what is the most likely way it got there? By Sanov's theorem the answer is the
+path measure closest to $R$ in KL, which is the definition.
+
+## The idea
+
+<Theorem name="Static reduction: the bridge is entropic OT" label="Thm 1">
+The minimizer exists, is unique, and has the form
+$$
+P^\star = \int R^{xy}\,\pi^\star(\mathrm{d}x,\mathrm{d}y),
+\qquad
+\pi^\star = \operatorname*{arg\,min}_{\pi\in\Pi(\mu_0,\mu_1)}\mathrm{KL}(\pi\,\|\,R_{01}).
+$$
+Moreover, for $\pi$ with a density,
+$$
+\mathrm{KL}(\pi\|R_{01}) = \frac{1}{\sigma^2}\Big[\int\tfrac12\|x-y\|^2\,\mathrm{d}\pi + \sigma^2\,\mathrm{KL}(\pi\|\mu_0\otimes\mu_1)\Big] + \text{const},
+$$
+so $\pi^\star$ solves the entropic OT problem with cost $\tfrac12\|x-y\|^2$ and $\varepsilon = \sigma^2$.
+</Theorem>
+
+<Proof>
+*Chain rule.* For any path measure $P$ with $P\ll R$, disintegrating both measures over the
+endpoints gives (this is the chain rule of KL from the
+[KL page](/concepts/kl-divergence-and-variational-bounds), applied to the map
+$\omega\mapsto(X_0,X_1)$)
+$$
+\mathrm{KL}(P\|R) = \mathrm{KL}(P_{01}\|R_{01}) + \int\mathrm{KL}(P^{xy}\|R^{xy})\,P_{01}(\mathrm{d}x,\mathrm{d}y).
+$$
+The constraint $P_0 = \mu_0$, $P_1 = \mu_1$ only touches $P_{01}$, which must lie in
+$\Pi(\mu_0,\mu_1)$; the second term is nonnegative and zero iff $P^{xy} = R^{xy}$ for
+$P_{01}$-a.e. $(x,y)$. So the minimum is attained by choosing $P^{xy} = R^{xy}$ and $P_{01} = \pi^\star$.
+Existence and uniqueness of $\pi^\star$ are the continuous version of Prop 1 on the entropic
+OT page (strict convexity of KL plus a compactness argument; Léonard, Thm 2.12).
+
+*Constants.* With $m = \mu_0$,
+$$
+\mathrm{KL}(\pi\|R_{01}) = \int\log\pi\,\mathrm{d}\pi - \int\log\mu_0\,\mathrm{d}\mu_0
++ \frac{1}{2\sigma^2}\int\|x-y\|^2\,\mathrm{d}\pi + \frac d2\log(2\pi\sigma^2),
+$$
+and $\int\log\pi\,\mathrm{d}\pi = \mathrm{KL}(\pi\|\mu_0\otimes\mu_1) + \int\log\mu_0\,\mathrm{d}\mu_0 +
+\int\log\mu_1\,\mathrm{d}\mu_1$. Collect the $\pi$-dependent terms and factor $1/\sigma^2$. $\blacksquare$
+</Proof>
+
+So the *static* problem is the last page's problem with $K(x,y) = e^{-\|x-y\|^2/(2\sigma^2)}$,
+and by the continuous version of the diagonal-scaling structure (Prop 1 there, Csiszár 1975
+in general), $\pi^\star$ factorizes:
+
+<Theorem name="The Schrödinger system" label="Thm 2">
+There exist nonnegative functions $\hat\varphi_0$, $\varphi_1$ on $\mathbb{R}^d$ such that
+$$
+\pi^\star(\mathrm{d}x,\mathrm{d}y) = \hat\varphi_0(x)\,r_1(x,y)\,\varphi_1(y)\,\mathrm{d}x\,\mathrm{d}y .
+$$
+Define the *forward* and *backward* potentials by running the heat semigroup,
+$$
+\hat\varphi_t(z) = \int\hat\varphi_0(x)\,r_t(x,z)\,\mathrm{d}x, \qquad
+\varphi_t(z) = \int r_{1-t}(z,y)\,\varphi_1(y)\,\mathrm{d}y ,
+$$
+so that $\partial_t\hat\varphi = \tfrac12\sigma^2\Delta\hat\varphi$ (forward heat) and
+$\partial_t\varphi + \tfrac12\sigma^2\Delta\varphi = 0$ (backward heat). Then the marginals of
+the bridge are
+$$
+P^\star_t(z) = \varphi_t(z)\,\hat\varphi_t(z)\qquad\text{for all } t\in[0,1],
+$$
+and in particular $\mu_0 = \varphi_0\hat\varphi_0$ and $\mu_1 = \varphi_1\hat\varphi_1$, which
+is the *Schrödinger system*: two coupled equations for the two unknown functions $\hat\varphi_0$, $\varphi_1$.
+</Theorem>
+
+<Proof>
+The factorization is the continuous analogue of $P = \operatorname{diag}(u)K\operatorname{diag}(v)$
+with $u\leftrightarrow\hat\varphi_0$, $v\leftrightarrow\varphi_1$; the constant $m(x)$ from
+$R_{01}$ is absorbed into $\hat\varphi_0$. For the marginals, use Thm 1 and the Brownian
+bridge density:
+$$
+P^\star_t(z) = \iint\hat\varphi_0(x)\,r_1(x,y)\,\varphi_1(y)\cdot\frac{r_t(x,z)\,r_{1-t}(z,y)}{r_1(x,y)}\,\mathrm{d}x\,\mathrm{d}y
+= \Big[\int\hat\varphi_0(x)r_t(x,z)\,\mathrm{d}x\Big]\Big[\int r_{1-t}(z,y)\varphi_1(y)\,\mathrm{d}y\Big]
+= \hat\varphi_t(z)\,\varphi_t(z).
+$$
+The heat equations are the standard properties of the heat kernel. $\blacksquare$
+</Proof>
+
+<Theorem name="The bridge is an SDE with drift the log-gradient of the backward potential" label="Thm 3">
+$P^\star$ is the law of the solution of
+$$
+\mathrm{d}X_t = \sigma^2\,\nabla\log\varphi_t(X_t)\,\mathrm{d}t + \sigma\,\mathrm{d}W_t,\qquad X_0\sim\mu_0 .
+$$
+Equivalently, running time backwards from $X_1\sim\mu_1$,
+$\mathrm{d}X_t = -\sigma^2\nabla\log\hat\varphi_t(X_t)\,\mathrm{d}t + \sigma\,\mathrm{d}\bar W_t$.
+</Theorem>
+
+<Proof>
+*The density process.* From Thm 1, $\mathrm{d}P^\star/\mathrm{d}R = \pi^\star(X_0,X_1)/R_{01}(X_0,X_1)
+= \hat\varphi_0(X_0)\varphi_1(X_1)/m(X_0)$. Condition on $\mathcal F_t$ under $R$: by the
+Markov property of Brownian motion,
+$\mathbb{E}_R[\varphi_1(X_1)\mid\mathcal F_t] = \int r_{1-t}(X_t,y)\varphi_1(y)\,\mathrm{d}y = \varphi_t(X_t)$, so
+$$
+Z_t := \frac{\mathrm{d}P^\star}{\mathrm{d}R}\Big|_{\mathcal F_t} = \frac{\hat\varphi_0(X_0)}{m(X_0)}\,\varphi_t(X_t),
+\qquad Z_0 = \frac{\hat\varphi_0\varphi_0(X_0)}{m(X_0)} = \frac{\mu_0(X_0)}{m(X_0)} .
+$$
+
+*Itô on the potential.* Under $R$, $\mathrm{d}X_t = \sigma\,\mathrm{d}W_t$. For $t<1$ the
+function $\varphi_t$ is smooth and strictly positive (a heat-flow image of a nonnegative,
+nonzero function). Itô's lemma and the backward heat equation give
+$$
+\mathrm{d}\varphi_t(X_t) = \big(\partial_t\varphi + \tfrac12\sigma^2\Delta\varphi\big)\mathrm{d}t + \sigma\nabla\varphi\cdot\mathrm{d}W_t
+= \sigma\,\varphi_t(X_t)\,\nabla\log\varphi_t(X_t)\cdot\mathrm{d}W_t ,
+$$
+so $\varphi_t(X_t)$ is a positive local martingale and, applying Itô to $\log$,
+$$
+\varphi_t(X_t) = \varphi_0(X_0)\exp\Big(\int_0^t\sigma\nabla\log\varphi_s(X_s)\cdot\mathrm{d}W_s
+- \tfrac12\int_0^t\sigma^2\|\nabla\log\varphi_s(X_s)\|^2\mathrm{d}s\Big).
+$$
+
+*Girsanov.* The exponential is the Girsanov density for changing the drift of
+$\mathrm{d}X = \sigma\,\mathrm{d}W$ to $b_t = \sigma^2\nabla\log\varphi_t$, since
+$b/\sigma = \sigma\nabla\log\varphi$. We do not need Novikov's condition: $Z_t$ is a true
+martingale because it was constructed as a conditional expectation of the integrable
+$Z_1$. By Girsanov's theorem, under $P^\star$ the process
+$\tilde W_t = W_t - \int_0^t\sigma\nabla\log\varphi_s(X_s)\,\mathrm{d}s$ is a Brownian motion,
+so $\mathrm{d}X_t = \sigma\,\mathrm{d}W_t = \sigma^2\nabla\log\varphi_t(X_t)\,\mathrm{d}t + \sigma\,\mathrm{d}\tilde W_t$,
+with $X_0\sim\mu_0$ from the factor $Z_0$.
+
+*Reverse form.* By the [time-reversal formula](/concepts/time-reversal-of-diffusions), the
+reverse-time drift is the forward drift minus $\sigma^2\nabla\log P^\star_t$, and by Thm 2
+$\sigma^2\nabla\log\varphi_t - \sigma^2\nabla\log(\varphi_t\hat\varphi_t) = -\sigma^2\nabla\log\hat\varphi_t$. $\blacksquare$
+</Proof>
+
+<Intuition>
+Thm 3 is Doob's $h$-transform: conditioning a Markov process on a terminal event, or
+reweighting it by a function of its terminal value, produces a Markov process whose drift
+is tilted by $\nabla\log$ of the harmonic function that propagates the terminal weight
+backwards. The bridge is the $h$-transform of Brownian motion by $\varphi_1$, started from
+$\mu_0$ instead of $m$. The symmetry $\varphi\leftrightarrow\hat\varphi$ is the symmetry of
+running time in either direction, and the score of the marginal splits exactly into the two
+drifts: $\nabla\log P^\star_t = \nabla\log\varphi_t + \nabla\log\hat\varphi_t$.
+</Intuition>
+
+### Iterative proportional fitting
+
+<Definition name="Half bridges and IPF">
+For a path measure $Q$ and a target marginal $\nu$, the *half bridges* are
+$$
+\operatorname*{arg\,min}\{\mathrm{KL}(P\|Q): P_1 = \nu\}
+\qquad\text{and}\qquad
+\operatorname*{arg\,min}\{\mathrm{KL}(P\|Q): P_0 = \nu\}.
+$$
+*Iterative proportional fitting* (Fortet 1940, Kullback 1968) starts at $P^0 = R$ and
+alternates: $P^{2n+1}$ is the terminal half bridge of $P^{2n}$ to $\mu_1$, and $P^{2n+2}$ is
+the initial half bridge of $P^{2n+1}$ to $\mu_0$.
+</Definition>
+
+<Proposition name="A half bridge keeps the conditional law and swaps the marginal" label="Prop 4">
+The terminal half bridge of $Q$ to $\nu$ is $P = \int Q(\cdot\mid X_1 = y)\,\nu(\mathrm{d}y)$,
+i.e. the law obtained by drawing $X_1\sim\nu$ and then the rest of the path from $Q$'s
+conditional given $X_1$. Its endpoint law is $P_{01}(x,y) = Q_{01}(x,y)\,\nu(y)/Q_1(y)$, the
+column rescaling of Sinkhorn. The initial half bridge is the mirror statement.
+</Proposition>
+
+<Proof>
+Chain rule of KL through the map $X_1$:
+$\mathrm{KL}(P\|Q) = \mathrm{KL}(P_1\|Q_1) + \int\mathrm{KL}\big(P(\cdot\mid X_1=y)\,\|\,Q(\cdot\mid X_1=y)\big)\nu(\mathrm{d}y)$.
+The first term is fixed by the constraint $P_1 = \nu$; the second is minimized, at zero,
+by matching conditionals. $\blacksquare$
+</Proof>
+
+Two consequences, which together are the DSB algorithm (<Cite id="2106.01357" />, Prop. 3
+and Alg. 1):
+
+1. *IPF is Sinkhorn on path space.* By induction every iterate has Brownian bridges
+   $P^{n,xy} = R^{xy}$ (a half bridge only changes the endpoint law), so $P^n = \int R^{xy}\pi^n$
+   with $\pi^n$ the Sinkhorn iterates for the static problem. When Sinkhorn converges,
+   $P^n\to P^\star$.
+2. *Each half bridge is a time reversal.* $Q(\cdot\mid X_1 = y)$ is the law of $Q$'s path run
+   backwards from $y$, so $P^{2n+1}$ is the law of the reverse-time SDE of $P^{2n}$
+   initialized at $\mu_1$; its drift is given by the time-reversal formula and involves
+   $\nabla\log P^{2n}_t$, which DSB learns by regressing on samples of $P^{2n}$
+   (the same mean-matching or score-matching regression as in a diffusion model). Then
+   $P^{2n+2}$ is the reversal of that, initialized at $\mu_0$, and so on.
+
+<Warning>
+A score-based diffusion model is exactly $P^1$, the first half bridge: the reference is the
+noising SDE started at the data, and $P^1$ is its time reversal started at the Gaussian.
+$P^1_1 = \mu_1$ exactly, but $P^1_0 = \mu_0$ only if $R_1$ was already Gaussian, which needs
+a long horizon. DSB's point is that continuing to $P^2, P^3, \dots$ removes this constraint
+and allows short horizons and non-Gaussian $\mu_1$. The price is that the potentials
+$\varphi,\hat\varphi$ are never available in closed form, so each iterate is a neural network
+trained on the previous one, and errors accumulate; Diffusion Schrödinger Bridge Matching
+(<Cite id="2303.16852" />) replaces the KL projections onto marginal constraints by projections
+onto Markov and reciprocal classes, which are less sensitive to this.
+</Warning>
+
+## Worked example by hand
+
+<Example title="A one-dimensional Gaussian bridge">
+Take $d = 1$, $\mu_0 = \mathcal N(0,\alpha^2)$, $\mu_1 = \mathcal N(0,\beta^2)$, reference
+$\mathrm{d}X = \sigma\,\mathrm{d}W$ with $X_0\sim m = \mu_0$. Then
+$$
+R_{01} = \mathcal N\Big(0,\ \Sigma_R\Big),\qquad
+\Sigma_R = \begin{pmatrix}\alpha^2 & \alpha^2\\ \alpha^2 & \alpha^2+\sigma^2\end{pmatrix},
+\qquad \det\Sigma_R = \alpha^2\sigma^2 .
+$$
+
+*Step 1: the optimal coupling is Gaussian.* For any $\pi\in\Pi(\mu_0,\mu_1)$,
+$\mathrm{KL}(\pi\|R_{01}) = -H(\pi) - \mathbb{E}_\pi[\log R_{01}]$. Since $\log R_{01}$ is a
+quadratic form, the second term depends on $\pi$ only through its covariance
+$\Sigma_\pi = \begin{pmatrix}\alpha^2 & c\\ c & \beta^2\end{pmatrix}$, and among all
+distributions with that covariance the Gaussian has the largest entropy. So it suffices to
+minimize over the single number $c\in(-\alpha\beta,\alpha\beta)$.
+
+*Step 2: KL between the two Gaussians.* Using
+$\Sigma_R^{-1} = \frac{1}{\alpha^2\sigma^2}\begin{pmatrix}\alpha^2+\sigma^2 & -\alpha^2\\ -\alpha^2 & \alpha^2\end{pmatrix}$,
+$$
+\operatorname{tr}(\Sigma_R^{-1}\Sigma_\pi) = \frac{\alpha^2(\alpha^2+\sigma^2) - 2\alpha^2c + \alpha^2\beta^2}{\alpha^2\sigma^2}
+= \frac{\alpha^2+\beta^2+\sigma^2-2c}{\sigma^2},
+$$
+so, by the Gaussian KL formula from [Gaussian computations](/concepts/gaussian-computations),
+$$
+\mathrm{KL}(\pi_c\|R_{01}) = \tfrac12\Big[\frac{\alpha^2+\beta^2-2c}{\sigma^2} - 1 + \log(\alpha^2\sigma^2) - \log(\alpha^2\beta^2-c^2)\Big].
+$$
+Differentiate in $c$: $\tfrac12\big[-\tfrac{2}{\sigma^2} + \tfrac{2c}{\alpha^2\beta^2-c^2}\big] = 0$
+gives $c^2 + \sigma^2c - \alpha^2\beta^2 = 0$, and the root in the admissible range is
+$$
+c^\star = \frac{-\sigma^2 + \sqrt{\sigma^4 + 4\alpha^2\beta^2}}{2}.
+$$
+The second derivative is positive, so this is the minimum.
+
+*Limits.* $\sigma\to 0$: $c^\star\to\alpha\beta$, the perfectly correlated coupling
+$Y = (\beta/\alpha)X$, which is the $W_2$-optimal map. $\sigma\to\infty$:
+$c^\star\approx\alpha^2\beta^2/\sigma^2\to 0$, the independent coupling. Both agree with
+Prop 4 on the entropic OT page, with $\varepsilon = \sigma^2$.
+
+*Numbers.* $\alpha = 1$, $\beta = 2$, $\sigma = 1$: $c^\star = (-1+\sqrt{17})/2 = 1.5616$,
+between the OT value $2$ and the independent value $0$; the correlation is $0.78$.
+
+*Step 3: the marginals.* Under $P^\star$, draw $(X_0,X_1)\sim\pi^\star$ and then a Brownian
+bridge: $X_t = (1-t)X_0 + tX_1 + \sigma\sqrt{t(1-t)}\,\xi$ with $\xi\sim\mathcal N(0,1)$
+independent. So $P^\star_t = \mathcal N(0, V_t)$ with
+$$
+V_t = (1-t)^2\alpha^2 + t^2\beta^2 + 2t(1-t)c^\star + \sigma^2t(1-t).
+$$
+Check: $V_0 = \alpha^2$, $V_1 = \beta^2$. With the numbers, $V_{1/2} = 0.25 + 1 + 0.7808 + 0.25 = 2.2808$,
+slightly above the $W_2$-geodesic value $\big(\tfrac{1+2}{2}\big)^2 = 2.25$ from the
+[Benamou–Brenier page](/concepts/benamou-brenier): the bridge spreads a little more because
+it is noisy.
+
+*Step 4: the drift.* Since $\pi^\star$ and $r_1$ are both exponentials of quadratics in
+$(x,y)$, Thm 2 forces $\hat\varphi_0(x)\varphi_1(y)$ to be one too, with no cross term, so
+each potential is an exponential of a quadratic; heat flow preserves this, so
+$\log\varphi_t$ is quadratic and the drift $\sigma^2\partial_x\log\varphi_t(x) = k_tx$ is
+linear. For $\mathrm{d}X = k_tX\,\mathrm{d}t + \sigma\,\mathrm{d}W$ the variance obeys
+$\dot V_t = 2k_tV_t + \sigma^2$ (from [linear SDEs](/concepts/linear-sde-and-ou)), so
+$$
+k_t = \frac{\dot V_t - \sigma^2}{2V_t},\qquad
+\dot V_t = -2(1-t)\alpha^2 + 2t\beta^2 + 2(1-2t)c^\star + \sigma^2(1-2t).
+$$
+Numbers: $\dot V_0 = -2 + 3.1231 + 1 = 2.1231$, $k_0 = 0.5616$; $\dot V_{1/2} = -1 + 4 = 3$,
+$k_{1/2} = 2/(2\cdot 2.2808) = 0.4384$; $\dot V_1 = 8 - 3.1231 - 1 = 3.8769$, $k_1 = 0.3596$.
+
+*Sanity checks.* (i) As $\sigma\to 0$: $c^\star = 2$, $V_t = (1+t)^2$, $k_t = 1/(1+t)$, which
+is exactly the Benamou–Brenier velocity $v_t(x) = x/(1+t)$ of the map $T(x) = 2x$. At
+$\sigma = 1$ the drift is smaller ($0.56$ vs $1$ at $t = 0$) because diffusion supplies part
+of the variance growth for free. (ii) A linear SDE gives
+$\operatorname{Cov}(X_0,X_1) = \alpha^2\exp\!\big(\int_0^1k_t\,\mathrm{d}t\big)$; Simpson's rule
+on $(k_0,k_{1/2},k_1)$ gives $\int k\approx(0.5616 + 4(0.4384) + 0.3596)/6 = 0.4458$ and
+$e^{0.4458} = 1.562 = c^\star$, so the drift we derived from the variance really does
+reproduce the optimal coupling.
+</Example>
+
+## Where it shows up
+
+- **DSB** (<Cite id="2106.01357" />): Prop. 3 there is Prop 4 here plus the time-reversal
+  identification; Alg. 1 alternates two score-matching regressions. Their §4 shows that the
+  first half bridge is a standard diffusion model.
+- **Likelihood training of SB** (<Cite id="2110.11291" />): Thm 3 in forward–backward form;
+  the two drifts $\sigma^2\nabla\log\varphi$ and $\sigma^2\nabla\log\hat\varphi$ are the two
+  networks, and the identity $\nabla\log P_t = \nabla\log\varphi_t+\nabla\log\hat\varphi_t$
+  turns the ELBO of a diffusion model into a training objective for the bridge.
+- **DSBM** (<Cite id="2303.16852" />): iterative Markovian fitting, which alternates
+  projection onto Markov measures (learn a drift by flow/bridge matching) and onto
+  reciprocal measures (re-pair endpoints, keep Brownian bridges); the fixed point is $P^\star$
+  by Thm 1 and Thm 3. Schrödinger bridge flow matching and $[\mathrm{SF}]^2\mathrm{M}$ use the
+  same decomposition with a Sinkhorn coupling on minibatches.
+- **Stochastic control** (<Cite id="1412.4430" />): the bridge minimizes
+  $\mathbb{E}\int_0^1\tfrac12\|b_t\|^2\mathrm{d}t$ over controlled SDEs
+  $\mathrm{d}X = b\,\mathrm{d}t + \sigma\,\mathrm{d}W$ with the two marginal constraints,
+  which is the Girsanov form of KL; in fluid variables it is Benamou–Brenier plus a Fisher
+  information term $\tfrac{\sigma^4}{8}\int\!\!\int\|\nabla\log\rho_t\|^2\rho_t$. The
+  $\sigma\to 0$ limit is dynamic OT; see [Benamou–Brenier](/concepts/benamou-brenier).
+- **Image-to-image** ($\mathrm{I}^2\mathrm{SB}$, Liu et al. 2023): when $\mu_0$ is a point
+  mass the potentials are explicit and the bridge is trainable like a diffusion model, which
+  is how paired translation problems are handled without IPF.
+
+## Exercises
+
+<Exercise hint="Write both densities out; the only pi-dependent terms are the integral of log pi and the quadratic cost.">
+Fill in the constant in Thm 1: for densities $\mu_0,\mu_1$ and $\pi\in\Pi(\mu_0,\mu_1)$,
+show $\mathrm{KL}(\pi\|R_{01}) = \frac{1}{2\sigma^2}\int\|x-y\|^2\mathrm{d}\pi +
+\mathrm{KL}(\pi\|\mu_0\otimes\mu_1) + \int\log\mu_1\,\mathrm{d}\mu_1 + \frac d2\log(2\pi\sigma^2)$
+when $m = \mu_0$.
+</Exercise>
+
+<Exercise hint="Compare with c = alpha^2, which is the reference's own cross-covariance; factor the quadratic in c.">
+In the Gaussian example, suppose $\beta^2 = \alpha^2 + \sigma^2$, so that $\mu_1 = R_1$.
+Show $c^\star = \alpha^2$ and conclude $P^\star = R$: the bridge problem has zero cost and
+the potentials are constant. Then compute $k_t$ and check it vanishes.
+</Exercise>
+
+<Exercise hint="Under Q, the law of the path given X_1 = y is the law of the reversed SDE started at y; use the time-reversal drift formula.">
+Let $Q$ be the law of $\mathrm{d}X = b_t(X)\,\mathrm{d}t + \sigma\,\mathrm{d}W$ with marginals
+$q_t$. Show that the terminal half bridge of $Q$ to $\nu$ is the law of
+$\mathrm{d}Y_s = \big(-b_{1-s}(Y_s) + \sigma^2\nabla\log q_{1-s}(Y_s)\big)\mathrm{d}s + \sigma\,\mathrm{d}W_s$,
+$Y_0\sim\nu$, read backwards in time. This is one DSB iteration.
+</Exercise>
+
+<Exercise hint="Apply Ito to log of the product and use the two heat equations; compare with the Fokker–Planck equation for the SDE of Thm 3.">
+Verify directly that $p_t = \varphi_t\hat\varphi_t$ solves the Fokker–Planck equation of
+$\mathrm{d}X = \sigma^2\nabla\log\varphi_t\,\mathrm{d}t + \sigma\,\mathrm{d}W$, using only the
+forward heat equation for $\hat\varphi$ and the backward one for $\varphi$.
+</Exercise>
+
+## Going deeper
+
+Léonard's survey (<Cite id="1308.0215" />) is the reference for everything above in full
+generality: existence and uniqueness of $\pi^\star$ under finite-entropy assumptions, the
+Schrödinger system, the $h$-transform representation, and the $\sigma\to 0$ Gamma-convergence
+to Monge–Kantorovich. Föllmer's 1988 lecture notes are the origin of the KL-on-path-space
+formulation. Chen, Georgiou and Pavon (<Cite id="1412.4430" />) develop the stochastic
+control and fluid-dynamic viewpoints and treat the linear-Gaussian case, where the potentials
+are Gaussian and the Schrödinger system reduces to a matrix Riccati equation; Bunne et al.
+(2023) give the closed form for the multivariate Gaussian bridge that generalizes the
+one-dimensional computation above.

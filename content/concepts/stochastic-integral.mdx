@@ -1,0 +1,364 @@
+---
+title: "The Itô integral"
+kind: concept
+summary: "How to integrate against a Brownian path: simple processes, the Itô isometry, the L² extension, the martingale property, and why evaluating at the left endpoint is not a convention but the whole point."
+tags: [stochastic-calculus, ito-integral, martingale, brownian-motion, diffusion-models]
+track: stochastic-analysis
+level: 2
+prerequisites: [brownian-motion, conditional-expectation]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Stochastic Differential Equations"
+    author: "Bernt Øksendal"
+    where: "Ch. 3"
+  - type: book
+    title: "Brownian Motion and Stochastic Calculus"
+    author: "Karatzas & Shreve"
+    where: "Ch. 3.2"
+  - type: book
+    title: "Brownian Motion, Martingales, and Stochastic Calculus"
+    author: "Jean-François Le Gall"
+    where: "Ch. 5"
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2106.01357"
+    title: "Diffusion Schrödinger Bridge Matching"
+---
+
+## Why you need this
+
+The SDE $\mathrm{d}x = f(x,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t$ of <Cite id="2011.13456" />
+is shorthand for $x_t = x_0 + \int_0^t f\,\mathrm{d}s + \int_0^t g\,\mathrm{d}W_s$, and the
+second integral is not a Riemann–Stieltjes integral, because a
+[Brownian path](/concepts/brownian-motion) has infinite variation. The Itô integral is its
+definition. Three consequences are used on almost every page of a diffusion or bridge paper:
+the Itô isometry gives every perturbation-kernel variance such as $1-e^{-\int_0^t\beta}$; the
+martingale property says $\mathbb{E}\int g\,\mathrm{d}W = 0$, which is what deletes the noise
+term in the derivations of Fokker–Planck, of the score-matching identity, and of the diffusion
+ELBO; and the left-endpoint rule is what produces the correction term in
+[Itô's lemma](/concepts/ito-lemma). Girsanov's theorem, which underlies the KL between path
+measures used in <Cite id="2106.01357" />, is a statement about $\int\theta\,\mathrm{d}W$.
+
+## Setup
+
+Let $W$ be a standard Brownian motion with its filtration $(\mathcal F_t)$, so that
+$W_t - W_s$ is independent of $\mathcal F_s$ for $s\le t$. Fix a horizon $T$. All
+conditional expectations are as in
+[conditional expectation](/concepts/conditional-expectation): $\mathbb{E}[\,\cdot\mid\mathcal F_s]$
+is the $L^2$ projection onto $\mathcal F_s$-measurable variables, it satisfies the tower rule,
+it pulls out $\mathcal F_s$-measurable factors, and it turns a variable independent of
+$\mathcal F_s$ into its plain expectation.
+
+<Definition name="The class of integrands">
+$\mathcal L^2_T$ is the set of processes $H = (H_t)_{t\in[0,T]}$ that are adapted (each $H_t$ is
+$\mathcal F_t$-measurable), jointly measurable in $(t,\omega)$, and satisfy
+
+$$
+\|H\|^2_{\mathcal L^2_T} := \mathbb{E}\int_0^T H_t^2\,\mathrm{d}t < \infty .
+$$
+
+Adaptedness is the substantive condition: $H_t$ may depend on the Brownian path up to time
+$t$, never beyond.
+</Definition>
+
+Why a new definition is needed. For a continuous function $f$ of bounded variation,
+$\int g\,\mathrm{d}f$ is the limit of $\sum_k g(\tau_k)\,(f(t_{k+1})-f(t_k))$ and the limit does
+not depend on where $\tau_k$ sits in $[t_k,t_{k+1}]$. For $W$ it does. Take $g = W$ and compare
+the left-endpoint and right-endpoint sums:
+
+$$
+\sum_k W_{t_{k+1}}\Delta W_k - \sum_k W_{t_k}\Delta W_k = \sum_k(\Delta W_k)^2 \;\longrightarrow\; t
+$$
+
+by the quadratic-variation theorem. The two candidate integrals differ by $t$, not by
+something that vanishes. So the evaluation point must be part of the definition. Itô's
+choice is the left endpoint, for one reason: $H_{t_k}$ is $\mathcal F_{t_k}$-measurable while
+$\Delta W_k$ is independent of $\mathcal F_{t_k}$, so each term is a bet placed before the
+noise is revealed. That is what makes the integral a martingale, and it is what the proof of
+Itô's lemma uses when it expands around $t_k$.
+
+## The idea
+
+<Definition name="Itô integral of a simple process">
+$H$ is simple if there is a partition $0 = t_0 < t_1 < \dots < t_n = T$ and square-integrable
+random variables $\xi_k$, each $\mathcal F_{t_k}$-measurable, with
+$H_t = \xi_k$ for $t\in(t_k,t_{k+1}]$. Its Itô integral is
+
+$$
+I(H) = \int_0^T H_t\,\mathrm{d}W_t := \sum_{k=0}^{n-1}\xi_k\,\big(W_{t_{k+1}}-W_{t_k}\big).
+$$
+</Definition>
+
+<Lemma name="Itô isometry for simple processes" label="Lemma 1">
+For simple $H$, $\mathbb{E}[I(H)] = 0$ and
+
+$$
+\mathbb{E}\big[I(H)^2\big] = \mathbb{E}\int_0^T H_t^2\,\mathrm{d}t .
+$$
+</Lemma>
+
+<Proof>
+Write $\Delta W_k = W_{t_{k+1}}-W_{t_k}$ and $\Delta t_k = t_{k+1}-t_k$. Mean: by the tower
+rule and independence of $\Delta W_k$ from $\mathcal F_{t_k}$,
+
+$$
+\mathbb{E}[\xi_k\Delta W_k] = \mathbb{E}\big[\xi_k\,\mathbb{E}[\Delta W_k\mid\mathcal F_{t_k}]\big] = \mathbb{E}[\xi_k\cdot 0] = 0 .
+$$
+
+Second moment: expand the square into $\sum_{j,k}\xi_j\xi_k\Delta W_j\Delta W_k$. For $j$
+strictly less than $k$, the product $\xi_j\Delta W_j\xi_k$ is $\mathcal F_{t_k}$-measurable, so
+
+$$
+\mathbb{E}[\xi_j\Delta W_j\,\xi_k\Delta W_k]
+= \mathbb{E}\big[\xi_j\Delta W_j\,\xi_k\;\mathbb{E}[\Delta W_k\mid\mathcal F_{t_k}]\big] = 0 .
+$$
+
+On the diagonal,
+$\mathbb{E}[\xi_k^2(\Delta W_k)^2] = \mathbb{E}\big[\xi_k^2\,\mathbb{E}[(\Delta W_k)^2\mid\mathcal F_{t_k}]\big] = \mathbb{E}[\xi_k^2]\,\Delta t_k$.
+Summing, $\mathbb{E}[I(H)^2] = \sum_k\mathbb{E}[\xi_k^2]\Delta t_k = \mathbb{E}\int_0^T H_t^2\,\mathrm{d}t$. $\blacksquare$
+</Proof>
+
+Notice where adaptedness entered: without it, $\xi_k$ could be correlated with $\Delta W_k$ and
+neither the mean-zero nor the cross-term computation would go through. The right-endpoint sum
+above is exactly such a non-adapted choice, and its mean is $t$, not $0$.
+
+<Theorem name="Extension to square-integrable adapted integrands" label="Thm 2">
+There is a unique linear map $I:\mathcal L^2_T\to L^2(\Omega)$ that agrees with the definition
+on simple processes and satisfies the Itô isometry
+$\mathbb{E}[I(H)^2] = \|H\|^2_{\mathcal L^2_T}$ for all $H$. Moreover $\mathbb{E}[I(H)] = 0$ and,
+by polarization,
+$\mathbb{E}[I(H)I(G)] = \mathbb{E}\int_0^T H_tG_t\,\mathrm{d}t$.
+</Theorem>
+
+<Proof>
+Two steps. (Approximation.) Every $H\in\mathcal L^2_T$ is a limit in
+$\|\cdot\|_{\mathcal L^2_T}$ of simple processes. When $H$ has continuous paths this is
+concrete: set $H^{(n)}_t = H_{t_k}$ on $(t_k,t_{k+1}]$ for the dyadic partition of mesh
+$2^{-n}T$; then $H^{(n)}_t\to H_t$ pointwise by continuity, and dominated convergence (after a
+truncation) gives $\|H-H^{(n)}\|\to0$. The general adapted case needs a mollification
+argument, Øksendal Lemma 3.1.5, which we skip.
+
+(Completion.) By linearity and Lemma 1,
+$\mathbb{E}\big[(I(H^{(n)})-I(H^{(m)}))^2\big] = \|H^{(n)}-H^{(m)}\|^2\to0$, so
+$I(H^{(n)})$ is Cauchy in $L^2(\Omega)$. Since $L^2(\Omega)$ is complete, it converges; define
+$I(H)$ as the limit. Interleaving two approximating sequences shows the limit does not depend
+on the sequence. Mean zero and the isometry are preserved by $L^2$ limits ($L^2$ convergence
+implies convergence of first and second moments). $\blacksquare$
+</Proof>
+
+For $t\le T$ define $\int_0^t H\,\mathrm{d}W := I(H\,\mathbf 1_{[0,t]})$. When $H$ has continuous
+paths, the approximation step says
+
+$$
+\int_0^t H_s\,\mathrm{d}W_s = \lim_{\text{mesh}\to0}\;\sum_k H_{t_k}\,\big(W_{t_{k+1}}-W_{t_k}\big)
+\qquad\text{in probability},
+$$
+
+with the integrand at the left endpoint. This is the form used in computations.
+
+<Theorem name="Properties of the indefinite integral" label="Thm 3">
+Let $H\in\mathcal L^2_T$ and $M_t = \int_0^t H_s\,\mathrm{d}W_s$. Then
+
+1. $M$ is a martingale: $\mathbb{E}[M_t\mid\mathcal F_s] = M_s$ for $s\le t$. In particular
+   $\mathbb{E}[M_t] = 0$.
+2. $\mathbb{E}[M_t^2] = \mathbb{E}\int_0^t H_s^2\,\mathrm{d}s$, and more generally
+   $M_t^2 - \int_0^t H_s^2\,\mathrm{d}s$ is a martingale.
+3. $M$ has a version with continuous paths.
+4. The quadratic variation of $M$ is $[M]_t = \int_0^t H_s^2\,\mathrm{d}s$.
+</Theorem>
+
+<Proof>
+We prove 1 and 2 and state 3 and 4. For simple $H$, $M_t - M_s$ is a sum of terms
+$\xi_k\Delta W_k$ over intervals inside $(s,t]$ (split an interval at $s$ if necessary), and
+for each of them
+$\mathbb{E}[\xi_k\Delta W_k\mid\mathcal F_s] = \mathbb{E}\big[\xi_k\,\mathbb{E}[\Delta W_k\mid\mathcal F_{t_k}]\,\big|\,\mathcal F_s\big] = 0$
+by the tower rule, since $\mathcal F_s\subseteq\mathcal F_{t_k}$. For general $H$, take simple
+$H^{(n)}\to H$; conditional expectation is an $L^2$ contraction, so
+$\mathbb{E}[M^{(n)}_t\mid\mathcal F_s]\to\mathbb{E}[M_t\mid\mathcal F_s]$ in $L^2$ while the left
+side equals $M^{(n)}_s\to M_s$. That is 1. The first half of 2 is the isometry; the martingale
+statement follows by the same computation as Lemma 1 applied to the increment $M_t - M_s$
+conditionally on $\mathcal F_s$. Item 3 comes from Doob's maximal inequality applied to the
+approximating sequence (Øksendal Thm 3.2.5). Item 4 is proved the way $[W]_t = t$ was, with
+$H_{t_k}^2$ as a weight (Karatzas–Shreve Prop 3.2.10); it is the fact behind
+$\mathrm{d}M\cdot\mathrm{d}M = H^2\,\mathrm{d}t$ in Itô's lemma. $\blacksquare$
+</Proof>
+
+<Proposition name="Wiener integrals are Gaussian" label="Prop 4">
+If $h:[0,T]\to\mathbb{R}$ is deterministic with $\int_0^T h^2 < \infty$, then
+$\int_0^t h(s)\,\mathrm{d}W_s\sim\mathcal N\big(0,\int_0^t h(s)^2\,\mathrm{d}s\big)$, and
+the process $t\mapsto\int_0^t h\,\mathrm{d}W$ is a centered Gaussian process with covariance
+$\int_0^{\min(s,t)} h^2$.
+</Proposition>
+
+<Proof>
+For simple deterministic $h$, the integral is a linear combination of independent Gaussian
+increments, hence Gaussian with variance given by the isometry. $L^2$ limits of centered
+Gaussians are centered Gaussian (characteristic functions converge). The covariance is the
+polarized isometry with $G = h\mathbf 1_{[0,s]}$, $H = h\mathbf 1_{[0,t]}$. $\blacksquare$
+</Proof>
+
+This proposition is the reason every linear SDE has Gaussian transition kernels; see
+[linear SDEs and OU](/concepts/linear-sde-and-ou).
+
+<Definition name="Stratonovich integral">
+For continuous adapted $H$ (a semimartingale, in general), the Stratonovich integral uses
+the midpoint value:
+
+$$
+\int_0^t H_s\circ\mathrm{d}W_s := \lim\;\sum_k\tfrac12\big(H_{t_k}+H_{t_{k+1}}\big)\Delta W_k .
+$$
+</Definition>
+
+<Proposition name="Itô–Stratonovich conversion" label="Prop 5">
+For $h\in C^1$ with bounded derivative,
+
+$$
+\int_0^t h(W_s)\circ\mathrm{d}W_s = \int_0^t h(W_s)\,\mathrm{d}W_s + \tfrac12\int_0^t h'(W_s)\,\mathrm{d}s .
+$$
+
+Consequently the SDE $\mathrm{d}X = \mu\,\mathrm{d}t + \sigma(X)\circ\mathrm{d}W$ is the
+same process as $\mathrm{d}X = \big(\mu + \tfrac12\sigma\sigma'\big)\mathrm{d}t + \sigma(X)\,\mathrm{d}W$.
+</Proposition>
+
+<Proof>
+The difference of the two Riemann sums is
+$\tfrac12\sum_k\big(h(W_{t_{k+1}})-h(W_{t_k})\big)\Delta W_k$. By the mean value theorem
+$h(W_{t_{k+1}})-h(W_{t_k}) = h'(\bar W_k)\Delta W_k$ for some $\bar W_k$ between the two
+values, so the difference is $\tfrac12\sum_k h'(\bar W_k)(\Delta W_k)^2$. Replacing
+$h'(\bar W_k)$ by $h'(W_{t_k})$ costs at most
+$\tfrac12\max_k|h'(\bar W_k)-h'(W_{t_k})|\cdot\sum_k(\Delta W_k)^2$, which goes to $0$ by
+uniform continuity of $h'$ on the compact range of the path and the boundedness of the
+quadratic variation sums. What remains, $\tfrac12\sum_k h'(W_{t_k})(\Delta W_k)^2$, converges
+to $\tfrac12\int_0^t h'(W_s)\,\mathrm{d}s$ by the weighted quadratic-variation result on the
+[Brownian motion](/concepts/brownian-motion) page. The SDE statement is the same computation
+with $\sigma(X_s)$ in place of $h(W_s)$ and $\mathrm{d}X\cdot\mathrm{d}X = \sigma^2\,\mathrm{d}t$. $\blacksquare$
+</Proof>
+
+<Warning>
+The Stratonovich integral obeys the classical chain rule, which is why it is the natural
+choice in physics and for SDEs on manifolds. But it is not a martingale (its mean is
+$\tfrac12\mathbb{E}\int h'(W)\,\mathrm{d}s$, generally nonzero), and its definition needs the
+integrand to see the future by half a step, so it is the wrong object for filtering, for
+likelihoods, and for anything where "the noise is independent of what came before" is used.
+Diffusion-model papers use Itô unless they say otherwise; the neural-SDE literature (Li et al.
+2020) sometimes uses Stratonovich for the adjoint, and the conversion is Prop 5.
+</Warning>
+
+## Worked example by hand
+
+<Example title="The integral of W against itself">
+Compute $\int_0^t W_s\,\mathrm{d}W_s$ from the definition. On a partition, the left-endpoint
+sum is $S = \sum_k W_{t_k}\Delta W_k$. The algebraic identity $(a+b)^2 - a^2 = 2ab + b^2$ with
+$a = W_{t_k}$, $b = \Delta W_k$ gives, for each $k$,
+
+$$
+W_{t_{k+1}}^2 - W_{t_k}^2 = 2\,W_{t_k}\Delta W_k + (\Delta W_k)^2 .
+$$
+
+Summing over $k$ telescopes the left side to $W_t^2 - W_0^2 = W_t^2$, so
+
+$$
+S = \tfrac12 W_t^2 - \tfrac12\sum_k(\Delta W_k)^2
+\;\xrightarrow[\text{mesh}\to0]{}\;
+\tfrac12 W_t^2 - \tfrac12 t .
+$$
+
+Hence $\int_0^t W_s\,\mathrm{d}W_s = \tfrac12W_t^2 - \tfrac12 t$. The $-\tfrac12 t$ is the
+quadratic variation; ordinary calculus would give $\tfrac12 W_t^2$.
+
+Checks.
+
+1. Mean. $\mathbb{E}[\tfrac12W_t^2 - \tfrac12t] = \tfrac12t-\tfrac12t = 0$, as Thm 3 requires.
+   Without the correction the mean would be $\tfrac12 t$.
+2. Isometry. Left side:
+   $\mathbb{E}\big[(\tfrac12W_t^2-\tfrac12t)^2\big] = \tfrac14\big(\mathbb{E}W_t^4 - 2t\,\mathbb{E}W_t^2 + t^2\big) = \tfrac14(3t^2-2t^2+t^2) = \tfrac12t^2$.
+   Right side: $\mathbb{E}\int_0^tW_s^2\,\mathrm{d}s = \int_0^t s\,\mathrm{d}s = \tfrac12 t^2$. Equal.
+3. Numbers. Use the four-step path from the Brownian motion page, $t = 1$,
+   $W = (0,\,0.4,\,-0.2,\,-0.05,\,0.7)$ on the grid $0,\,0.25,\,\dots,\,1$, with increments
+   $\Delta W = (0.4,\,-0.6,\,0.15,\,0.75)$. The left-endpoint sum is
+
+   $$
+   S = 0\cdot0.4 + 0.4\cdot(-0.6) + (-0.2)\cdot0.15 + (-0.05)\cdot0.75 = -0.24-0.03-0.0375 = -0.3075 .
+   $$
+
+   The limit formula gives $\tfrac12(0.7)^2 - \tfrac12 = 0.245 - 0.5 = -0.255$. The gap is
+   $\tfrac12\big(\sum(\Delta W_k)^2 - t\big) = \tfrac12(1.105-1) = 0.0525$, and indeed
+   $-0.3075 + 0.0525 = -0.255$: the telescoping identity is exact on every partition; only the
+   quadratic-variation sum is still converging. The right-endpoint sum is
+   $S + \sum(\Delta W_k)^2 = 0.7975$, heading for $\tfrac12W_t^2 + \tfrac12t = 0.745$; the
+   midpoint (Stratonovich) sum is the average, $0.245 = \tfrac12 W_t^2$, the classical answer,
+   in agreement with Prop 5 for $h(x) = x$.
+</Example>
+
+<Example title="A Wiener integral with exponential weight">
+Let $a$ be a positive constant and $Y_t = \int_0^t e^{-a(t-s)}\,\mathrm{d}W_s$. By Prop 4,
+$Y_t$ is Gaussian with mean $0$ and variance
+
+$$
+\int_0^t e^{-2a(t-s)}\,\mathrm{d}s = \frac{1-e^{-2at}}{2a}.
+$$
+
+With $a = 1$, $t = 1$: variance $(1-e^{-2})/2 = 0.4323$. Check the limit $a\to0$: the
+variance tends to $t$, and $Y_t$ tends to $\int_0^t\mathrm{d}W_s = W_t\sim\mathcal N(0,t)$.
+Check $t\to\infty$: the variance saturates at $1/(2a)$; the exponential weight forgets old
+noise. This $Y_t$ is the noise part of the Ornstein–Uhlenbeck process, and with
+$a = \beta/2$ and a factor $\sqrt\beta$ in front, its variance $1-e^{-\beta t}$ is the DDPM
+perturbation-kernel variance derived on the [Itô's lemma](/concepts/ito-lemma) page.
+</Example>
+
+## Where it shows up
+
+- <Cite id="2011.13456" />, Eqs. (5) and (6): the forward and reverse SDEs are integral
+  equations in the Itô sense. Appendix B derives the VP kernel variance
+  $1-e^{-\int_0^t\beta}$ and the VE kernel variance $\sigma^2(t)$, both by the isometry applied
+  to a deterministic integrand (Prop 4). -
+Fokker–Planck: applying Itô's lemma to a test function $\phi(X_t)$ and taking expectations
+  kills $\int\nabla\phi^\top\sigma\,\mathrm{d}W$ by the martingale property; the drift and
+  diffusion terms that survive are the generator. See [Fokker–Planck](/concepts/fokker-planck). -
+Girsanov: for an adapted drift change $\theta$, the likelihood ratio between path measures is
+  $\exp\big(\int_0^T\theta\,\mathrm{d}W - \tfrac12\int_0^T\|\theta\|^2\,\mathrm{d}t\big)$, and its KL
+  is $\tfrac12\mathbb{E}\int_0^T\|\theta\|^2\,\mathrm{d}t$ because the stochastic integral has
+  mean zero. This is the objective in <Cite id="2106.01357" /> and in maximum-likelihood
+  training of score models. See [Girsanov's theorem](/concepts/girsanov-theorem).
+- The proof of [Itô's lemma](/concepts/ito-lemma) uses the Riemann-sum form of the integral
+  with left endpoints: Taylor's expansion around $t_k$ produces exactly $H_{t_k}\Delta W_k$.
+
+## Exercises
+
+<Exercise hint="Apply the telescoping trick to the product of t_k and W at t_k, or verify the answer through its mean and variance: the variance of the integral must be t cubed over 3.">
+Show that $\int_0^t s\,\mathrm{d}W_s = tW_t - \int_0^t W_s\,\mathrm{d}s$ and check that both
+sides have variance $t^3/3$. For the right side you need
+$\operatorname{Var}\!\big(\int_0^tW_s\,\mathrm{d}s\big) = t^3/3$ and the covariance of $W_t$ with that integral.
+</Exercise>
+
+<Exercise hint="Expand (a+b)^3 minus a^3 and keep the terms whose sums do not vanish; the b^2 term contributes via quadratic variation.">
+Show that $\int_0^t W_s^2\,\mathrm{d}W_s = \tfrac13W_t^3 - \int_0^t W_s\,\mathrm{d}s$, and
+verify the mean is zero.
+</Exercise>
+
+<Exercise hint="Compute the conditional expectation given F_s of the right-endpoint sum over (s, t]; it is not zero.">
+Show that the right-endpoint integral $\lim\sum_k W_{t_{k+1}}\Delta W_k = \tfrac12W_t^2 + \tfrac12t$
+is not a martingale, and identify the drift that has been added.
+</Exercise>
+
+<Exercise hint="Write the covariance of the two integrals via the polarized isometry, then use the Gaussian conditioning formula.">
+Let $h$ and $g$ be deterministic and square-integrable and set $U = \int_0^1 h\,\mathrm{d}W$,
+$V = \int_0^1 g\,\mathrm{d}W$. Find the law of $U$ given $V = v$. Specialize to $h = \mathbf 1_{[0,1/2]}$,
+$g = 1$ and compare with the Brownian bridge computation on the Brownian
+motion page.
+</Exercise>
+
+## Going deeper
+
+Øksendal Ch. 3 is the construction above with the approximation lemma proved in full.
+Karatzas–Shreve 3.2 does the construction for general continuous martingales in place of
+$W$, which is what you need when a paper integrates against $\mathrm{d}X_t$ for an SDE
+solution $X$. Le Gall Ch. 5 is the cleanest treatment of the $L^2$-completion argument and of
+the continuous version. For Stratonovich calculus and its use on manifolds, Karatzas–Shreve
+3.3 and Hsu's "Stochastic Analysis on Manifolds".

@@ -1,0 +1,346 @@
+---
+title: "KL divergence and variational bounds"
+kind: concept
+summary: "What relative entropy measures, the three identities you use every day (Jensen, chain rule, Donsker–Varadhan), and how the ELBO falls out of them."
+tags: [information-theory, variational-inference, elbo, kl, diffusion-models, regularized-rl]
+track: generative-modeling
+level: 2
+prerequisites: [measure-theoretic-probability, conditional-expectation]
+estimated_minutes: 50
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: book
+    title: "Elements of Information Theory"
+    author: "Cover & Thomas"
+    where: "Ch. 2"
+  - type: book
+    title: "Information Theory: From Coding to Learning"
+    author: "Polyanskiy & Wu"
+    where: "Ch. 2 and 4"
+  - type: arxiv
+    id: "1312.6114"
+    title: "Auto-Encoding Variational Bayes"
+  - type: arxiv
+    id: "2006.11239"
+    title: "Denoising Diffusion Probabilistic Models"
+  - type: arxiv
+    id: "2101.09258"
+    title: "Maximum Likelihood Training of Score-Based Diffusion Models"
+---
+
+## Why you need this
+
+The DDPM training objective of Ho et al. 2020 is a sum of KL divergences between Gaussians,
+one per noise level; that sum is an evidence lower bound obtained from the chain rule of KL
+applied along a Markov chain. The continuous-time version (Song, Durkan, Murray, Ermon 2021)
+bounds the negative log-likelihood of a diffusion model by a weighted score-matching loss,
+using KL between path measures. Schrödinger bridges (De Bortoli et al. 2021) are defined as
+KL projections onto a constraint set. In RL, SAC's policy improvement step, the KL penalty in
+PPO-style fine-tuning, and every "KL-regularized" objective are instances of one variational
+identity, Donsker–Varadhan. This page proves those identities once so the rest of the site can
+cite them.
+
+## Setup
+
+Let $P$ and $Q$ be probability measures on the same space $(\Omega,\mathcal F)$. We write
+$P \ll Q$ ($P$ is absolutely continuous with respect to $Q$) when $Q(A)=0$ implies $P(A)=0$;
+then the Radon–Nikodym derivative $\mathrm{d}P/\mathrm{d}Q$ exists
+(see [measure-theoretic probability](/concepts/measure-theoretic-probability)). When both
+have densities $p, q$ with respect to a common reference measure (Lebesgue on $\mathbb{R}^d$,
+counting measure on a finite set), $\mathrm{d}P/\mathrm{d}Q = p/q$ on the set where $q>0$.
+All logarithms are natural.
+
+<Definition name="Kullback–Leibler divergence (relative entropy)">
+$$
+\operatorname{KL}(P\,\|\,Q) =
+\begin{cases}
+\mathbb{E}_P\!\left[\log \dfrac{\mathrm{d}P}{\mathrm{d}Q}\right]
+= \displaystyle\int p \log\frac{p}{q}, & P \ll Q,\\[1.2em]
++\infty, & \text{otherwise.}
+\end{cases}
+$$
+The convention $0\log 0 = 0$ applies where $p = 0$. The integral is well defined in
+$(-\infty,+\infty]$: the negative part of $p\log(p/q)$ is bounded by $q/e$, which is integrable.
+</Definition>
+
+## The idea
+
+<Proposition name="Nonnegativity (Gibbs' inequality)" label="Prop 1">
+$\operatorname{KL}(P\|Q)\ge 0$, with equality if and only if $P = Q$.
+</Proposition>
+
+<Proof>
+Assume $P\ll Q$ (otherwise KL is $+\infty$). Jensen's inequality for the convex function
+$-\log$ gives
+$$
+\operatorname{KL}(P\|Q) = \mathbb{E}_P\!\left[-\log\frac{q}{p}\right]
+\;\ge\; -\log \mathbb{E}_P\!\left[\frac{q}{p}\right]
+= -\log \int_{\{p>0\}} q \;\ge\; -\log 1 = 0 .
+$$
+Strict convexity of $-\log$ makes the first inequality an equality only if $q/p$ is
+$P$-a.s. constant, and the second only if $Q(\{p>0\}) = 1$; together these force
+$q = p$ a.e. $\blacksquare$
+</Proof>
+
+<Warning>
+KL is not symmetric and does not satisfy a triangle inequality. $\operatorname{KL}(P\|Q)$
+penalises regions where $P$ has mass and $Q$ does not (the integrand blows up when $q\to 0$
+with $p>0$); it ignores regions where $Q$ has mass and $P$ does not. Minimising
+$\operatorname{KL}(Q_\theta\|P)$ over $\theta$ therefore prefers $Q_\theta$ that stay inside the
+support of $P$ (mode seeking); minimising $\operatorname{KL}(P\|Q_\theta)$, which is what
+maximum likelihood does, prefers $Q_\theta$ that cover all of $P$ (mass covering).
+</Warning>
+
+<Theorem name="Chain rule" label="Thm 1">
+Let $P_{XY}, Q_{XY}$ be joint laws on $\mathcal X\times\mathcal Y$ with marginals $P_X,Q_X$
+and regular conditionals $P_{Y|X=x}, Q_{Y|X=x}$. Then
+$$
+\operatorname{KL}(P_{XY}\|Q_{XY})
+= \operatorname{KL}(P_X\|Q_X) + \mathbb{E}_{x\sim P_X}\big[\operatorname{KL}(P_{Y|X=x}\|Q_{Y|X=x})\big].
+$$
+</Theorem>
+
+<Proof>
+We give the density case; the general case replaces densities by Radon–Nikodym derivatives
+and uses that the conditional density of a joint density is a version of the regular
+conditional. If $P_{XY}\not\ll Q_{XY}$ then some term on the right is infinite too (check:
+if $P_X\ll Q_X$ and $P_{Y|X=x}\ll Q_{Y|X=x}$ for $P_X$-a.e. $x$ then $P_{XY}\ll Q_{XY}$), so
+assume absolute continuity. Write $p(x,y) = p(x)\,p(y|x)$ and $q(x,y) = q(x)\,q(y|x)$. Then
+$$
+\log\frac{p(x,y)}{q(x,y)} = \log\frac{p(x)}{q(x)} + \log\frac{p(y|x)}{q(y|x)} .
+$$
+Take $\mathbb{E}_{P_{XY}}$ of both sides. The first term depends on $x$ only, giving
+$\operatorname{KL}(P_X\|Q_X)$. For the second use the tower property
+(see [conditional expectation](/concepts/conditional-expectation)):
+$\mathbb{E}_{P_{XY}}[\,\cdot\,] = \mathbb{E}_{P_X}\big[\mathbb{E}_{P_{Y|X}}[\,\cdot\,]\big]$,
+and the inner expectation is exactly $\operatorname{KL}(P_{Y|X=x}\|Q_{Y|X=x})$. Both terms are
+nonnegative by Prop 1, so no $\infty-\infty$ can occur. $\blacksquare$
+</Proof>
+
+Iterating along a Markov chain $x_0\to x_1\to\dots\to x_T$ gives
+$\operatorname{KL}(P\|Q) = \operatorname{KL}(P_{x_T}\|Q_{x_T}) + \sum_t \mathbb{E}\,\operatorname{KL}(P_{x_{t-1}|x_t}\|Q_{x_{t-1}|x_t})$,
+which is the DDPM decomposition (Exercise 4).
+
+<Corollary name="Data processing inequality" label="Cor 2">
+Let $K$ be a Markov kernel from $\mathcal X$ to $\mathcal Y$ and $P_Y = P_XK$, $Q_Y = Q_XK$
+(push $P_X$ and $Q_X$ through the same channel). Then
+$\operatorname{KL}(P_Y\|Q_Y)\le\operatorname{KL}(P_X\|Q_X)$.
+</Corollary>
+
+<Proof>
+Apply Thm 1 to the joint laws $P_{XY} = P_X\otimes K$ and $Q_{XY} = Q_X\otimes K$ in both
+orders. Conditioning on $X$ first: the conditionals $P_{Y|X}$ and $Q_{Y|X}$ are both $K$,
+so their KL is zero and $\operatorname{KL}(P_{XY}\|Q_{XY}) = \operatorname{KL}(P_X\|Q_X)$.
+Conditioning on $Y$ first:
+$\operatorname{KL}(P_{XY}\|Q_{XY}) = \operatorname{KL}(P_Y\|Q_Y) + \mathbb{E}[\operatorname{KL}(P_{X|Y}\|Q_{X|Y})]\ge\operatorname{KL}(P_Y\|Q_Y)$.
+$\blacksquare$
+</Proof>
+
+Deterministic maps are kernels, so $\operatorname{KL}(f_\#P\|f_\#Q)\le\operatorname{KL}(P\|Q)$
+for any measurable $f$: you cannot make two distributions more distinguishable by processing
+them. Marginalising is a special case.
+
+<Theorem name="Donsker–Varadhan variational formula" label="Thm 3">
+$$
+\operatorname{KL}(P\|Q) = \sup_{f}\Big\{\mathbb{E}_P[f] - \log\mathbb{E}_Q\big[e^{f}\big]\Big\},
+$$
+the supremum over measurable $f$ with $\mathbb{E}_Q[e^f]<\infty$ (bounded $f$ suffice). When
+$\operatorname{KL}(P\|Q)<\infty$ the supremum is attained at $f^\star = \log\mathrm{d}P/\mathrm{d}Q$,
+unique up to an additive constant.
+</Theorem>
+
+<Proof>
+Fix $f$ and set $Z = \mathbb{E}_Q[e^f]$. Define the tilted measure $Q_f$ by
+$\mathrm{d}Q_f/\mathrm{d}Q = e^{f}/Z$, a probability measure equivalent to $Q$. If $P\ll Q$ then
+$P\ll Q_f$ and
+$$
+\log\frac{\mathrm{d}P}{\mathrm{d}Q_f} = \log\frac{\mathrm{d}P}{\mathrm{d}Q} - f + \log Z .
+$$
+Taking $\mathbb{E}_P$:
+$\operatorname{KL}(P\|Q_f) = \operatorname{KL}(P\|Q) - \mathbb{E}_P[f] + \log Z$.
+The left side is $\ge 0$ by Prop 1, which is the inequality $\ge$ in the theorem, with equality
+iff $P = Q_f$, i.e. $f = \log\mathrm{d}P/\mathrm{d}Q + \text{const}$. If that $f^\star$ is not
+bounded, apply the identity to $f_n = \max(\min(f^\star,n),-n)$ and let $n\to\infty$ by monotone
+convergence to get the supremum over bounded functions. If $P\not\ll Q$, pick $A$ with
+$Q(A) = 0$, $P(A)>0$ and $f = n\mathbf 1_A$: then $\mathbb{E}_P f - \log\mathbb{E}_Q e^f = nP(A)\to\infty$,
+matching $\operatorname{KL} = +\infty$. $\blacksquare$
+</Proof>
+
+<Corollary name="Gibbs variational principle" label="Cor 4">
+For a reference measure $\pi_0$ and a cost $c$ with $\mathbb{E}_{\pi_0}[e^{-c}]<\infty$,
+$$
+\min_{\pi}\Big\{\mathbb{E}_\pi[c] + \operatorname{KL}(\pi\|\pi_0)\Big\}
+= -\log\mathbb{E}_{\pi_0}\big[e^{-c}\big],
+\qquad
+\pi^\star(\mathrm{d}x) = \frac{e^{-c(x)}\,\pi_0(\mathrm{d}x)}{\mathbb{E}_{\pi_0}[e^{-c}]} .
+$$
+</Corollary>
+
+<Proof>
+Thm 3 with $P = \pi$, $Q = \pi_0$, $f = -c$ reads
+$\operatorname{KL}(\pi\|\pi_0)\ge -\mathbb{E}_\pi[c] - \log\mathbb{E}_{\pi_0}[e^{-c}]$, i.e.
+$\mathbb{E}_\pi[c] + \operatorname{KL}(\pi\|\pi_0)\ge -\log\mathbb{E}_{\pi_0}[e^{-c}]$, with
+equality iff $\pi = Q_f = \pi^\star$. $\blacksquare$
+</Proof>
+
+This is the whole of "soft" RL in one line: with $c = -Q(s,\cdot)/\alpha$ and
+$\pi_0$ uniform, the optimal policy is Boltzmann in $Q$
+(see [KL-regularized RL](/concepts/kl-regularized-rl)).
+
+<Theorem name="Evidence lower bound" label="Thm 5">
+Let $p(x,z) = p(z)\,p(x|z)$ be a latent-variable model with marginal $p(x)=\int p(x,z)\,\mathrm{d}z$
+and let $q(z|x)$ be any density in $z$ with $q(\cdot|x)\ll p(\cdot|x)$. Then
+$$
+\log p(x) = \underbrace{\mathbb{E}_{q(z|x)}\!\left[\log\frac{p(x,z)}{q(z|x)}\right]}_{\mathrm{ELBO}(q;x)}
++ \operatorname{KL}\big(q(\cdot|x)\,\|\,p(\cdot|x)\big),
+$$
+so $\log p(x)\ge\mathrm{ELBO}(q;x)$ with equality iff $q(z|x) = p(z|x)$.
+</Theorem>
+
+<Proof>
+$\log p(x)$ does not depend on $z$, so $\log p(x) = \mathbb{E}_{q(z|x)}[\log p(x)]$. Write
+$p(x) = p(x,z)/p(z|x)$ and insert $q(z|x)/q(z|x)$:
+$$
+\log p(x)
+= \mathbb{E}_{q}\!\left[\log\frac{p(x,z)}{q(z|x)}\right]
++ \mathbb{E}_{q}\!\left[\log\frac{q(z|x)}{p(z|x)}\right].
+$$
+The second term is $\operatorname{KL}(q\|p(\cdot|x))\ge 0$ by Prop 1. $\blacksquare$
+</Proof>
+
+<Intuition>
+The ELBO is Thm 3 in disguise: with $Q = p(z)$, $f = \log p(x|z)$,
+Donsker–Varadhan says $\log p(x) = \log\mathbb{E}_{p(z)}[e^{f}]\ge \mathbb{E}_q[f] - \operatorname{KL}(q\|p(z))$,
+and the right side is the ELBO written as "reconstruction minus KL to the prior". Every
+variational bound on this site is one of these two rearrangements.
+</Intuition>
+
+**KL between path measures.** If $P^1, P^2$ are the laws on $C([0,T],\mathbb{R}^d)$ of
+$\mathrm{d}X_t = b_i(X_t,t)\,\mathrm{d}t + \sigma\,\mathrm{d}W_t$ with the same initial law and
+constant $\sigma>0$, then under Novikov-type conditions
+$$
+\operatorname{KL}(P^1\|P^2) = \frac{1}{2\sigma^2}\,\mathbb{E}_{P^1}\!\int_0^T \|b_1(X_t,t)-b_2(X_t,t)\|^2\,\mathrm{d}t .
+$$
+This is Girsanov's theorem plus the definition of KL; the derivation is on the
+[Girsanov](/concepts/girsanov-theorem) page. It is the continuous-time chain rule: the
+per-step Gaussian KLs of DDPM become an integral of squared drift differences, which is why
+the diffusion NLL bound is a weighted score-matching loss
+(see [the diffusion SDE framework](/concepts/diffusion-sde-framework)).
+
+## Worked example by hand
+
+<Example title="A three-point distribution: Jensen and Donsker–Varadhan checked numerically">
+Let $P = (0.5, 0.3, 0.2)$ and $Q = (\tfrac13,\tfrac13,\tfrac13)$ on three points.
+
+*KL.* $\operatorname{KL}(P\|Q) = \sum_i p_i\log(3p_i) = \log 3 - H(P)$ with
+$H(P) = -\sum p_i\log p_i = 0.3466 + 0.3612 + 0.3219 = 1.0297$, so
+$\operatorname{KL}(P\|Q) = 1.0986 - 1.0297 = 0.0689$.
+
+*Asymmetry.* $\operatorname{KL}(Q\|P) = \tfrac13\big[\log\tfrac{1/3}{0.5}+\log\tfrac{1/3}{0.3}+\log\tfrac{1/3}{0.2}\big]
+= \tfrac13[-0.4055 + 0.1054 + 0.5108] = 0.0702 \ne 0.0689$.
+
+*Jensen step of Prop 1.* $\mathbb{E}_P[q/p] = 0.5\cdot\tfrac{1/3}{0.5} + 0.3\cdot\tfrac{1/3}{0.3} + 0.2\cdot\tfrac{1/3}{0.2} = \tfrac13+\tfrac13+\tfrac13 = 1$,
+so $-\log\mathbb{E}_P[q/p] = 0$, while $\mathbb{E}_P[-\log(q/p)] = 0.0689\ge 0$. The Jensen gap
+is the divergence itself.
+
+*Donsker–Varadhan.* Take the test function $f = (1,0,0)$: $\mathbb{E}_P f = 0.5$,
+$\mathbb{E}_Q e^f = (e+1+1)/3 = 1.5728$, $\log = 0.4528$, bound $= 0.5-0.4528 = 0.0472\le 0.0689$.
+Now the optimal $f^\star = \log(p/q) = (0.4055,-0.1054,-0.5108)$:
+$\mathbb{E}_P f^\star = 0.2027-0.0316-0.1022 = 0.0689$ and
+$\mathbb{E}_Q e^{f^\star} = \tfrac13(1.5+0.9+0.6) = 1$, so the bound is $0.0689$, tight.
+</Example>
+
+<Example title="ELBO for a one-dimensional Gaussian latent model">
+Model: $z\sim\mathcal N(0,1)$, $x\mid z\sim\mathcal N(z,1)$. Then $x\sim\mathcal N(0,2)$ and
+the exact posterior is $z\mid x\sim\mathcal N(x/2,\,1/2)$
+(Gaussian conditioning; see [Gaussian computations](/concepts/gaussian-computations)).
+Variational family: $q(z|x) = \mathcal N(m,s^2)$.
+
+Compute the three terms of the ELBO using $\mathbb{E}_q[(x-z)^2] = (x-m)^2+s^2$,
+$\mathbb{E}_q[z^2] = m^2+s^2$, and the Gaussian entropy $-\mathbb{E}_q[\log q] = \tfrac12\log(2\pi e s^2)$:
+$$
+\begin{aligned}
+\mathrm{ELBO}(m,s) &= \mathbb{E}_q[\log p(x|z)] + \mathbb{E}_q[\log p(z)] - \mathbb{E}_q[\log q(z|x)] \\
+&= -\tfrac12\log 2\pi - \tfrac12\big[(x-m)^2+s^2\big]
+   -\tfrac12\log 2\pi - \tfrac12\big[m^2+s^2\big]
+   +\tfrac12\log 2\pi + \tfrac12 + \tfrac12\log s^2 \\
+&= -\tfrac12\log 2\pi - \tfrac12(x-m)^2 - \tfrac12 m^2 - s^2 + \tfrac12\log s^2 + \tfrac12 .
+\end{aligned}
+$$
+Maximise: $\partial_m = (x-m) - m = 0\Rightarrow m^\star = x/2$;
+$\partial_s = -2s + 1/s = 0\Rightarrow s^{\star2} = 1/2$. These are exactly the posterior
+parameters, as Thm 5 predicts (the KL term vanishes iff $q$ is the posterior).
+
+Numbers at $x = 2$: $m^\star = 1$, $s^{\star 2} = \tfrac12$, so
+$\mathrm{ELBO} = -\tfrac12\log 2\pi - \tfrac12 - \tfrac12 - \tfrac12 - \tfrac12\log 2 + \tfrac12
+= -\tfrac12\log 4\pi - 1 = -2.2655$. Directly, $\log p(2) = -\tfrac12\log(4\pi) - \tfrac{2^2}{4} = -2.2655$. Equal.
+
+Now a bad $q$: the prior itself, $m = 0$, $s^2 = 1$:
+$\mathrm{ELBO} = -\tfrac12\log 2\pi - 2 - 0 - 1 + 0 + \tfrac12 = -3.4189$. The gap is
+$-2.2655 + 3.4189 = 1.1534$. Thm 5 says this must equal
+$\operatorname{KL}(\mathcal N(0,1)\,\|\,\mathcal N(1,\tfrac12))
+= \log\tfrac{\sigma_2}{\sigma_1} + \tfrac{\sigma_1^2+(\mu_1-\mu_2)^2}{2\sigma_2^2} - \tfrac12
+= -0.3466 + \tfrac{1+1}{1} - 0.5 = 1.1534$. It does.
+</Example>
+
+## Where it shows up
+
+- **DDPM** <Cite id="2006.11239" />: the loss $L = L_T + \sum_{t>1}L_{t-1} + L_0$ with
+  $L_{t-1} = \operatorname{KL}\big(q(x_{t-1}|x_t,x_0)\,\|\,p_\theta(x_{t-1}|x_t)\big)$ is Thm 5
+  with $z = x_{1:T}$ followed by Thm 1 along the reverse Markov chain. Each $L_{t-1}$ is a
+  KL between Gaussians with the same covariance, hence a squared error in the means, hence
+  the $\epsilon$-prediction loss.
+- **Likelihood of score-based models** <Cite id="2101.09258" />: Theorem 1 there bounds
+  $-\mathbb{E}\log p_\theta(x)$ by the score-matching loss with weighting $g(t)^2$ plus
+  $\operatorname{KL}(p_T\|\pi)$; the proof is the path-measure KL above, followed by Cor 2
+  (marginalising the path to its endpoint can only decrease KL).
+- **VAEs** <Cite id="1312.6114" />: Thm 5 with the reparametrised Gaussian $q_\phi(z|x)$;
+  the KL-to-prior term is the closed-form Gaussian KL from the second example.
+- **Schrödinger bridges** ([page](/concepts/schrodinger-bridge)): the dynamic problem is
+  $\min\operatorname{KL}(P\|P^{\mathrm{ref}})$ over path measures with fixed marginals; the
+  chain rule (Thm 1) splits it into a static entropic-OT problem plus a bridge term, and the
+  IPF iterations of De Bortoli et al. 2021 are alternating KL projections.
+- **KL-regularized RL** ([page](/concepts/kl-regularized-rl)): Cor 4 is the soft policy
+  improvement step of SAC, the closed-form optimal policy of RLHF-style objectives
+  $\max\mathbb{E}_\pi[r] - \beta\operatorname{KL}(\pi\|\pi_{\mathrm{ref}})$, and the reason the
+  soft value is a log-partition function. PPO's clipped ratio is a surrogate for a trust
+  region measured in KL.
+
+## Exercises
+
+<Exercise hint="Compute the sum with p = (1, 0) and q = (1/2, 1/2), then swap the roles.">
+Let $P$ put all its mass on one of two points and $Q$ be uniform on both. Compute
+$\operatorname{KL}(P\|Q)$ and $\operatorname{KL}(Q\|P)$. Which one is infinite, and what does
+that say about fitting $Q_\theta$ to a dataset by minimising each direction?
+</Exercise>
+
+<Exercise hint="Write the density ratio, take the P-expectation, and complete the square in x.">
+Derive $\operatorname{KL}(\mathcal N(\mu_1,\sigma_1^2)\|\mathcal N(\mu_2,\sigma_2^2))$ from the
+definition and confirm the value $1.1534$ used in the second example. Then show the divergence
+is not symmetric by evaluating it in the other direction.
+</Exercise>
+
+<Exercise hint="Apply Cor 4 with c(a) = -Q(a)/alpha and a uniform reference on the actions.">
+A state has two actions with $Q(a_1) = 1$, $Q(a_2) = 0$, temperature $\alpha = 0.5$. Find the
+policy minimising $-\mathbb{E}_\pi[Q]/\alpha + \operatorname{KL}(\pi\|\mathrm{Unif})$ and the
+optimal value $\alpha\log\sum_a e^{Q(a)/\alpha}$. Verify the value by plugging the optimal
+policy back into the objective.
+</Exercise>
+
+<Exercise hint="Use Thm 5 with z = x_{1:T}, then Thm 1 on q(x_{1:T} | x_0) factorised in reverse order x_T, x_{T-1}, ..., x_1.">
+Starting from $\log p_\theta(x_0)\ge\mathbb{E}_q[\log p_\theta(x_{0:T}) - \log q(x_{1:T}|x_0)]$,
+derive the DDPM decomposition
+$L_T + \sum_{t>1}\operatorname{KL}(q(x_{t-1}|x_t,x_0)\|p_\theta(x_{t-1}|x_t)) - \mathbb{E}\log p_\theta(x_0|x_1)$.
+Which step uses the Markov property of $q$?
+</Exercise>
+
+## Going deeper
+
+Cover and Thomas Ch. 2 proves Prop 1, Thm 1 and Cor 2 for discrete alphabets in a few pages.
+Polyanskiy and Wu Ch. 2 and 4 do the general measure-theoretic case, including the
+Donsker–Varadhan formula and its role in large deviations. Kingma and Welling's VAE paper is
+the cleanest short account of the ELBO as an optimisation target. For KL between diffusion
+path measures read the [Girsanov](/concepts/girsanov-theorem) page and then Appendix A of
+Song, Durkan, Murray and Ermon.

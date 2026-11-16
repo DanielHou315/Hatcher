@@ -1,0 +1,568 @@
+---
+title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+kind: paper
+summary: "Song et al. unify DDPM and NCSN as discretizations of one forward SDE, and show that a single learned score gives you a reverse SDE for sampling, an ODE with the same marginals, and an exact likelihood."
+tags: [diffusion-models, sde, score-matching, time-reversal]
+track: papers
+level: 4
+prerequisites: [ito-lemma, linear-sde-and-ou, fokker-planck, time-reversal-of-diffusions, score-matching, continuity-equation, diffusion-sde-framework]
+estimated_minutes: 90
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+paper:
+  arxiv_id: "2011.13456"
+  authors: ["Yang Song", "Jascha Sohl-Dickstein", "Diederik P. Kingma", "Abhishek Kumar", "Stefano Ermon", "Ben Poole"]
+  year: 2021
+  venue: "ICLR 2021"
+  recognition: ["ICLR 2021 Outstanding Paper Award"]
+  why_it_matters: "Every diffusion policy, from Diffusion Policy to the flow-based action heads in pi0, samples actions by integrating the reverse SDE or probability flow ODE that this paper introduced."
+  theorems: 5
+sources:
+  - type: arxiv
+    id: "2011.13456"
+    title: "Score-Based Generative Modeling through Stochastic Differential Equations"
+  - type: arxiv
+    id: "2101.09258"
+    title: "Maximum Likelihood Training of Score-Based Diffusion Models"
+  - type: book
+    title: "Reverse-time diffusion equation models"
+    author: "Brian D. O. Anderson"
+    where: "Stochastic Processes and their Applications 12 (1982), 313-326"
+  - type: book
+    title: "Applied Stochastic Differential Equations"
+    author: "Särkkä & Solin"
+    where: "Ch. 5-6"
+---
+
+## Why this paper
+
+Before this paper there were two families of noise-based generative models that looked
+unrelated: DDPM (Ho et al. 2020), a discrete Markov chain of Gaussian noising steps trained by
+a variational bound, and NCSN (Song and Ermon 2019), a score network trained at several noise
+levels and sampled by annealed Langevin dynamics. Song et al. showed both are Euler–Maruyama
+discretizations of a forward SDE $\mathrm{d}X_t = f(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t$,
+and that once you have the score $\nabla_x \log p_t(x)$ of the noised marginals you get three
+things for free: a reverse-time SDE that turns noise into data, a deterministic ODE with the
+same marginals, and, from the ODE, an exact log-likelihood. The paper won the ICLR 2021
+Outstanding Paper Award and is the reference point every later diffusion, flow-matching, and
+diffusion-policy paper measures itself against.
+
+For a robotics reader: Diffusion Policy samples an action chunk by running exactly the
+reverse process below with a learned score (written as a noise predictor); $\pi_0$ and other
+flow-based policies integrate a vector field that, by the result on the probability flow ODE,
+is the score in disguise. When you tune the number of denoising steps at inference time, you
+are choosing a discretization of the SDE or ODE of this page.
+
+## Setting and notation
+
+The paper writes $\mathbf{x}(t)$ for the state, $\mathbf{w}$ for Brownian motion, and
+$p_{0t}(\mathbf{x}(t)\mid\mathbf{x}(0))$ for the transition kernel. We write $X_t$, $W_t$, and
+$p_{0t}(x_t\mid x_0)$. Throughout, $t\in[0,T]$ with $T = 1$ unless stated, and
+
+$$
+\mathrm{d}X_t = f(X_t,t)\,\mathrm{d}t + g(t)\,\mathrm{d}W_t ,
+\qquad X_0 \sim p_0 = p_{\text{data}},
+$$
+
+with $f:\mathbb{R}^d\times[0,T]\to\mathbb{R}^d$ and scalar $g:[0,T]\to\mathbb{R}_{\ge 0}$.
+The marginal density of $X_t$ is $p_t$, and $\nabla \log p_t$ always means the gradient in
+$x$: the score. A network $s_\theta(x,t)$ is trained to approximate it.
+
+Standing hypotheses for the whole page, which the paper inherits from Anderson (1982) and
+does not restate. We assume $f$ is Lipschitz in $x$ with at most linear growth, $g$ is
+continuous, so that the forward SDE has a unique strong solution
+([linear SDEs](/concepts/linear-sde-and-ou) gives the argument in the linear case). We assume
+every $p_t$ is $C^2$ in $x$, strictly positive, and solves the
+[Fokker–Planck equation](/concepts/fokker-planck)
+
+$$
+\partial_t p_t = -\nabla\cdot\big(f\,p_t\big) + \tfrac12 g(t)^2\,\Delta p_t ,
+$$
+
+and that this equation, with the given initial condition, has a unique solution in the class
+of probability densities we work with. Finally we assume $\nabla\log p_t$ is locally Lipschitz
+with at most linear growth, so the reverse SDE below is well posed. For the linear SDEs of the
+paper with Gaussian or compactly supported data, all of this holds for $t>0$; the paper's
+Appendix A points at Anderson for the general case.
+
+The three forward SDEs of the paper, with $\beta(t)>0$ and $\sigma(t)$ increasing:
+
+| name | $f(x,t)$ | $g(t)$ |
+|---|---|---|
+| VE (variance exploding, NCSN) | $0$ | $\sqrt{\mathrm{d}[\sigma^2(t)]/\mathrm{d}t}$ |
+| VP (variance preserving, DDPM) | $-\tfrac12\beta(t)\,x$ | $\sqrt{\beta(t)}$ |
+| sub-VP | $-\tfrac12\beta(t)\,x$ | $\sqrt{\beta(t)\big(1-e^{-2\int_0^t\beta}\big)}$ |
+
+## Results at a glance
+
+1. **Reverse-time SDE.** The time reversal of the forward SDE is a diffusion with drift
+   $f - g^2\nabla\log p_t$ and the same noise level. Needs
+   [fokker-planck](/concepts/fokker-planck),
+   [time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions).
+2. **Probability flow ODE.** $\dot x = f - \tfrac12 g^2\nabla\log p_t(x)$ has marginals $p_t$.
+   Needs [continuity-equation](/concepts/continuity-equation),
+   [fokker-planck](/concepts/fokker-planck).
+3. **Gaussian perturbation kernels.** For VE, VP, and sub-VP, $p_{0t}(x_t\mid x_0)$ is Gaussian
+   with explicit mean and variance. Needs [linear-sde-and-ou](/concepts/linear-sde-and-ou),
+   [ito-lemma](/concepts/ito-lemma).
+4. **Denoising score matching across time.** Regressing $s_\theta(x_t,t)$ onto the
+   conditional score $\nabla_{x_t}\log p_{0t}(x_t\mid x_0)$ recovers the marginal score.
+   Needs [score-matching](/concepts/score-matching),
+   [conditional-expectation](/concepts/conditional-expectation),
+   [gaussian-computations](/concepts/gaussian-computations).
+5. **Exact likelihood through the ODE.** $\log p_0(x_0)$ is $\log p_T$ of the ODE endpoint plus
+   an integral of the divergence of the ODE velocity, estimated by Hutchinson's trick. Needs
+   [continuity-equation](/concepts/continuity-equation),
+   [matrix-calculus](/concepts/matrix-calculus).
+
+## Result 1: the reverse-time SDE
+
+<Theorem name="Reverse-time SDE (Anderson 1982, as used by Song et al.)">
+Under the standing hypotheses, let $\bar W$ be a Brownian motion in reversed time, i.e.
+$\bar W_\tau$ with $\tau = T - t$, independent of $X_T$. The process $Y_\tau := X_{T-\tau}$
+solves
+
+$$
+\mathrm{d}Y_\tau = \Big[-f(Y_\tau, T-\tau) + g(T-\tau)^2\,\nabla\log p_{T-\tau}(Y_\tau)\Big]\mathrm{d}\tau
++ g(T-\tau)\,\mathrm{d}\bar W_\tau ,
+\qquad Y_0 \sim p_T .
+$$
+
+The paper writes the same equation in the original clock $t$, with $\mathrm{d}t$ a negative
+increment:
+$\mathrm{d}X_t = \big[f(X_t,t) - g(t)^2\nabla\log p_t(X_t)\big]\mathrm{d}t + g(t)\,\mathrm{d}\bar W_t$.
+</Theorem>
+
+**Prerequisite check.** You need the Fokker–Planck equation and the identity
+$p\,\nabla\log p = \nabla p$ ([fokker-planck](/concepts/fokker-planck)), and it helps to have
+seen the same argument for a scalar OU process on
+[time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions).
+
+<Proof>
+We show that the proposed reverse SDE has the right one-time marginals; see the remark after
+the proof for what is left to Anderson.
+
+Let $q_\tau$ be the density of the solution $Y_\tau$ of the proposed reverse SDE with
+$q_0 = p_T$. Abbreviate $f = f(\cdot,T-\tau)$, $g = g(T-\tau)$, $p = p_{T-\tau}$. The
+Fokker–Planck equation of the reverse SDE, read off from its drift $b = -f + g^2\nabla\log p$
+and diffusion $g$, is
+
+$$
+\partial_\tau q = -\nabla\cdot\big(b\,q\big) + \tfrac12 g^2\Delta q
+= \nabla\cdot(f q) - g^2\,\nabla\cdot\big(q\,\nabla\log p\big) + \tfrac12 g^2\Delta q .
+$$
+
+We check that $q_\tau := p_{T-\tau}$ solves this. Substituting $q = p$ makes
+$q\,\nabla\log p = \nabla p$, hence $\nabla\cdot(q\nabla\log p) = \Delta p$, and the right-hand
+side becomes
+
+$$
+\nabla\cdot(f p) - g^2\Delta p + \tfrac12 g^2\Delta p
+= \nabla\cdot(f p) - \tfrac12 g^2\Delta p
+= -\Big[-\nabla\cdot(f p) + \tfrac12 g^2\Delta p\Big]
+= -\,\partial_t p_t\big|_{t=T-\tau} .
+$$
+
+The last equality is the forward Fokker–Planck equation. On the left-hand side, the chain
+rule gives $\partial_\tau\big(p_{T-\tau}\big) = -\partial_t p_t\big|_{t=T-\tau}$. Both sides
+agree, so $p_{T-\tau}$ solves the reverse Fokker–Planck equation with initial datum $p_T$.
+By the uniqueness hypothesis, $q_\tau = p_{T-\tau}$ for all $\tau\in[0,T]$: the reverse SDE
+started from $p_T$ has marginal $p_0 = p_{\text{data}}$ at $\tau = T$. $\blacksquare$
+</Proof>
+
+**What the proof really uses.** Three things and nothing else: the forward Fokker–Planck
+equation, the algebraic identity $p\nabla\log p = \nabla p$, and uniqueness of Fokker–Planck
+solutions. The sign flip in front of $f$ is just $\mathrm{d}\tau = -\mathrm{d}t$; the new
+score term is what makes the diffusion term of the reverse equation, which has the wrong sign
+after time reversal, come out right. Be honest about what this argument does not show: it
+proves that the reverse SDE reproduces each marginal $p_t$, which is all a sampler needs.
+Anderson's theorem is stronger: the actual time-reversed process $X_{T-\tau}$ is itself a
+Markov diffusion with this drift, so path laws agree, not just marginals. That proof uses
+the backward Kolmogorov equation for the transition densities and a Bayes-rule computation on
+$p(x_s\mid x_t)$ for $s<t$; Haussmann and Pardoux (1986) weakened the smoothness hypotheses.
+For a state-dependent matrix diffusion $G(x,t)$, the reverse drift is
+$f - \nabla\cdot\big(GG^\top\big) - GG^\top\nabla\log p_t$ (paper, Appendix A); the extra
+divergence term vanishes when $G = g(t)I$.
+
+<Warning>
+The reverse SDE needs $\nabla\log p_t$ for the marginal $p_t$ of the *forward* process
+started at the data, not for the prior. When the sampler is started from $\pi = \mathcal N(0,I)$
+instead of $p_T$, the mismatch $\mathrm{KL}(p_T\,\|\,\pi)$ is a bias that no amount of score
+accuracy removes; the VP schedule is chosen to make it exponentially small.
+</Warning>
+
+## Result 2: the probability flow ODE
+
+<Theorem name="Probability flow ODE">
+Under the standing hypotheses, the deterministic flow
+
+$$
+\frac{\mathrm{d}x}{\mathrm{d}t} = f(x,t) - \tfrac12 g(t)^2\,\nabla\log p_t(x),
+\qquad x(0)\sim p_0 ,
+$$
+
+has the same marginal density $p_t$ at every $t$ as the forward SDE. Run backward from
+$x(T)\sim p_T$, it produces samples from $p_0$.
+</Theorem>
+
+**Prerequisite check.** The [continuity equation](/concepts/continuity-equation): the density
+$\rho_t$ of $x(t)$ when $\dot x = v(x,t)$ and $x(0)\sim\rho_0$ solves
+$\partial_t\rho = -\nabla\cdot(\rho v)$, uniquely if $v$ is locally Lipschitz with linear
+growth.
+
+<Proof>
+Rewrite the diffusion term of the forward Fokker–Planck equation as a transport term. Since
+$\Delta p = \nabla\cdot(\nabla p) = \nabla\cdot\big(p\,\nabla\log p\big)$,
+
+$$
+\partial_t p_t
+= -\nabla\cdot(f p_t) + \tfrac12 g^2\,\nabla\cdot\big(p_t\nabla\log p_t\big)
+= -\nabla\cdot\Big(\big[f - \tfrac12 g^2\nabla\log p_t\big]\,p_t\Big).
+$$
+
+This is the continuity equation with velocity $v(x,t) = f(x,t) - \tfrac12 g(t)^2\nabla\log p_t(x)$.
+The flow of $\dot x = v$ started from $p_0$ has a density that solves the same continuity
+equation with the same initial condition. Uniqueness gives equality of the two densities for
+all $t$. The reverse direction is the same statement read with $\tau = T-t$: an ODE can be
+integrated in either direction, and the density transported along it is $p_t$ at every time.
+$\blacksquare$
+</Proof>
+
+**What the proof really uses.** Only that a Laplacian of a positive density is the divergence
+of $p\nabla\log p$. Nothing probabilistic is left: this is why the ODE trajectories are
+deterministic given $x(T)$, why they can be integrated with any off-the-shelf ODE solver
+(the paper uses an adaptive RK45 solver and needs far fewer network evaluations than its
+1000-step SDE sampler), and why
+the map $x(T)\mapsto x(0)$ is a bijection, which is what Result 5 exploits. A useful remark
+that falls out of the same computation: for any $h(t)\ge 0$, the SDE
+
+$$
+\mathrm{d}X_t = \Big[f - \tfrac12\big(g^2 + h^2\big)\nabla\log p_t\Big]\mathrm{d}t + h(t)\,\mathrm{d}\bar W_t
+$$
+
+run in reverse time also has marginals $p_t$; $h = g$ is Result 1, $h = 0$ is Result 2, and
+intermediate $h$ trade off stochastic error correction against solver step count. (Check it:
+its reverse-time Fokker–Planck equation reduces to the forward one by the same substitution.)
+
+<Intuition>
+Diffusion spreads mass out. Along the flow, that spreading is replaced by pushing each
+particle down the score, i.e. away from where density is high, with half the strength of the
+noise. Half, because a Gaussian kernel of variance $g^2\,\mathrm{d}t$ has second moment
+$g^2\,\mathrm{d}t$ but the drift enters the density equation through $\nabla\cdot$, which
+picks up $\tfrac12$ from the Itô correction.
+</Intuition>
+
+## Result 3: the perturbation kernels are Gaussian
+
+<Proposition name="Perturbation kernels of VE, VP, and sub-VP">
+Write $B(t) = \int_0^t\beta(s)\,\mathrm{d}s$. Conditional on $X_0 = x_0$:
+
+- VE: $X_t \sim \mathcal N\big(x_0,\;[\sigma^2(t) - \sigma^2(0)]\,I\big)$.
+- VP: $X_t \sim \mathcal N\big(e^{-B(t)/2}x_0,\;[1 - e^{-B(t)}]\,I\big)$.
+- sub-VP: $X_t \sim \mathcal N\big(e^{-B(t)/2}x_0,\;[1 - e^{-B(t)}]^2\,I\big)$.
+</Proposition>
+
+**Prerequisite check.** The integrating-factor solution of a linear SDE and the Itô
+isometry for the variance of a Wiener integral, both on
+[linear-sde-and-ou](/concepts/linear-sde-and-ou); the OU computation on
+[ito-lemma](/concepts/ito-lemma) is the constant-$\beta$ case.
+
+<Proof>
+Work in one coordinate; coordinates are independent because $g(t)$ is scalar.
+
+*VE.* There is no drift, so $X_t = x_0 + \int_0^t\sqrt{\tfrac{\mathrm{d}\sigma^2}{\mathrm{d}s}}\,\mathrm{d}W_s$.
+A Wiener integral of a deterministic integrand is Gaussian with mean $0$ and, by the Itô
+isometry, variance $\int_0^t\tfrac{\mathrm{d}\sigma^2}{\mathrm{d}s}\,\mathrm{d}s = \sigma^2(t) - \sigma^2(0)$.
+
+*VP.* Apply Itô's lemma to $F(x,t) = e^{B(t)/2}x$, with $\partial_t F = \tfrac12\beta e^{B/2}x$,
+$\partial_x F = e^{B/2}$, $\partial_{xx}F = 0$:
+
+$$
+\mathrm{d}\big(e^{B(t)/2}X_t\big)
+= \Big(\tfrac12\beta e^{B/2}X_t - \tfrac12\beta e^{B/2}X_t\Big)\mathrm{d}t + e^{B/2}\sqrt{\beta}\,\mathrm{d}W_t
+= \sqrt{\beta(t)}\,e^{B(t)/2}\,\mathrm{d}W_t .
+$$
+
+Integrate from $0$ to $t$ and multiply by $e^{-B(t)/2}$:
+
+$$
+X_t = e^{-B(t)/2}x_0 + \int_0^t\sqrt{\beta(s)}\,e^{-(B(t)-B(s))/2}\,\mathrm{d}W_s .
+$$
+
+The mean is the first term. The variance is, by the Itô isometry and the substitution
+$u = B(s)$, $\mathrm{d}u = \beta(s)\,\mathrm{d}s$,
+
+$$
+\int_0^t\beta(s)\,e^{-(B(t)-B(s))}\,\mathrm{d}s
+= e^{-B(t)}\int_0^{B(t)}e^{u}\,\mathrm{d}u
+= e^{-B(t)}\big(e^{B(t)} - 1\big) = 1 - e^{-B(t)} .
+$$
+
+*sub-VP.* The drift is the same, so the mean is the same and the same integrating factor
+applies with $g^2(s) = \beta(s)\big(1 - e^{-2B(s)}\big)$. The variance integral is
+
+$$
+e^{-B(t)}\int_0^t\beta(s)\big(e^{B(s)} - e^{-B(s)}\big)\mathrm{d}s
+= e^{-B(t)}\Big[\big(e^{B(t)}-1\big) + \big(e^{-B(t)}-1\big)\Big]
+= 1 - 2e^{-B(t)} + e^{-2B(t)} = \big(1-e^{-B(t)}\big)^2 .
+$$
+
+$\blacksquare$
+</Proof>
+
+**What the proof really uses.** Linearity of the drift in $x$ and determinism of $g$; that is
+what makes the solution an affine function of $x_0$ plus a Gaussian Wiener integral. The
+consequences are the whole training recipe: $p_{0t}$ Gaussian means sampling $x_t$ from
+$x_0$ costs one Gaussian draw, and the conditional score in Result 4 is a linear function.
+Sanity checks: at $t=0$ all three variances vanish; as $B(t)\to\infty$ the VP and sub-VP
+variances tend to $1$, matching the $\mathcal N(0,I)$ prior, and sub-VP's variance is always
+smaller than VP's since $(1-e^{-B})^2$ is less than $1-e^{-B}$, which is the point of the name.
+DDPM's $\bar\alpha_t = e^{-B(t)}$ with $B$ the integral of its linear $\beta$ schedule.
+
+## Result 4: denoising score matching across time
+
+<Theorem name="Time-weighted denoising score matching">
+Let $\lambda:[0,T]\to\mathbb{R}_{>0}$ be a weighting and $t\sim\mathrm{Unif}[0,T]$,
+$x_0\sim p_0$, $x_t\sim p_{0t}(\cdot\mid x_0)$. Under the standing hypotheses and
+$\mathbb{E}\|\nabla\log p_{0t}(x_t\mid x_0)\|^2 < \infty$ for each $t$, the minimizer over all
+measurable $s(x,t)$ with finite second moment of
+
+$$
+\mathcal J_{\mathrm{DSM}}(s) = \mathbb{E}_t\,\lambda(t)\,\mathbb{E}_{x_0}\mathbb{E}_{x_t\mid x_0}
+\Big\|s(x_t,t) - \nabla_{x_t}\log p_{0t}(x_t\mid x_0)\Big\|^2
+$$
+
+is $s^*(x,t) = \nabla_x\log p_t(x)$ for every $t$ (up to sets of $p_t$-measure zero). For the
+Gaussian kernels of Result 3 with mean $\mu_t(x_0)$ and variance $\sigma_t^2 I$,
+
+$$
+\nabla_{x_t}\log p_{0t}(x_t\mid x_0) = -\frac{x_t - \mu_t(x_0)}{\sigma_t^2} .
+$$
+</Theorem>
+
+**Prerequisite check.** Vincent's denoising score matching identity on
+[score-matching](/concepts/score-matching); the $L^2$-projection characterization of
+conditional expectation on [conditional-expectation](/concepts/conditional-expectation);
+the score of a Gaussian on [gaussian-computations](/concepts/gaussian-computations).
+
+<Proof>
+*Closed-form conditional score.* $\log p_{0t}(x_t\mid x_0) = -\|x_t-\mu_t(x_0)\|^2/(2\sigma_t^2) + \text{const}$,
+and differentiating in $x_t$ gives the formula. This is available only because Result 3 made
+the kernel Gaussian with known parameters; the marginal $p_t$, an integral of this kernel
+against the unknown $p_0$, has no closed form.
+
+*Why the conditional target gives the marginal score.* Fix $t$; the weighting $\lambda(t)$
+and the average over $t$ do not couple different times, so it suffices to minimize
+$\mathbb{E}\|s(x_t) - Y\|^2$ with $Y := \nabla_{x_t}\log p_{0t}(x_t\mid x_0)$ over functions of
+$x_t$ alone. The minimizer of a squared error over functions of $x_t$ is the conditional
+expectation, $s^*(x_t) = \mathbb{E}[Y\mid x_t]$. Compute it using Bayes' rule
+$p(x_0\mid x_t) = p_0(x_0)\,p_{0t}(x_t\mid x_0)/p_t(x_t)$:
+
+$$
+\mathbb{E}[Y\mid x_t]
+= \int \frac{p_0(x_0)\,p_{0t}(x_t\mid x_0)}{p_t(x_t)}\cdot\frac{\nabla_{x_t}p_{0t}(x_t\mid x_0)}{p_{0t}(x_t\mid x_0)}\,\mathrm{d}x_0
+= \frac{1}{p_t(x_t)}\,\nabla_{x_t}\!\int p_0(x_0)\,p_{0t}(x_t\mid x_0)\,\mathrm{d}x_0
+= \frac{\nabla p_t(x_t)}{p_t(x_t)} .
+$$
+
+The gradient was moved outside the integral; this is justified by dominated convergence
+because the Gaussian kernel and its gradient are bounded uniformly in $x_0$ for $\sigma_t>0$.
+The result is $\nabla\log p_t(x_t)$. $\blacksquare$
+</Proof>
+
+**What the proof really uses.** Two facts: least squares recovers a conditional expectation,
+and the conditional expectation of the conditional score is the marginal score, which is
+just differentiating under an integral. Vincent's original identity is the same computation
+phrased differently: $\mathcal J_{\mathrm{DSM}}$ and the explicit objective
+$\mathbb{E}\|s - \nabla\log p_t\|^2$ differ by a constant independent of $s$. The paper's
+default weighting is $\lambda(t)\propto 1/\mathbb{E}\|\nabla\log p_{0t}(x_t\mid x_0)\|^2 = \sigma_t^2/d$,
+which makes every time contribute an $O(1)$ loss; in noise-prediction form, $s_\theta = -\epsilon_\theta/\sigma_t$,
+this is exactly DDPM's unweighted $\|\epsilon - \epsilon_\theta\|^2$. The alternative
+$\lambda(t) = g(t)^2$ turns $\mathcal J_{\mathrm{DSM}}$ into an upper bound on
+$-\mathbb{E}\log p_\theta(x_0)$ (Song, Durkan, Murray, Ermon 2021, <Cite id="2101.09258" />,
+derived with [Girsanov](/concepts/girsanov-theorem)), which is where the ELBO view of
+[kl-divergence-and-variational-bounds](/concepts/kl-divergence-and-variational-bounds)
+reconnects to score matching.
+
+<Warning>
+The theorem is about the minimizer over all functions. A finite network trained for finite
+time gives $s_\theta\ne\nabla\log p_t$, and the reverse SDE with $s_\theta$ in place of the true
+score is a different SDE whose marginals are not $p_t$. The paper's predictor-corrector
+sampler (a few Langevin steps at each time using $s_\theta$) is a practical hedge against
+this; it is not covered by the results on this page.
+</Warning>
+
+## Result 5: exact likelihood through the ODE
+
+<Proposition name="Likelihood via the probability flow ODE">
+Let $v_\theta(x,t) = f(x,t) - \tfrac12 g(t)^2 s_\theta(x,t)$ be the learned ODE velocity,
+assumed $C^1$ in $x$ with bounded Jacobian on compact sets, and let $x(t)$ solve
+$\dot x = v_\theta(x,t)$ with $x(0) = x_0$. Define the model density $p_\theta$ by pulling the
+prior $\pi$ at time $T$ back along this flow. Then
+
+$$
+\log p_\theta(x_0) = \log\pi\big(x(T)\big) + \int_0^T\nabla\cdot v_\theta\big(x(t),t\big)\,\mathrm{d}t ,
+$$
+
+and for any random $\epsilon\in\mathbb{R}^d$ with $\mathbb{E}[\epsilon\epsilon^\top] = I$,
+$\nabla\cdot v_\theta = \operatorname{tr}\big(\partial_x v_\theta\big) = \mathbb{E}_\epsilon\big[\epsilon^\top(\partial_x v_\theta)\,\epsilon\big]$.
+</Proposition>
+
+**Prerequisite check.** The instantaneous change of variables on
+[continuity-equation](/concepts/continuity-equation) and the trace and Jacobian rules on
+[matrix-calculus](/concepts/matrix-calculus).
+
+<Proof>
+Let $\rho_t$ be the density transported by $v_\theta$ from $\rho_0 = p_\theta$, so
+$\partial_t\rho = -\nabla\cdot(\rho v_\theta)$ and $\rho_T = \pi$. Differentiate
+$\log\rho_t(x(t))$ along a trajectory with the chain rule and expand the divergence of a
+product:
+
+$$
+\frac{\mathrm{d}}{\mathrm{d}t}\log\rho_t(x(t))
+= \frac{\partial_t\rho}{\rho} + \langle\nabla\log\rho, v_\theta\rangle
+= \frac{-\rho\,\nabla\cdot v_\theta - \langle\nabla\rho, v_\theta\rangle}{\rho} + \langle\nabla\log\rho, v_\theta\rangle
+= -\nabla\cdot v_\theta .
+$$
+
+Integrate from $0$ to $T$ and rearrange: $\log\rho_0(x_0) = \log\rho_T(x(T)) + \int_0^T\nabla\cdot v_\theta\,\mathrm{d}t$.
+For the trace identity, $\mathbb{E}[\epsilon^\top J\epsilon] = \mathbb{E}\operatorname{tr}(J\epsilon\epsilon^\top) = \operatorname{tr}(J\,\mathbb{E}[\epsilon\epsilon^\top]) = \operatorname{tr}J$.
+$\blacksquare$
+</Proof>
+
+**What the proof really uses.** Only the continuity equation, so the formula is exact for the
+*model* $p_\theta$ (the ODE with $s_\theta$ is a continuous normalizing flow), whatever the score
+error; the approximation is in $p_\theta\ne p_0$, not in the likelihood computation. The
+divergence of a $d$-dimensional network costs $d$ backward passes exactly; Hutchinson's
+estimator costs one vector-Jacobian product per ODE step, at the price of an unbiased but
+noisy divergence, and the paper reports $2.99$ bits/dim on CIFAR-10 this way. In practice the
+ODE is integrated from $x_0$ forward to $x(T)$ with the divergence accumulated as an extra
+state variable.
+
+## Worked example by hand
+
+<Example title="VP SDE with constant beta on Gaussian data: p_t, score, reverse SDE and ODE">
+Take $d = 1$, $p_0 = \mathcal N(2, 0.25)$ (standard deviation $0.5$), and the VP SDE with
+constant $\beta = 2$ on $t\in[0,1]$:
+
+$$
+\mathrm{d}X_t = -X_t\,\mathrm{d}t + \sqrt{2}\,\mathrm{d}W_t ,
+\qquad f(x,t) = -x,\quad g(t) = \sqrt 2 .
+$$
+
+*Marginal.* By Result 3 with $B(t) = 2t$, $X_t\mid X_0 = x_0\sim\mathcal N(e^{-t}x_0,\;1-e^{-2t})$.
+Since $X_0$ is Gaussian and independent of $W$, $X_t$ is Gaussian with
+
+$$
+m_t = 2e^{-t},
+\qquad
+v_t = e^{-2t}\cdot 0.25 + \big(1-e^{-2t}\big) = 1 - 0.75\,e^{-2t} .
+$$
+
+Check: $v_0 = 0.25$ and $v_t\to 1$, $m_t\to 0$ as $t\to\infty$, the $\mathcal N(0,1)$ prior.
+Check against Fokker–Planck, which for a Gaussian reduces to $\dot m = -m$ and
+$\dot v = -2v + 2$: indeed $\dot v_t = 1.5\,e^{-2t} = 2(1 - v_t)$.
+
+*Score.* $\nabla\log p_t(x) = -(x - m_t)/v_t$.
+
+*Reverse SDE drift.* $f - g^2\nabla\log p_t = -x + 2\,(x - m_t)/v_t$.
+
+*Numbers at $t = 1$.* $m_1 = 2e^{-1} = 0.735759$, $e^{-2} = 0.135335$,
+$v_1 = 1 - 0.101501 = 0.898499$. At $x_1 = 0.7$:
+
+$$
+\nabla\log p_1(0.7) = -\frac{0.7 - 0.735759}{0.898499} = \frac{0.035759}{0.898499} = 0.039798 ,
+$$
+
+$$
+\text{reverse drift} = -0.7 + 2\times 0.039798 = -0.620403 .
+$$
+
+*One Euler–Maruyama step of the reverse SDE from $t=1$ to $t=0.9$.* Step size $h = 0.1$
+backward, noise sample $\xi = -0.3$. The update is
+$x_{t-h} = x_t - \big[f - g^2\nabla\log p_t\big](x_t)\,h + g\sqrt h\,\xi$:
+
+$$
+x_{0.9} = 0.7 - (-0.620403)(0.1) + \sqrt 2\cdot\sqrt{0.1}\cdot(-0.3)
+= 0.7 + 0.062040 - 0.447214\times 0.3
+= 0.7 + 0.062040 - 0.134164 = 0.627876 .
+$$
+
+*One Euler step of the probability flow ODE from the same point.* The velocity is
+$f - \tfrac12 g^2\nabla\log p_t = -x - \nabla\log p_t(x)$, so at $(0.7, 1)$ it is
+$-0.7 - 0.039798 = -0.739798$, and
+
+$$
+x_{0.9} = 0.7 - (-0.739798)(0.1) = 0.7 + 0.073980 = 0.773980 .
+$$
+
+*Compare.* The ODE moves the point deterministically toward the mean of $p_{0.9}$, which is
+$m_{0.9} = 2e^{-0.9} = 0.813139$; the SDE step has the same drift-type motion plus a noise
+kick of size $\sqrt{0.2}\,\xi$, which here happened to push it the other way. Two sanity
+checks on the numbers:
+
+1. *The ODE step against the exact flow.* For Gaussian marginals the probability flow ODE
+   is linear, $\dot x = -x + (x - m_t)/v_t$, and preserves the standardized coordinate
+   $z = (x - m_t)/\sqrt{v_t}$ (differentiate $m_t + z\sqrt{v_t}$ and use $\dot m = -m$,
+   $\dot v = 2(1-v)$). Here $z = -0.035759/0.947892 = -0.037725$ and
+   $\sqrt{v_{0.9}} = \sqrt{0.876026} = 0.935963$, so the exact ODE value is
+   $0.813139 - 0.037725\times 0.935963 = 0.777830$. Euler gave $0.773980$; the gap of
+   $0.004$ is the expected $O(h^2)$ local error.
+2. *The SDE step in expectation.* Averaging the Euler–Maruyama update over $x_1\sim p_1$ and
+   $\xi$ gives $\mathbb{E}[x_{0.9}] = m_1 + h\,m_1 - 2h\,\mathbb{E}[\nabla\log p_1(X_1)] = 1.1\times 0.735759 = 0.809335$,
+   using that the expected score is zero (it is $\int\nabla p_1 = 0$). The true mean is
+   $m_{0.9} = 0.813139$; again the mismatch is $O(h^2)$.
+</Example>
+
+## Reading order
+
+1. [ito-lemma](/concepts/ito-lemma): the chain rule that produces the integrating factor
+   in Result 3 and the $\tfrac12 g^2$ in every Fokker–Planck equation.
+2. [linear-sde-and-ou](/concepts/linear-sde-and-ou): solve the VP SDE, get the OU mean
+   and variance ODEs, and see DDPM as Euler–Maruyama.
+3. [fokker-planck](/concepts/fokker-planck): the density equation and the
+   $p\nabla\log p = \nabla p$ rewriting used in Results 1 and 2.
+4. [continuity-equation](/concepts/continuity-equation): transport by a velocity field and
+   the instantaneous change of variables used in Results 2 and 5.
+5. [time-reversal-of-diffusions](/concepts/time-reversal-of-diffusions): Result 1 and 2 for
+   an OU process, one dimension, everything explicit.
+6. [score-matching](/concepts/score-matching): explicit and denoising score matching,
+   Vincent's identity, Tweedie; Result 4 is this at all times at once.
+7. [diffusion-sde-framework](/concepts/diffusion-sde-framework): the same material as this
+   page in lecture form, plus predictor-corrector sampling.
+
+After this paper, [flow-matching-lipman-2022](/papers/flow-matching-lipman-2022) shows how
+to regress the probability flow velocity directly, and
+[diffusion-schrodinger-bridge-2021](/papers/diffusion-schrodinger-bridge-2021) replaces the
+fixed forward SDE with one learned to hit the prior in finite time.
+
+## Exercises
+
+<Exercise hint="Substitute the sub-VP g into the general Fokker-Planck-based drift and note that only g changes, not f.">
+Write down the reverse SDE and the probability flow ODE for the sub-VP SDE, and explain in
+one sentence why the sub-VP score network cannot be reused for the VP reverse SDE even though
+the two forward processes share the same mean $e^{-B(t)/2}x_0$.
+</Exercise>
+
+<Exercise hint="The score of a Gaussian mixture is a weighted average of component scores with posterior weights.">
+Redo the worked example with $p_0 = \tfrac12\mathcal N(-1, 0.01) + \tfrac12\mathcal N(3, 0.01)$.
+Compute $p_1$, $\nabla\log p_1(0.7)$, and the reverse drift at $(0.7, 1)$ numerically. Which
+mode is the Euler–Maruyama step heading toward, and would the ODE step with the same starting
+point go to the same mode?
+</Exercise>
+
+<Exercise hint="Set q equal to p in the reverse-time Fokker-Planck equation of the h-family and cancel Laplacians as in the proof of Result 1.">
+Verify the one-parameter family stated after Result 2: for any $h(t)\ge 0$, the reverse-time
+SDE with drift $f - \tfrac12(g^2 + h^2)\nabla\log p_t$ and diffusion $h$ has marginals $p_t$.
+Then explain why $h$ larger than $g$ is allowed mathematically but is rarely used in practice.
+</Exercise>
+
+<Exercise hint="The divergence of a linear field is the trace of its matrix; compute the exact ODE trajectory from the standardized coordinate z.">
+For the worked example, compute $\log p_0(x_0)$ at $x_0 = 2.3$ via Result 5: integrate the
+probability flow ODE forward from $t=0$ to $t=1$ exactly (use that $z$ is conserved), evaluate
+$\int_0^1\nabla\cdot v\,\mathrm{d}t$ with $v(x,t) = -x + (x-m_t)/v_t$ in closed form, and check
+the answer against the direct formula for the density of $\mathcal N(2, 0.25)$. Note that the
+endpoint density to use is $p_1 = \mathcal N(m_1, v_1)$, not the prior $\mathcal N(0,1)$;
+compute the error you would make by using the prior.
+</Exercise>

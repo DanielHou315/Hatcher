@@ -1,0 +1,328 @@
+---
+title: "Benamou–Brenier: dynamic optimal transport"
+kind: concept
+summary: "W_2 as the minimal kinetic energy of a density path, the proof of the easy direction, displacement interpolation as the geodesic, and why flow matching's OT path is exactly this geodesic."
+tags: [optimal-transport, wasserstein, benamou-brenier, geodesics, flow-matching]
+track: optimal-transport
+level: 3
+prerequisites: [wasserstein-distance, continuity-equation]
+estimated_minutes: 55
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: web
+    title: "A computational fluid mechanics solution to the Monge–Kantorovich mass transfer problem"
+    author: "Jean-David Benamou & Yann Brenier"
+    where: "Numerische Mathematik 84 (2000)"
+  - type: book
+    title: "Optimal Transport for Applied Mathematicians"
+    author: "Filippo Santambrogio"
+    where: "Ch. 5.4, 6.1"
+  - type: book
+    title: "Topics in Optimal Transportation"
+    author: "Cédric Villani"
+    where: "Ch. 8"
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+  - type: arxiv
+    id: "2302.00482"
+    title: "Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport"
+---
+
+## Why you need this
+
+Flow matching (Lipman et al. 2022) picks, for each data point $x_1$, the path
+$p_t(x\mid x_1) = \mathcal N(tx_1, (1-(1-\sigma_{\min})t)^2 I)$ and calls it the optimal-transport
+path. Rectified flow (Liu et al. 2022) argues that straight trajectories are what you want and
+iterates to straighten them. OT-CFM (Tong et al. 2023) claims that, with minibatch OT
+couplings, the learned marginal field approximates the $W_2$ geodesic between noise and data.
+All three claims are about the same theorem: $W_2^2$ equals the least kinetic energy of any
+density path joining the endpoints, and the minimizer moves every particle in a straight line
+at constant speed. The Schrödinger bridge is this variational problem plus an entropy term,
+which is how the dynamic view carries over to diffusion models.
+
+## Setup
+
+Fix $\mu_0,\mu_1\in\mathcal P_2(\mathbb{R}^d)$. A *density path* is a family
+$(\rho_t)_{t\in[0,1]}$ of probability measures with $\rho_0 = \mu_0$, $\rho_1 = \mu_1$. A
+*velocity field* $v_t$ *generates* the path if the pair solves the
+[continuity equation](/concepts/continuity-equation)
+$\partial_t\rho_t + \nabla\cdot(\rho_t v_t) = 0$ in the weak sense. The *action* (kinetic
+energy) of the pair is
+
+$$
+\mathcal A(\rho, v) = \int_0^1\!\!\int_{\mathbb{R}^d}\|v_t(x)\|^2\,\rho_t(\mathrm{d}x)\,\mathrm{d}t
+= \int_0^1\mathbb{E}\|v_t(X_t)\|^2\,\mathrm{d}t, \qquad X_t\sim\rho_t .
+$$
+
+It is the total kinetic energy of a unit-mass fluid whose particles follow $v$, with the
+factor $\tfrac12$ dropped. We write $W_2$ for the
+[Wasserstein distance](/concepts/wasserstein-distance) with cost $\|x-y\|^2$.
+
+We will use one fact from the static theory without proof.
+
+<Theorem name="Brenier (1991)" label="Thm 0">
+If $\mu_0$ has a density, the $W_2$-optimal coupling of $\mu_0$ and $\mu_1$ is unique and is
+induced by a map: $\pi = (\mathrm{id}, T)_\#\mu_0$ with $T = \nabla\psi$ for a convex function
+$\psi$. So $W_2^2(\mu_0,\mu_1) = \int\|T(x)-x\|^2\,\mathrm{d}\mu_0(x)$.
+</Theorem>
+
+The Gaussian map $T(x) = m_2 + A(x-m_1)$ with $A$ symmetric positive definite is an instance:
+$T = \nabla\psi$ for $\psi(x) = \langle m_2, x\rangle + \tfrac12(x-m_1)^\top A(x-m_1)$.
+
+## The idea
+
+<Theorem name="Benamou–Brenier (2000)" label="Thm 1">
+For $\mu_0,\mu_1\in\mathcal P_2(\mathbb{R}^d)$,
+$$
+W_2^2(\mu_0,\mu_1) = \inf\Big\{\mathcal A(\rho,v) :
+\partial_t\rho_t + \nabla\cdot(\rho_t v_t) = 0,\ \rho_0 = \mu_0,\ \rho_1 = \mu_1\Big\}.
+$$
+If $\mu_0$ has a density the infimum is attained by $\rho_t = ((1-t)\mathrm{id} + tT)_\#\mu_0$
+with $T$ the Brenier map, and $v_t = (T - \mathrm{id})\circ\big((1-t)\mathrm{id}+tT\big)^{-1}$.
+</Theorem>
+
+<Proof>
+*Static $\le$ dynamic.* We prove this for velocity fields that are continuous and uniformly
+Lipschitz in $x$, so that the flow map $\phi_t$ exists; the general case is approximation
+(Santambrogio Thm 5.28, via the superposition principle). By uniqueness for the continuity
+equation (Thm 2 on the [continuity equation](/concepts/continuity-equation) page),
+$\rho_t = (\phi_t)_\#\mu_0$; in particular $(\phi_1)_\#\mu_0 = \mu_1$, so
+$(\mathrm{id},\phi_1)_\#\mu_0$ is a coupling and
+
+$$
+W_2^2(\mu_0,\mu_1)\le\int\|\phi_1(x) - x\|^2\,\mathrm{d}\mu_0(x).
+$$
+
+For each $x$, $\phi_1(x) - x = \int_0^1 v_t(\phi_t(x))\,\mathrm{d}t$, and Jensen's inequality
+(or Cauchy–Schwarz with the constant function $1$ on $[0,1]$) gives
+
+$$
+\|\phi_1(x)-x\|^2 = \Big\|\int_0^1 v_t(\phi_t(x))\,\mathrm{d}t\Big\|^2
+\le\int_0^1\|v_t(\phi_t(x))\|^2\,\mathrm{d}t .
+$$
+
+Integrate in $x$ against $\mu_0$ and swap the integrals (Tonelli, everything is nonnegative):
+
+$$
+\int\|\phi_1(x)-x\|^2\,\mathrm{d}\mu_0(x)
+\le\int_0^1\!\!\int\|v_t(\phi_t(x))\|^2\,\mathrm{d}\mu_0(x)\,\mathrm{d}t
+= \int_0^1\!\!\int\|v_t(y)\|^2\,\mathrm{d}\rho_t(y)\,\mathrm{d}t = \mathcal A(\rho,v),
+$$
+
+where the middle equality is the definition of push-forward. Hence
+$W_2^2\le\mathcal A(\rho,v)$ for every admissible pair, so $W_2^2\le\inf\mathcal A$.
+
+*Dynamic $\le$ static* (sketch). Assume $\mu_0$ has a density and let $T = \nabla\psi$ be
+the Brenier map. Set $\phi_t = (1-t)\mathrm{id} + tT = \nabla\big(\tfrac{1-t}{2}\|x\|^2 + t\psi\big)$.
+For $t<1$ this is the gradient of a strongly convex function, hence injective (strong
+monotonicity: $\langle\phi_t(x)-\phi_t(y), x-y\rangle\ge(1-t)\|x-y\|^2$), so we may define
+$v_t = (T-\mathrm{id})\circ\phi_t^{-1}$ on the image of $\phi_t$, which carries all the mass
+of $\rho_t := (\phi_t)_\#\mu_0$. Then $\frac{\mathrm{d}}{\mathrm{d}t}\phi_t(x) = T(x)-x = v_t(\phi_t(x))$,
+so $\rho_t$ is the push-forward along $v$ and solves the continuity equation with velocity $v$
+(Thm 1 on the continuity page applies verbatim to this explicit flow; the Lipschitz hypothesis
+there was only used to build $\phi_t$, which we already have). Its action is
+
+$$
+\mathcal A(\rho,v) = \int_0^1\!\!\int\|v_t(\phi_t(x))\|^2\,\mathrm{d}\mu_0\,\mathrm{d}t
+= \int_0^1\!\!\int\|T(x)-x\|^2\,\mathrm{d}\mu_0\,\mathrm{d}t = W_2^2(\mu_0,\mu_1).
+$$
+
+The step we skipped: showing the weak continuity equation holds without any regularity of
+$v$, and handling $\mu_0$ without a density (where Brenier's theorem fails and one uses the
+optimal coupling $\pi$ together with the family of straight lines $(1-t)x+ty$ weighted by
+$\pi$; the action is still $\int\|x-y\|^2\mathrm{d}\pi$, but $v_t$ is then only defined as a
+conditional mean and the argument needs the superposition principle). $\blacksquare$
+</Proof>
+
+<Intuition>
+Kinetic energy penalizes speed quadratically, so by Jensen it is cheapest to move at
+constant speed, and by the triangle inequality it is cheapest to move in a straight line.
+Any pair $(\rho,v)$ that solves the continuity equation describes *some* way of moving
+$\mu_0$ to $\mu_1$; the one that moves each particle straight from $x$ to $T(x)$ at
+constant speed is optimal, and its energy is the squared distance $\mathbb{E}\|T(X)-X\|^2 = W_2^2$.
+</Intuition>
+
+<Definition name="Displacement interpolation">
+With $T$ the Brenier map from $\mu_0$ to $\mu_1$, the path
+$\mu_t = \big((1-t)\mathrm{id} + tT\big)_\#\mu_0$, $t\in[0,1]$, is the *displacement
+interpolation* (McCann 1997) between $\mu_0$ and $\mu_1$. It is the law of $(1-t)X + tT(X)$
+for $X\sim\mu_0$: each particle is linearly interpolated between its start and its end.
+</Definition>
+
+<Proposition name="Displacement interpolation is a constant-speed geodesic">
+For $0\le s\le t\le 1$, $W_2(\mu_s,\mu_t) = (t-s)\,W_2(\mu_0,\mu_1)$.
+</Proposition>
+
+<Proof>
+Let $X\sim\mu_0$ and $\phi_t = (1-t)\mathrm{id}+tT$. The pair $(\phi_s(X),\phi_t(X))$ is a
+coupling of $\mu_s$ and $\mu_t$ with
+$\phi_t(X)-\phi_s(X) = (t-s)(T(X)-X)$, so
+
+$$
+W_2^2(\mu_s,\mu_t)\le(t-s)^2\,\mathbb{E}\|T(X)-X\|^2 = (t-s)^2W_2^2(\mu_0,\mu_1).
+$$
+
+For the reverse inequality use the triangle inequality for $W_2$ three times:
+
+$$
+W_2(\mu_0,\mu_1)\le W_2(\mu_0,\mu_s) + W_2(\mu_s,\mu_t) + W_2(\mu_t,\mu_1)
+\le\big(s + (t-s) + (1-t)\big)W_2(\mu_0,\mu_1) = W_2(\mu_0,\mu_1).
+$$
+
+Equality holds throughout, so each of the three upper bounds is an equality. $\blacksquare$
+</Proof>
+
+Contrast the *mixture* path $(1-t)\mu_0 + t\mu_1$, which is also a curve from $\mu_0$ to
+$\mu_1$ but is not a geodesic: mass at the source is teleported to the target with weight $t$,
+and $W_2$ along it is not linear in $t$ (Exercise 4). The displacement interpolation moves
+mass; the mixture fades it out and in.
+
+### Flow matching's OT path is a displacement interpolation
+
+Take $\mu_0 = \mathcal N(0,I)$ and $\mu_1 = \mathcal N(x_1,\sigma_{\min}^2 I)$. By Thm 3 on the
+[Wasserstein page](/concepts/wasserstein-distance), the Brenier map is
+$T(x) = x_1 + \sigma_{\min}x$. The displacement interpolation is the law of
+
+$$
+\phi_t(x) = (1-t)x + t(x_1 + \sigma_{\min}x) = tx_1 + \big(1-(1-\sigma_{\min})t\big)x,
+\qquad\text{so}\qquad
+\mu_t = \mathcal N\big(tx_1,\ (1-(1-\sigma_{\min})t)^2 I\big),
+$$
+
+which is equation (20) of Lipman et al. Its generating field is
+$v_t(y) = (T-\mathrm{id})(\phi_t^{-1}(y))$ with $\phi_t^{-1}(y) = (y-tx_1)/(1-(1-\sigma_{\min})t)$:
+
+$$
+v_t(y) = x_1 - (1-\sigma_{\min})\frac{y - tx_1}{1-(1-\sigma_{\min})t}
+= \frac{x_1 - (1-\sigma_{\min})\,y}{1-(1-\sigma_{\min})t},
+$$
+
+which is their equation (23), the conditional vector field $u_t(x\mid x_1)$. So the
+conditional flow-matching target is, per data point, the Benamou–Brenier minimizer. As
+$\sigma_{\min}\to 0$ it becomes $v_t(y) = (x_1-y)/(1-t)$: all particles head straight for $x_1$.
+
+<Warning>
+The *marginal* path $p_t = \int\mu_t(\cdot\mid x_1)q(x_1)\,\mathrm{d}x_1$ obtained by averaging
+conditional OT paths is not the displacement interpolation between $\mathcal N(0,I)$ and
+$q$, and the marginal field is not the Benamou–Brenier minimizer between them. Each
+conditional path is straight, but a noise sample $x$ paired with two different data points
+follows two different straight lines, and their average is not a straight line. This is the
+gap that OT-CFM (<Cite id="2302.00482" />) closes by coupling $x_0$ and $x_1$ through a
+minibatch OT plan instead of independently, and that rectified flow closes by re-pairing
+$(x_0, x_1)$ along learned trajectories and retraining.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Two Gaussians in one dimension: the geodesic and a competitor">
+Let $\mu_0 = \mathcal N(0,1)$ and $\mu_1 = \mathcal N(2,\tfrac14)$. From the Wasserstein page,
+$W_2^2 = 2^2 + (1-\tfrac12)^2 = 4.25$ and $T(x) = 2 + \tfrac12x$.
+
+*Action of a Gaussian path.* Any path $\rho_t = \mathcal N(m_t, s_t^2)$ with $s_t>0$ is
+generated by $v_t(x) = \dot m_t + \frac{\dot s_t}{s_t}(x - m_t)$ (Exercise 3 on the
+continuity page: this is the velocity of the flow $x\mapsto m_t + s_t x$ pushing
+$\mathcal N(0,1)$). Its action is
+
+$$
+\int\|v_t\|^2\rho_t = \mathbb{E}\Big[\big(\dot m_t + \tfrac{\dot s_t}{s_t}(X_t - m_t)\big)^2\Big]
+= \dot m_t^2 + 2\dot m_t\tfrac{\dot s_t}{s_t}\,\underbrace{\mathbb{E}[X_t-m_t]}_{0}
++ \tfrac{\dot s_t^2}{s_t^2}\,\underbrace{\mathbb{E}(X_t-m_t)^2}_{s_t^2}
+= \dot m_t^2 + \dot s_t^2 .
+$$
+
+So $\mathcal A = \int_0^1(\dot m_t^2 + \dot s_t^2)\,\mathrm{d}t$: the fluid's kinetic energy
+is the kinetic energy of the point $(m_t,s_t)$ moving in the half-plane.
+
+*The geodesic.* $\phi_t(x) = (1-t)x + t(2+\tfrac12 x) = 2t + (1-\tfrac t2)x$, so
+$m_t = 2t$, $s_t = 1-\tfrac t2$, $\dot m_t = 2$, $\dot s_t = -\tfrac12$, and
+
+$$
+\mathcal A = \int_0^1\big(4 + \tfrac14\big)\mathrm{d}t = 4.25 = W_2^2 .
+$$
+
+The velocity field is $v_t(x) = 2 - \frac{1/2}{1-t/2}(x-2t) = 2 - \frac{x-2t}{2-t}$. Check
+against the formula $v_t = (T-\mathrm{id})\circ\phi_t^{-1}$: $T(x_0)-x_0 = 2-\tfrac12x_0$ and
+$x_0 = (x-2t)/(1-\tfrac t2)$, giving $2 - \frac{x-2t}{2-t}$. Same. At $t=\tfrac12$,
+$\mu_{1/2} = \mathcal N(1, \tfrac9{16})$ and $W_2(\mu_0,\mu_{1/2})^2 = 1 + \tfrac1{16} = \tfrac{17}{16}
+= \tfrac14\cdot 4.25$, as the geodesic proposition predicts.
+
+*A competitor.* Interpolate the *variances* linearly instead of the standard deviations:
+$m_t = 2t$, $s_t^2 = 1 - \tfrac34t$. Then $\dot s_t = -\tfrac38(1-\tfrac34t)^{-1/2}$ and
+
+$$
+\int_0^1\dot s_t^2\,\mathrm{d}t = \frac{9}{64}\int_0^1\frac{\mathrm{d}t}{1-\tfrac34t}
+= \frac{9}{64}\cdot\frac43\ln 4 = \frac{3}{16}\ln 4 \approx 0.2599 > 0.25 .
+$$
+
+So this path costs $4.2599$, above $W_2^2 = 4.25$, as Thm 1 requires. The excess is small
+because $s_t$ is nearly linear; a path that overshoots in $m$ and comes back costs more.
+
+*The Gaussian case of Thm 1, proved directly.* For any Gaussian path, Jensen gives
+$\int_0^1\dot m_t^2\ge\big(\int_0^1\dot m_t\big)^2 = (m_1-m_0)^2$ and likewise
+$\int_0^1\dot s_t^2\ge(s_1-s_0)^2$, with equality iff $\dot m$ and $\dot s$ are constant. So
+among Gaussian paths the minimal action is exactly $(m_1-m_0)^2 + (s_1-s_0)^2 = W_2^2$,
+attained only by linear $m_t, s_t$, which is the displacement interpolation.
+</Example>
+
+## Where it shows up
+
+- **Flow matching** (<Cite id="2210.02747" />, §4.1, eqs. 20–23): the OT conditional path and
+  field are the displacement interpolation and its velocity, as computed above. The
+  $\pi_0$ robot policy and other flow-based action heads inherit this choice.
+- **OT-CFM** (<Cite id="2302.00482" />, Thm 3.2 and Prop. 3.4): with the *optimal* coupling
+  $\pi$ of $q_0$ and $q_1$ in place of the independent one, the marginal field of conditional
+  straight paths is the Benamou–Brenier minimizer between $q_0$ and $q_1$. The paper
+  approximates $\pi$ by solving Kantorovich's problem on each minibatch.
+- **Rectified flow** (Liu et al. 2022): straight-line conditional paths and the "reflow"
+  procedure; Thm 3.5 there shows the transport cost is non-increasing under reflow for every
+  convex cost, and straight paths are what allow one-step sampling.
+- **Schrödinger bridges**: adding $\frac{\sigma^4}{4}\int\int\|\nabla\log\rho_t\|^2\rho_t$
+  (a Fisher information term) to the action gives the dynamic Schrödinger bridge problem
+  (Chen, Georgiou & Pavon 2016); see [Schrödinger bridge](/concepts/schrodinger-bridge).
+  The Benamou–Brenier problem is its $\sigma\to 0$ limit.
+- **Otto calculus and Wasserstein gradient flows**: identifying tangent vectors to
+  $\mathcal P_2$ with velocity fields, as Thm 1 does, is what makes "the Fokker–Planck equation
+  is the gradient flow of KL in $W_2$" (Jordan–Kinderlehrer–Otto 1998) a meaningful sentence,
+  and the starting point for the $W_2$ convergence analyses of Langevin and score-based samplers.
+
+## Exercises
+
+<Exercise hint="Compute W_2(mu_s, mu_t) from the closed form for 1-D Gaussians and compare with (t - s)^2 W_2^2.">
+For the Gaussian example, verify $W_2(\mu_s,\mu_t) = (t-s)W_2(\mu_0,\mu_1)$ directly for
+$s = \tfrac14$, $t = \tfrac34$.
+</Exercise>
+
+<Exercise hint="The Brenier map is x -> m_2 + A(x - m_1). Push N(m_1, Sigma_1) through (1 - t) id + t T.">
+Show that the displacement interpolation between $\mathcal N(m_1,\Sigma_1)$ and
+$\mathcal N(m_2,\Sigma_2)$ is $\mathcal N\big((1-t)m_1 + tm_2,\ \Sigma_t\big)$ with
+$\Sigma_t = \big((1-t)I + tA\big)\Sigma_1\big((1-t)I + tA\big)$. Check both endpoints.
+</Exercise>
+
+<Exercise hint="Differentiate the action of the geodesic with respect to t; the integrand is E|T(X) - X|^2 for every t.">
+Show that along the displacement interpolation the kinetic energy
+$\int\|v_t\|^2\mathrm{d}\mu_t$ is constant in $t$. Then show that for *any* admissible
+$(\rho,v)$, $\int_0^1\big(\int\|v_t\|^2\mathrm{d}\rho_t\big)^{1/2}\mathrm{d}t\ge W_2(\mu_0,\mu_1)$
+(so the geodesic also minimizes length, not only energy), and that Jensen turns this into
+Thm 1's inequality.
+</Exercise>
+
+<Exercise hint="Use the 1-D quantile formula on the Wasserstein page; the mixture's quantile function is not the interpolated quantile function.">
+Let $\mu_0 = \delta_0$, $\mu_1 = \delta_1$. Compute $W_2(\mu_0,\nu_t)$ for the mixture path
+$\nu_t = (1-t)\delta_0 + t\delta_1$ and for the displacement interpolation $\mu_t = \delta_t$.
+Which one is linear in $t$? Compute the action of the displacement interpolation and explain
+why the mixture path has no finite-action velocity field at all.
+</Exercise>
+
+## Going deeper
+
+Benamou and Brenier's original paper introduces the formulation as a convex problem in the
+variables $(\rho, m = \rho v)$ and solves it numerically by an augmented Lagrangian; that
+change of variables is what makes $\int\|m\|^2/\rho$ jointly convex and is worth reading
+once. Santambrogio §5.4 proves Thm 1 in full, including the superposition argument omitted
+above, and Ch. 6 uses it to define the Wasserstein "tangent space." Villani's *Topics* Ch. 8
+does displacement interpolation and McCann's displacement convexity, the fact that entropy
+is convex along these geodesics, which is the reason the Fokker–Planck gradient flow
+converges exponentially for log-concave targets.

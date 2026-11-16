@@ -1,0 +1,321 @@
+---
+title: "Flow matching"
+kind: concept
+summary: "Learning a velocity field whose ODE carries noise to data, why regressing on per-sample conditional velocities gives the right answer, and how the optimal-transport path and the diffusion score fit in."
+tags: [flow-matching, continuous-normalizing-flows, optimal-transport, diffusion-models, robot-policies]
+track: generative-modeling
+level: 3
+prerequisites: [continuity-equation, gaussian-computations, benamou-brenier]
+estimated_minutes: 70
+status: ready
+created: 2026-09-23
+updated: 2026-09-23
+sources:
+  - type: arxiv
+    id: "2210.02747"
+    title: "Flow Matching for Generative Modeling"
+  - type: arxiv
+    id: "2209.03003"
+    title: "Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow"
+  - type: arxiv
+    id: "2302.00482"
+    title: "Improving and Generalizing Flow-Based Generative Models with Minibatch Optimal Transport"
+  - type: arxiv
+    id: "2410.24164"
+    title: "pi0: A Vision-Language-Action Flow Model for General Robot Control"
+  - type: arxiv
+    id: "2403.03206"
+    title: "Scaling Rectified Flow Transformers for High-Resolution Image Synthesis"
+---
+
+## Why you need this
+
+$\pi_0$ (Black et al. 2024) generates action chunks by integrating a learned velocity field
+from Gaussian noise to actions; its training loss is the conditional flow-matching objective
+of Lipman et al. 2022 with the optimal-transport path. Stable Diffusion 3 (Esser et al.
+2024) and Rectified Flow (Liu et al. 2022) train the same objective. Minibatch-OT flow
+matching (Tong et al. 2023) and the Schrödinger-bridge methods are modifications of the
+coupling. To read any of these you need three results: the marginal vector field theorem,
+the conditional flow-matching theorem, and the closed form of the velocity for Gaussian
+paths. All three are proved below.
+
+## Setup
+
+Time runs from $t = 0$ (noise) to $t = 1$ (data), the flow-matching convention, opposite to
+the diffusion convention. Let $q$ be the data distribution on $\mathbb{R}^d$ and
+$p_0 = \mathcal N(0,I)$.
+
+A time-dependent vector field $u_t:\mathbb{R}^d\to\mathbb{R}^d$ (Lipschitz in $x$,
+continuous in $t$) defines a **flow** $\psi_t$ by
+$\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x) = u_t(\psi_t(x))$, $\psi_0(x) = x$. The density
+$p_t = (\psi_t)_\#p_0$ of $X_t = \psi_t(X_0)$, $X_0\sim p_0$, is the unique solution of the
+[continuity equation](/concepts/continuity-equation)
+$$
+\partial_t p_t + \nabla\!\cdot(p_t\,u_t) = 0 .
+$$
+We say $u_t$ **generates** the path $(p_t)_{t\in[0,1]}$. Sampling means solving the ODE from
+$X_0\sim\mathcal N(0,I)$ to $t = 1$.
+
+<Definition name="Flow matching objective">
+Given a target path $p_t$ with $p_1 = q$ and a field $u_t$ generating it, train
+$v_\theta(x,t)$ by
+$$
+\mathcal L_{\mathrm{FM}}(\theta) = \mathbb{E}_{t\sim\mathcal U[0,1],\;x\sim p_t}\big\|v_\theta(x,t) - u_t(x)\big\|^2 .
+$$
+This is not computable: we know neither $p_t$ nor $u_t$ for the data we care about.
+</Definition>
+
+## The idea
+
+The trick is to build $p_t$ and $u_t$ out of pieces that are simple *conditionally on a
+data point*.
+
+<Definition name="Conditional path and conditional field">
+For each $x_1\in\mathbb{R}^d$ choose a path $p_t(x|x_1)$ with $p_0(x|x_1) = \mathcal N(0,I)$
+and $p_1(\cdot|x_1)$ concentrated near $x_1$, and a field $u_t(x|x_1)$ generating it:
+$\partial_t p_t(x|x_1) + \nabla\!\cdot(p_t(x|x_1)\,u_t(x|x_1)) = 0$. The **marginal path**
+and **marginal field** are
+$$
+p_t(x) = \int p_t(x|x_1)\,q(x_1)\,\mathrm{d}x_1,
+\qquad
+u_t(x) = \int u_t(x|x_1)\,\frac{p_t(x|x_1)\,q(x_1)}{p_t(x)}\,\mathrm{d}x_1 .
+$$
+The weight $p_t(x|x_1)q(x_1)/p_t(x)$ is the posterior of $x_1$ given $X_t = x$, so
+$u_t(x) = \mathbb{E}[u_t(X_t\mid X_1)\mid X_t = x]$: the marginal field is the
+[conditional expectation](/concepts/conditional-expectation) of the conditional field.
+</Definition>
+
+<Theorem name="The marginal field generates the marginal path (Lipman et al., Thm 1)" label="Thm 1">
+Assume $q$ has finite first moment, $p_t(x|x_1)>0$, and $p_t(x|x_1)$, $u_t(x|x_1)$ are
+smooth enough that $\partial_t$ and $\nabla\!\cdot$ can be exchanged with $\int\cdot\,q(x_1)\mathrm{d}x_1$
+(dominated convergence; true for the Gaussian paths below). Then
+$\partial_t p_t + \nabla\!\cdot(p_t u_t) = 0$, with $p_1 = q$ when $p_1(\cdot|x_1) = \delta_{x_1}$.
+</Theorem>
+
+<Proof>
+Differentiate the marginal in $t$ under the integral and use the conditional continuity
+equation:
+$$
+\partial_t p_t(x) = \int\partial_t p_t(x|x_1)\,q(x_1)\,\mathrm{d}x_1
+= -\int\nabla\!\cdot\big(u_t(x|x_1)\,p_t(x|x_1)\big)\,q(x_1)\,\mathrm{d}x_1 .
+$$
+Pull the divergence (in $x$) out of the integral (in $x_1$):
+$$
+= -\nabla\!\cdot\int u_t(x|x_1)\,p_t(x|x_1)\,q(x_1)\,\mathrm{d}x_1
+= -\nabla\!\cdot\big(u_t(x)\,p_t(x)\big),
+$$
+where the last step is the definition of $u_t$ multiplied through by $p_t(x)$. $\blacksquare$
+</Proof>
+
+<Theorem name="Conditional flow matching (Lipman et al., Thm 2)" label="Thm 2">
+Define
+$$
+\mathcal L_{\mathrm{CFM}}(\theta) = \mathbb{E}_{t\sim\mathcal U[0,1],\;x_1\sim q,\;x\sim p_t(\cdot|x_1)}\big\|v_\theta(x,t) - u_t(x|x_1)\big\|^2 .
+$$
+If $\mathbb{E}\|u_t(X_t|X_1)\|^2<\infty$, then $\mathcal L_{\mathrm{FM}} = \mathcal L_{\mathrm{CFM}} + C$
+with $C$ independent of $\theta$; in particular $\nabla_\theta\mathcal L_{\mathrm{FM}} = \nabla_\theta\mathcal L_{\mathrm{CFM}}$.
+</Theorem>
+
+<Proof>
+Expand both squares at fixed $t$. The terms $\mathbb{E}\|v_\theta(x,t)\|^2$ agree because
+the marginal of $x$ under $q(x_1)p_t(x|x_1)$ is $p_t(x)$. The terms without $\theta$ go
+into $C$. The cross terms:
+$$
+\mathbb{E}_{x_1,\,x}\big\langle v_\theta(x,t),u_t(x|x_1)\big\rangle
+= \int\Big\langle v_\theta(x,t),\int u_t(x|x_1)\,p_t(x|x_1)\,q(x_1)\,\mathrm{d}x_1\Big\rangle\mathrm{d}x
+= \int\big\langle v_\theta(x,t),u_t(x)\,p_t(x)\big\rangle\mathrm{d}x
+= \mathbb{E}_{x\sim p_t}\big\langle v_\theta(x,t),u_t(x)\big\rangle ,
+$$
+using Fubini and the definition of $u_t$. Integrate over $t$. $\blacksquare$
+</Proof>
+
+<Intuition>
+$\mathcal L_{\mathrm{CFM}}$ is least-squares regression of a noisy target
+$u_t(x|x_1)$ on the input $x$. The $L^2$-optimal regressor is the conditional mean, which is
+$u_t(x)$ by definition. Exactly the same logic makes denoising score matching work
+(compare Cor 3 on the [score matching](/concepts/score-matching) page).
+</Intuition>
+
+<Theorem name="Gaussian conditional paths (Lipman et al., Thm 3)" label="Thm 3">
+Let $p_t(x|x_1) = \mathcal N\big(x;\,\mu_t(x_1),\,\sigma_t(x_1)^2 I\big)$ with $\mu_t,\sigma_t$
+$C^1$ in $t$, $\sigma_t>0$ for $t<1$, $\mu_0 = 0$, $\sigma_0 = 1$. The map
+$\psi_t(x_0|x_1) = \sigma_t(x_1)\,x_0 + \mu_t(x_1)$ pushes $\mathcal N(0,I)$ to $p_t(\cdot|x_1)$,
+and the field generating the path is
+$$
+u_t(x|x_1) = \frac{\sigma_t'(x_1)}{\sigma_t(x_1)}\big(x - \mu_t(x_1)\big) + \mu_t'(x_1) .
+$$
+</Theorem>
+
+<Proof>
+An affine image of $\mathcal N(0,I)$ is $\mathcal N(\mu_t,\sigma_t^2I)$
+([affine maps of Gaussians](/concepts/gaussian-computations)). The flow generated by
+$u_t(\cdot|x_1)$ must satisfy $\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x_0) = u_t(\psi_t(x_0)|x_1)$.
+Differentiate: $\frac{\mathrm{d}}{\mathrm{d}t}\psi_t(x_0) = \sigma_t'x_0 + \mu_t'$. Solve
+$x = \sigma_tx_0 + \mu_t$ for $x_0 = (x-\mu_t)/\sigma_t$ and substitute. Since the
+push-forward of $p_0$ by this flow is $p_t(\cdot|x_1)$ for every $t$, the field generates
+the path (uniqueness for the continuity equation). $\blacksquare$
+</Proof>
+
+**Two paths.**
+
+- *Optimal-transport (OT) path:* $\mu_t = t\,x_1$, $\sigma_t = 1-(1-\sigma_{\min})t$. Then
+  $$
+  u_t(x|x_1) = \frac{x_1 - (1-\sigma_{\min})\,x}{1-(1-\sigma_{\min})\,t},
+  \qquad
+  \psi_t(x_0|x_1) = \big(1-(1-\sigma_{\min})t\big)x_0 + t\,x_1 .
+  $$
+  Along a trajectory $x = \psi_t(x_0|x_1)$ the field is $u = x_1 - (1-\sigma_{\min})x_0$,
+  constant in $t$: each conditional flow moves particles in straight lines at constant
+  speed. With $\sigma_{\min}\to 0$ the regression target is simply $x_1 - x_0$, the form
+  used by Rectified Flow, SD3 and $\pi_0$. The name comes from
+  [Benamou–Brenier](/concepts/benamou-brenier): $x_0\mapsto\sigma_{\min}x_0 + x_1$ is the
+  gradient of the convex function $\tfrac12\sigma_{\min}\|x\|^2+\langle x_1,x\rangle$, hence the
+  $W_2$-optimal map from $\mathcal N(0,I)$ to $\mathcal N(x_1,\sigma_{\min}^2I)$, and
+  $\psi_t$ is its displacement interpolation. The *marginal* flow is not $W_2$-optimal in
+  general; minibatch-OT CFM (Tong et al. 2023) changes the coupling of $(x_0,x_1)$ to move
+  toward that.
+- *Diffusion (VP) path:* $\mu_t = \alpha_{1-t}x_1$, $\sigma_t = \sqrt{1-\alpha_{1-t}^2}$ with
+  $\alpha_s = e^{-\frac12\int_0^s\beta}$; this is the DDPM perturbation kernel with the
+  clock reversed. Thm 3 gives the velocity in closed form; its trajectories are curved.
+
+<Proposition name="Velocity and score" label="Prop 4">
+For a conditional path $p_t(x|x_1) = \mathcal N(a_tx_1,\sigma_t^2I)$ with $a_t\ne0$, the
+marginal field and the marginal score are related pointwise by
+$$
+u_t(x) = \frac{a_t'}{a_t}\,x + \Big(\sigma_t^2\frac{a_t'}{a_t} - \sigma_t\sigma_t'\Big)\nabla\log p_t(x) .
+$$
+</Proposition>
+
+<Proof>
+Write $m(x) = \mathbb{E}[X_1\mid X_t = x]$. Thm 3 gives
+$u_t(x|x_1) = \frac{\sigma_t'}{\sigma_t}(x - a_tx_1) + a_t'x_1$, affine in $x_1$, so taking
+the conditional expectation (the definition of $u_t$) gives
+$u_t(x) = \frac{\sigma_t'}{\sigma_t}(x-a_tm(x)) + a_t'm(x)$. Tweedie's formula
+(affine case, [score matching](/concepts/score-matching) Thm 4) gives
+$a_tm(x) = x + \sigma_t^2\nabla\log p_t(x)$. Substitute:
+$$
+u_t(x) = \frac{\sigma_t'}{\sigma_t}\big(-\sigma_t^2\nabla\log p_t\big) + \frac{a_t'}{a_t}\big(x+\sigma_t^2\nabla\log p_t\big),
+$$
+and collect terms. $\blacksquare$
+</Proof>
+
+So a flow-matching network and a score network carry the same information at every $t$; a
+velocity is a score plus a known linear term. For $a_t = 1$ the formula reads
+$u_t = -\sigma_t\sigma_t'\nabla\log p_t$, which is the probability-flow ODE of the VE-SDE
+in the noise-to-data clock ([diffusion SDE framework](/concepts/diffusion-sde-framework),
+Thm 3).
+
+<Warning>
+Conditional trajectories are straight, but the marginal ODE's trajectories generally are
+not: two conditional straight lines $\psi_t(x_0|x_1)$ and $\psi_t(x_0'|x_1')$ can cross,
+while integral curves of a Lipschitz field $u_t$ never do. Averaging (Thm 1) bends them.
+"Straight" in Rectified Flow refers to the coupling after reflow, not to the first-round
+marginal flow. Also, with $\sigma_{\min} = 0$ the conditional target $u_t(x|x_1) = (x_1-x)/(1-t)$
+is unbounded as $t\to 1$ for $x$ off the conditional path, but the regression target on
+the path, $x_1 - x_0$, is fine; the finite-second-moment hypothesis of Thm 2 holds.
+</Warning>
+
+## Worked example by hand
+
+<Example title="Two data points in one dimension: the CFM target and the marginal field">
+Data: $q = \tfrac12\delta_{-1}+\tfrac12\delta_{+1}$. OT path with $\sigma_{\min} = 0$, so
+$p_t(x|x_1) = \mathcal N(tx_1,(1-t)^2)$ and $u_t(x|x_1) = (x_1-x)/(1-t)$.
+
+*A training sample.* Draw $x_0 = -0.5$, $x_1 = +1$, $t = \tfrac12$. The input is
+$x = \psi_{1/2}(x_0|x_1) = 0.5\cdot(-0.5) + 0.5\cdot1 = 0.25$ and the target is
+$u = x_1 - x_0 = 1.5$; equivalently $(x_1-x)/(1-t) = 0.75/0.5 = 1.5$. Had the data point
+been $x_1 = -1$ with the same $x = 0.25$, the target would be $(-1-0.25)/0.5 = -2.5$. The
+network at $(x,t) = (0.25,\tfrac12)$ is pulled toward $1.5$ by one kind of sample and
+toward $-2.5$ by the other.
+
+*The marginal field.* By Thm 1 the field to learn is the posterior average of these two
+targets. The marginal is the mixture $p_t = \tfrac12\mathcal N(-t,(1-t)^2)+\tfrac12\mathcal N(t,(1-t)^2)$
+and the posterior weight of $x_1 = +1$ given $x$ is
+$$
+w_+(x) = \frac{e^{-(x-t)^2/2(1-t)^2}}{e^{-(x-t)^2/2(1-t)^2}+e^{-(x+t)^2/2(1-t)^2}}
+= \frac{1}{1+e^{-2xt/(1-t)^2}},
+$$
+since $(x+t)^2-(x-t)^2 = 4xt$. Then
+$\mathbb{E}[X_1\mid X_t = x] = w_+ - w_- = \tanh\!\big(xt/(1-t)^2\big)$ and
+$$
+u_t(x) = \frac{\tanh\!\big(xt/(1-t)^2\big) - x}{1-t}.
+$$
+At $(x,t) = (0.25,\tfrac12)$: $(1-t)^2 = 0.25$, $xt/(1-t)^2 = 0.125/0.25 = 0.5$,
+$\tanh(0.5) = 0.4621$, so $u_{1/2}(0.25) = (0.4621-0.25)/0.5 = 0.4242$. As a weighted
+average of the two conditional targets: $w_+ = 1/(1+e^{-1}) = 0.7311$, $w_- = 0.2689$, and
+$0.7311\cdot1.5 - 0.2689\cdot2.5 = 1.0966 - 0.6723 = 0.4243$. Agreement to rounding.
+
+*Cross-check through the score (Prop 4).* Here $a_t = t$, $\sigma_t = 1-t$, so at $t=\tfrac12$:
+$a'/a = 2$ and $\sigma^2a'/a - \sigma\sigma' = 0.25\cdot2 + 0.5 = 1$. The score of the
+symmetric mixture with means $\pm m$, variance $v$ is $-x/v + (m/v)\tanh(mx/v)$; with
+$m = 0.5$, $v = 0.25$, $x = 0.25$: $-1 + 2\tanh(0.5) = -1 + 0.9242 = -0.0758$. Then
+$u = 2\cdot0.25 + 1\cdot(-0.0758) = 0.4242$. Same number by an independent route.
+
+*Sanity checks.* At $t = 0$, $u_0(x) = \tanh(0) - x = -x$: with no information about
+which data point will be drawn, every particle first drifts toward the data mean $0$. As
+$t\to1$ with $x$ near $+t$, $\tanh\to1$ and $u\to(1-x)/(1-t)$, the pure conditional field
+toward $+1$. The field is odd, $u_t(-x) = -u_t(x)$, matching the symmetry of $q$. And the
+particle from $x_0 = -0.5$ that we started with is at $0.25$ at $t = \tfrac12$ with marginal
+velocity $0.42$, while its conditional velocity was $1.5$: the marginal flow is slower there
+because a quarter of the posterior mass still points to $-1$.
+</Example>
+
+## Where it shows up
+
+- **Flow Matching** <Cite id="2210.02747" />: Thms 1–3 are their Theorems 1–3; the CFM
+  loss is their eq. (9); the OT path is Section 4.2 and the diffusion path Section 4.1.
+  The [paper page](/papers/flow-matching-lipman-2022) decomposes it.
+- **Rectified Flow** <Cite id="2209.03003" />: the same objective with target $x_1-x_0$
+  and an arbitrary coupling of $(x_0,x_1)$; "reflow" re-couples using the learned flow to
+  straighten marginal trajectories (see the Warning).
+- **$\pi_0$** <Cite id="2410.24164" />: the action expert is trained with the OT
+  conditional path on action chunks, conditioned on the VLM's observation embedding, and
+  samples by Euler-integrating the learned field for about ten steps. The only change from
+  Thm 2 is the distribution of $t$, which is skewed toward noisier times.
+- **SD3** <Cite id="2403.03206" />: the same objective with a logit-normal distribution
+  over $t$; the paper's ablation compares the OT path against the VP path of Thm 3.
+- **Minibatch OT CFM** <Cite id="2302.00482" />: replaces the independent coupling
+  $p_0\otimes q$ by an entropic-OT plan on each minibatch
+  ([Sinkhorn](/concepts/entropic-ot-and-sinkhorn)); Thms 1–2 still apply because they
+  never used independence of $x_0$ and $x_1$, only that $x\sim p_t(\cdot|x_1)$.
+- **Schrödinger bridges** ([page](/concepts/schrodinger-bridge)): the stochastic analogue,
+  in which the conditional path is a Brownian bridge and the coupling is the entropic-OT
+  plan; the flow-matching limit is the zero-noise case.
+- **Diffusion policies with flow matching** (e.g. $\pi_0$, and flow-based variants of
+  Diffusion Policy): Prop 4 is why a velocity network can be fine-tuned with the same
+  guidance and RL machinery as a score network.
+
+## Exercises
+
+<Exercise hint="Apply Thm 3 with mu_t = alpha_(1-t) x_1 and sigma_t = sqrt(1 - alpha_(1-t)^2); differentiate with the chain rule.">
+Derive the conditional field of the VP diffusion path and show that for constant $\beta$
+its trajectories $\psi_t(x_0|x_1)$ are not straight lines. Compare with the OT path at the
+same $x_0, x_1$.
+</Exercise>
+
+<Exercise hint="Solve the marginal ODE numerically with two Euler steps of size 1/2 from x_0 = -0.5 and from x_0 = 0.5, and compare with the conditional straight lines.">
+In the worked example, integrate $\dot x = u_t(x)$ from $x_0 = -0.5$ with two Euler steps
+($t = 0\to\tfrac12\to1$). Which data point does the particle end near? Explain using the
+sign of $u_0$.
+</Exercise>
+
+<Exercise hint="The kinetic energy of the conditional flow is |x_1 - (1 - sigma_min) x_0|^2 for every particle; compare with the W_2 formula between Gaussians.">
+Using [Benamou–Brenier](/concepts/benamou-brenier), show that the conditional OT path
+attains $W_2^2\big(\mathcal N(0,I),\mathcal N(x_1,\sigma_{\min}^2I)\big) = \|x_1\|^2 + d(1-\sigma_{\min})^2$,
+and hence that $\psi_t(\cdot|x_1)$ is the $W_2$ geodesic.
+</Exercise>
+
+<Exercise hint="Write both objectives' cross terms and use Tweedie in the affine form; the weighting is (sigma^2 a'/a - sigma sigma')^2.">
+Show that for a Gaussian conditional path the CFM loss equals a denoising score matching
+loss with a specific time weighting, and compute that weighting for the OT path with
+$\sigma_{\min} = 0$. Where does it vanish, and what does that mean for the score there?
+</Exercise>
+
+## Going deeper
+
+Lipman et al. 2022 is short and readable once Thms 1–3 are in hand; Appendix A has the
+regularity conditions for Thm 1. Tong et al. 2023 give the cleanest general statement
+(arbitrary couplings) and connect to Schrödinger bridges. Liu, Gong and Liu 2022 explain
+reflow and why straight marginal flows allow one-step sampling. For the $W_2$ geometry
+behind the OT path read [Benamou–Brenier](/concepts/benamou-brenier) and then
+[Wasserstein distance](/concepts/wasserstein-distance).
