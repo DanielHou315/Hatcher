@@ -3,7 +3,8 @@
 The mathematics behind the papers, one page a day. Named after the Hatcher Graduate Library at the
 University of Michigan.
 
-Hatcher is a small personal reading site. Each page is one MDX file: a concept (one mathematical
+Hatcher is a small personal reading site. Each page is one MDX or HTML file (HTML pages and
+interactive figures run sandboxed): a concept (one mathematical
 idea taught from undergraduate engineering math up), a paper (decomposed into its theorems and their
 prerequisites), or a roadmap (an ordered path through both). The site tracks reading progress, keeps
 a daily streak, and suggests the next page from the primary roadmap.
