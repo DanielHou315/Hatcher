@@ -27,6 +27,7 @@ docs/specs
 
 # Dependencies and build output
 public/_lib/katex/
+public/_lib/fonts/
 node_modules/
 .next/
 out/
