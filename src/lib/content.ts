@@ -284,8 +284,14 @@ export function buildSite(entries: Entry[]): Site {
   return { entries, pages, roadmaps, bySlug, leadsTo, missingPrerequisites, tracks, tagCounts, primaryRoadmap, primaryOrder };
 }
 
-export function getSite(dir: string = contentDir()): Site {
-  return buildSite(loadEntries(dir));
+/** Entries a viewer may see: published, valid pages, plus drafts and invalid pages for writers. */
+export function visibleEntries(entries: Entry[], drafts: boolean): Entry[] {
+  return drafts ? entries : entries.filter((e) => !e.error && e.status === 'ready');
+}
+
+/** The site as one viewer sees it. Drafts are hidden unless `drafts` is set. */
+export function getSite(opts: { drafts?: boolean } = {}, dir: string = contentDir()): Site {
+  return buildSite(visibleEntries(loadEntries(dir), opts.drafts ?? false));
 }
 
 export function findEntry(site: Site, kind: Kind, slug: string): Entry | undefined {

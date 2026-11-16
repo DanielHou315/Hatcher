@@ -152,8 +152,8 @@ export function isFigurePath(src: string): boolean {
 }
 
 /** URL of the folder a page's sandboxed files are served from, ending in a slash. */
-export function entryContentBase(entry: Pick<Entry, 'kind' | 'slug'>): string {
-  return `${contentOrigin()}${CONTENT_PREFIX}/${KIND_DIRS[entry.kind]}/${entry.slug}/`;
+export function entryContentBase(entry: Pick<Entry, 'kind' | 'slug'>, token?: string): string {
+  return `${contentOrigin()}${CONTENT_PREFIX}/${token ? `~${token}/` : ''}${KIND_DIRS[entry.kind]}/${entry.slug}/`;
 }
 
 /** Latest modification time in the page's folder (or of its file), used to reload frames on change. */

@@ -22,21 +22,38 @@ export function dataDir(): string {
   return path.resolve(process.env.DATA_DIR || path.join(process.cwd(), 'data'));
 }
 
+// Progress is per user (Better Auth user id). Version 1 had no user_id; see migrate().
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS progress (
-  slug TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  slug TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('not-started', 'in-progress', 'done')),
   notes TEXT,
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, slug)
 );
 CREATE TABLE IF NOT EXISTS reading_log (
   id INTEGER PRIMARY KEY,
+  user_id TEXT NOT NULL,
   slug TEXT NOT NULL,
   event TEXT NOT NULL CHECK (event IN ('view', 'status')),
   at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS reading_log_slug_at ON reading_log (slug, at);
+CREATE INDEX IF NOT EXISTS reading_log_user_at ON reading_log (user_id, at);
+CREATE INDEX IF NOT EXISTS reading_log_user_slug_at ON reading_log (user_id, slug, at);
 `;
+
+/** Move single-user tables aside (dropping them when empty) so the per-user schema can be created. */
+function migrate(db: DatabaseSync) {
+  for (const table of ['progress', 'reading_log']) {
+    const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (columns.length === 0 || columns.some((c) => c.name === 'user_id')) continue;
+    const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number };
+    if (n === 0) db.exec(`DROP TABLE ${table}`);
+    else db.exec(`ALTER TABLE ${table} RENAME TO ${table}_single_user`);
+  }
+  db.exec('DROP INDEX IF EXISTS reading_log_slug_at');
+}
 
 /** Calendar day in local time, YYYY-MM-DD. */
 export function localDay(date: Date): string {
@@ -51,8 +68,8 @@ function previousDay(day: string): string {
   return localDay(new Date(y, m - 1, d - 1));
 }
 
-export interface ProgressStore {
-  db: DatabaseSync;
+/** One user's progress. */
+export interface UserProgress {
   getAllProgress(): ProgressRow[];
   getProgress(slug: string): ProgressRow | undefined;
   setProgress(slug: string, status: ProgressStatus, notes?: string, now?: Date): ProgressRow;
@@ -61,6 +78,11 @@ export interface ProgressStore {
   getStreak(today?: Date): number;
   getRecent(n: number): string[];
   getStats(pages: { slug: string; minutes?: number }[]): Stats;
+}
+
+export interface ProgressStore {
+  db: DatabaseSync;
+  user(userId: string): UserProgress;
   close(): void;
 }
 
@@ -76,69 +98,74 @@ export function openProgressStore(dir: string = dataDir()): ProgressStore {
   const db = new (sqlite().DatabaseSync)(path.join(dir, 'progress.db'));
   db.exec('PRAGMA journal_mode = WAL;');
   db.exec('PRAGMA busy_timeout = 3000;');
+  migrate(db);
   db.exec(SCHEMA);
 
-  const selectAll = db.prepare('SELECT slug, status, notes, updated_at FROM progress ORDER BY slug');
-  const selectOne = db.prepare('SELECT slug, status, notes, updated_at FROM progress WHERE slug = ?');
+  const selectAll = db.prepare('SELECT slug, status, notes, updated_at FROM progress WHERE user_id = ? ORDER BY slug');
+  const selectOne = db.prepare('SELECT slug, status, notes, updated_at FROM progress WHERE user_id = ? AND slug = ?');
   const upsert = db.prepare(`
-    INSERT INTO progress (slug, status, notes, updated_at) VALUES (?, ?, ?, ?)
-    ON CONFLICT(slug) DO UPDATE SET status = excluded.status, notes = excluded.notes, updated_at = excluded.updated_at
+    INSERT INTO progress (user_id, slug, status, notes, updated_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, slug) DO UPDATE SET status = excluded.status, notes = excluded.notes, updated_at = excluded.updated_at
   `);
-  const insertLog = db.prepare('INSERT INTO reading_log (slug, event, at) VALUES (?, ?, ?)');
-  const lastView = db.prepare("SELECT at FROM reading_log WHERE slug = ? AND event = 'view' ORDER BY at DESC LIMIT 1");
-  const allEventTimes = db.prepare('SELECT at FROM reading_log ORDER BY at DESC');
+  const insertLog = db.prepare('INSERT INTO reading_log (user_id, slug, event, at) VALUES (?, ?, ?, ?)');
+  const lastView = db.prepare(
+    "SELECT at FROM reading_log WHERE user_id = ? AND slug = ? AND event = 'view' ORDER BY at DESC LIMIT 1",
+  );
+  const allEventTimes = db.prepare('SELECT at FROM reading_log WHERE user_id = ? ORDER BY at DESC');
   const recent = db.prepare(
-    "SELECT slug, MAX(at) AS last FROM reading_log WHERE event = 'view' GROUP BY slug ORDER BY last DESC LIMIT ?",
+    "SELECT slug, MAX(at) AS last FROM reading_log WHERE user_id = ? AND event = 'view' GROUP BY slug ORDER BY last DESC LIMIT ?",
   );
 
-  const store: ProgressStore = {
-    db,
-    getAllProgress: () => selectAll.all() as unknown as ProgressRow[],
-    getProgress: (slug) => selectOne.get(slug) as unknown as ProgressRow | undefined,
-    setProgress(slug, status, notes, now = new Date()) {
-      const existing = store.getProgress(slug);
-      const nextNotes = notes !== undefined ? notes : (existing?.notes ?? null);
-      upsert.run(slug, status, nextNotes, now.toISOString());
-      if (existing?.status !== status) insertLog.run(slug, 'status', now.toISOString());
-      return store.getProgress(slug)!;
-    },
-    logEvent(slug, event, now = new Date()) {
-      if (event === 'view') {
-        const last = lastView.get(slug) as { at: string } | undefined;
-        if (last && localDay(new Date(last.at)) === localDay(now)) return false;
-      }
-      insertLog.run(slug, event, now.toISOString());
-      return true;
-    },
-    getStreak(today = new Date()) {
-      const days = new Set((allEventTimes.all() as { at: string }[]).map((r) => localDay(new Date(r.at))));
-      let day = localDay(today);
-      if (!days.has(day)) day = previousDay(day);
-      let streak = 0;
-      while (days.has(day)) {
-        streak += 1;
-        day = previousDay(day);
-      }
-      return streak;
-    },
-    getRecent: (n) => (recent.all(n) as { slug: string }[]).map((r) => r.slug),
-    getStats(pages) {
-      const status = new Map(store.getAllProgress().map((r) => [r.slug, r.status]));
-      let done = 0;
-      let inProgress = 0;
-      let doneMinutes = 0;
-      for (const p of pages) {
-        const s = status.get(p.slug);
-        if (s === 'done') {
-          done += 1;
-          doneMinutes += p.minutes ?? 0;
-        } else if (s === 'in-progress') inProgress += 1;
-      }
-      return { done, inProgress, total: pages.length, doneMinutes };
-    },
-    close: () => db.close(),
-  };
-  return store;
+  function user(userId: string): UserProgress {
+    const progress: UserProgress = {
+      getAllProgress: () => selectAll.all(userId) as unknown as ProgressRow[],
+      getProgress: (slug) => selectOne.get(userId, slug) as unknown as ProgressRow | undefined,
+      setProgress(slug, status, notes, now = new Date()) {
+        const existing = progress.getProgress(slug);
+        const nextNotes = notes !== undefined ? notes : (existing?.notes ?? null);
+        upsert.run(userId, slug, status, nextNotes, now.toISOString());
+        if (existing?.status !== status) insertLog.run(userId, slug, 'status', now.toISOString());
+        return progress.getProgress(slug)!;
+      },
+      logEvent(slug, event, now = new Date()) {
+        if (event === 'view') {
+          const last = lastView.get(userId, slug) as { at: string } | undefined;
+          if (last && localDay(new Date(last.at)) === localDay(now)) return false;
+        }
+        insertLog.run(userId, slug, event, now.toISOString());
+        return true;
+      },
+      getStreak(today = new Date()) {
+        const days = new Set((allEventTimes.all(userId) as { at: string }[]).map((r) => localDay(new Date(r.at))));
+        let day = localDay(today);
+        if (!days.has(day)) day = previousDay(day);
+        let streak = 0;
+        while (days.has(day)) {
+          streak += 1;
+          day = previousDay(day);
+        }
+        return streak;
+      },
+      getRecent: (n) => (recent.all(userId, n) as { slug: string }[]).map((r) => r.slug),
+      getStats(pages) {
+        const status = new Map(progress.getAllProgress().map((r) => [r.slug, r.status]));
+        let done = 0;
+        let inProgress = 0;
+        let doneMinutes = 0;
+        for (const p of pages) {
+          const s = status.get(p.slug);
+          if (s === 'done') {
+            done += 1;
+            doneMinutes += p.minutes ?? 0;
+          } else if (s === 'in-progress') inProgress += 1;
+        }
+        return { done, inProgress, total: pages.length, doneMinutes };
+      },
+    };
+    return progress;
+  }
+
+  return { db, user, close: () => db.close() };
 }
 
 // Process-wide store for the running site, keyed by DATA_DIR.
@@ -152,16 +179,14 @@ export function store(): ProgressStore {
   return g.__hatcherStore.store;
 }
 
-export const getAllProgress = () => store().getAllProgress();
-export const getProgress = (slug: string) => store().getProgress(slug);
-export const setProgress = (slug: string, status: ProgressStatus, notes?: string) => store().setProgress(slug, status, notes);
-export const logEvent = (slug: string, event: LogEvent) => store().logEvent(slug, event);
-export const getStreak = (today?: Date) => store().getStreak(today);
-export const getRecent = (n: number) => store().getRecent(n);
-export const getStats = (pages: { slug: string; minutes?: number }[]) => store().getStats(pages);
+/** Progress for a signed-in user. */
+export function userProgress(userId: string): UserProgress {
+  return store().user(userId);
+}
 
-/** Map of slug to status, defaulting to not-started. */
-export function progressLookup(): (slug: string) => ProgressStatus {
-  const map = new Map(getAllProgress().map((r) => [r.slug, r.status]));
+/** Map of slug to status for a user (or nobody, when signed out), defaulting to not-started. */
+export function progressLookup(userId: string | null | undefined): (slug: string) => ProgressStatus {
+  if (!userId) return () => 'not-started';
+  const map = new Map(userProgress(userId).getAllProgress().map((r) => [r.slug, r.status]));
   return (slug) => map.get(slug) ?? 'not-started';
 }

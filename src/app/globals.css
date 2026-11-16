@@ -291,6 +291,25 @@ a:hover { text-decoration-thickness: 2px; }
 .prose hr { border: 0; border-top: 1px solid var(--line); }
 .prose img { max-width: 100%; height: auto; }
 
+/* Forms */
+.field { display: flex; flex-direction: column; gap: 0.25rem; }
+.field input, .field select {
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  padding: 0.35rem 0; font-size: 1.02rem; outline: none; color: var(--ink);
+}
+.field select { border: 1px solid var(--line); background: var(--surface); padding: 0.35rem 0.5rem; font-size: 0.92rem; }
+.field input:focus, .field select:focus { border-color: var(--accent); }
+.btn {
+  font-family: var(--font-mono-stack); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  padding: 0.5rem 0.9rem; cursor: pointer;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: 0.6; cursor: wait; }
+.btn[data-tone="primary"] { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.btn[data-tone="danger"] { color: var(--danger); }
+.secret { font-family: var(--font-mono-stack); font-size: 0.85rem; background: var(--accent-soft); padding: 0.6rem 0.75rem; word-break: break-all; }
+
 /* Sandboxed HTML: whole pages and figures (src/components/SandboxFrame.tsx) */
 .sandbox-frame { display: block; width: 100%; border: 0; background: var(--bg); color-scheme: normal; }
 .html-page { min-width: 0; }
