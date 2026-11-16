@@ -1,18 +1,37 @@
 # Content format
 
-Every page on the site is one MDX file under `content/`. The site reads the directory at
-request time, so adding or editing a file is enough; nothing needs rebuilding.
+Every page on the site is one file under `content/`, written in **MDX** or **HTML**. Both are
+first-class: same frontmatter, same page chrome (header, progress, table of contents, sources,
+prerequisite links). The site reads the directory at request time, so adding or editing a file is
+enough; nothing needs rebuilding.
 
 ```
 content/
-  concepts/<slug>.mdx    # one mathematical idea, taught from the user's background up
-  papers/<slug>.mdx      # one paper, decomposed into its theorems and their prerequisites
-  roadmaps/<slug>.mdx    # an ordered path through concepts and papers
+  concepts/   # one mathematical idea, taught from the user's background up
+  papers/     # one paper, decomposed into its theorems and their prerequisites
+  roadmaps/   # an ordered path through concepts and papers
 ```
 
-The slug is the file name without `.mdx`: lowercase, hyphenated, stable once published.
+Each page in those directories takes one of four shapes:
+
+```
+<kind>/<slug>.mdx                 # MDX page
+<kind>/<slug>.html                # HTML page
+<kind>/<slug>/index.mdx           # MDX page folder: may hold figures/ and other assets
+<kind>/<slug>/index.html          # HTML page folder: may hold its scripts, styles, data, images
+```
+
+The slug is the file or folder name: lowercase, hyphenated, stable once published. A slug may be
+used once per kind; the validator reports a file and a folder that share one.
+
+**Which format?** MDX for prose-first pages built from the components below. HTML when the page
+is the interaction: animations, simulations, custom layouts. HTML pages and MDX figures run in a
+sandbox (see "HTML pages and figures").
 
 ## Frontmatter
+
+Both formats start with the same YAML block. In an HTML page it sits above the markup and is
+removed before the page is served.
 
 ```yaml
 ---
@@ -152,3 +171,63 @@ reads the operator as a list marker. End the previous line with the operator ins
 inside a `$$` block are safe.
 
 Links between pages are relative to the site root: `[Brownian motion](/concepts/brownian-motion)`.
+
+## Figures in MDX
+
+A page folder can embed interactive HTML figures:
+
+```mdx
+<Figure src="figures/vector-field.html" caption="The field $v_t(x)$ at time $t$" height={360} />
+```
+
+`src` is a path inside the page folder ending in `.html`. `caption` may contain inline math.
+`height` is only the starting height in pixels; the frame resizes to fit its content. A figure
+file can be a fragment (no `<html>`/`<head>`) or a full document, and follows the rules below.
+
+## HTML pages and figures
+
+HTML pages and figures run in a sandboxed frame with no access to the site. Write them as
+self-contained documents:
+
+- **Body only.** Don't repeat the title, summary, tags or sources; the site renders them from the
+  frontmatter. Start with the first section.
+- **Headings.** Give each `<h2>` and `<h3>` an `id`; those with ids form the table of contents.
+- **Links.** Site links are root-relative (`<a href="/concepts/brownian-motion">`) and open in the
+  site. `#id` links scroll the page. `https://` links open in a new tab.
+- **Code and assets** load only from the page's own folder or from `/_lib`. Nothing from other
+  hosts loads (no CDNs, fonts, images or fetches): copy what you need into the page folder.
+  `fetch()` works for files in the page folder (for example `fetch('data.json')`).
+- **No storage.** Cookies, `localStorage` and IndexedDB are unavailable; keep state in variables.
+- **Styling.** `/_lib/hatcher.css` is loaded first and gives the site's typography and color tokens
+  (`var(--ink)`, `var(--muted)`, `var(--accent)`, `var(--line)`, `var(--surface)`, `var(--bg)`),
+  switched for dark mode. Use the tokens instead of hard-coded colors.
+- **Theme changes.** `hatcher.theme()` returns `'light'` or `'dark'`; `hatcher.onTheme(fn)` calls
+  `fn` when it changes, for redrawing canvases.
+- **Math.** Load KaTeX from `/_lib`, and `$...$`/`$$...$$` in the document are rendered:
+
+  ```html
+  <link rel="stylesheet" href="/_lib/katex/katex.min.css">
+  <script defer src="/_lib/katex/katex.min.js"></script>
+  <script defer src="/_lib/katex/contrib/auto-render.min.js"></script>
+  ```
+
+- **Motion.** Respect `prefers-reduced-motion` for anything that animates on its own.
+
+A minimal HTML page:
+
+```html
+---
+title: "Random walks"
+kind: concept
+summary: "The discrete ancestor of Brownian motion, animated."
+track: foundations
+level: 1
+---
+<h2 id="why">Why you need this</h2>
+<p>A random walk is the discrete ancestor of <a href="/concepts/brownian-motion">Brownian motion</a>.</p>
+<canvas id="c"></canvas>
+<script src="walk.js"></script>
+```
+
+Run `npm run validate:content` after writing: it reports resources loaded from other hosts,
+missing figure files, and figures in pages that are not folders.

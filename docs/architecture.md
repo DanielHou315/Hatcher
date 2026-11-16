@@ -8,7 +8,8 @@ stylesheet in `src/app/globals.css`.
 Content is read at request time. Every route that shows content is `force-dynamic`; nothing about
 content is baked into the build.
 
-- `src/lib/content.ts` lists `CONTENT_DIR/{concepts,papers,roadmaps}/*.mdx` on every call.
+- `src/lib/content.ts` lists `CONTENT_DIR/{concepts,papers,roadmaps}/` on every call: flat
+  `<slug>.mdx`/`<slug>.html` files and page folders with `index.mdx`/`index.html`.
 - Each file is parsed with gray-matter and validated with zod (`src/lib/schema.ts`, mirroring
   `docs/content-format.md`). A file that fails becomes an entry with an `error`; it is listed with an
   "invalid" badge and its page shows the error and raw frontmatter.
@@ -20,13 +21,41 @@ content is baked into the build.
   rehype-slug, rehype-katex) and collects the h2/h3 table of contents. Unknown components and
   syntax errors are reported in an error panel instead of failing the page.
 
+## Sandboxed HTML
+
+HTML pages and MDX `<Figure>`s are untrusted code, so they never run in the site's origin.
+
+- **Content route.** `src/app/c/[...path]/route.ts` serves `/c/<kind dir>/<slug>/index.html` (the
+  page's HTML, frontmatter stripped) and files inside a page folder, by an extension allowlist.
+  MDX sources, hidden files and anything outside a page folder are 404 (`src/lib/sandbox.ts`).
+- **Policy.** Every response carries `Content-Security-Policy: sandbox allow-scripts allow-popups
+  allow-popups-to-escape-sandbox; …`. The `sandbox` directive gives the document an opaque origin
+  even when its URL is opened directly: no cookies, storage or access to the site. Scripts, styles,
+  images and fonts load only from this server; `connect-src 'self'`, `form-action 'none'`.
+- **Frames.** `SandboxFrame` renders `<iframe sandbox="allow-scripts allow-popups
+  allow-popups-to-escape-sandbox">`, without `allow-same-origin`, lazy-loaded for figures. It
+  trusts a message only by `event.source` (the frame's origin is `"null"`).
+- **Helper.** `public/_lib/hatcher.js` and `hatcher.css` are injected into every sandboxed
+  document. The helper reports its height (also on a timer, since Chrome throttles off-screen
+  cross-origin frames), applies the site theme, forwards `#anchor` and site links to the page, and
+  opens `https://` links in a new tab. The page sends `hatcher:hello` on mount so a frame that
+  loaded before hydration repeats its state.
+- **Writes.** `POST /api/progress*` rejects requests whose `Origin` is another host or `null`.
+- **Libraries.** `scripts/vendor-libs.mjs` (run by `predev`/`prebuild`) copies KaTeX into
+  `public/_lib/katex/` (gitignored) for sandboxed pages.
+- **Separate content host (optional).** With `CONTENT_ORIGIN` set (for example
+  `https://hatcher-content.example.com`, proxied to the same container), frames load from that host
+  and `SITE_ORIGIN` is added to `frame-ancestors`. A different registrable domain also puts frames
+  in a separate browser process, so a runaway script cannot slow the site.
+
 ## Live reload
 
 `GET /api/watch` is a Server-Sent Events stream backed by one chokidar watcher on `CONTENT_DIR`
 (polling when `CHOKIDAR_USEPOLLING=1`, as in Docker). Each change is sent as `event: change` with
 `{path, type}`; a heartbeat comment goes out every 15 s. The `LiveReload` client component debounces
 change events by 400 ms and calls `router.refresh()`, which re-renders server components while
-keeping client state and scroll position. The header dot shows the connection state.
+keeping client state and scroll position. The header dot shows the connection state. Frame URLs
+carry `?v=<latest mtime in the page folder>`, so a changed HTML page or figure reloads its frame.
 
 ## Progress database
 

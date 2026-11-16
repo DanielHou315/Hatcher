@@ -6,7 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
-import { mdxComponents } from '@/components/mdx-components';
+import { mdxComponents, type FigureContext } from '@/components/mdx-components';
 import { rehypeCollectToc, remarkKnownComponents, type TocItem } from './mdx-plugins';
 import type { Source } from './schema';
 
@@ -18,12 +18,12 @@ export interface RenderedMdx {
   error?: string;
 }
 
-export async function renderMdx(source: string, opts: { sources: Source[]; file: string; lineOffset?: number }): Promise<RenderedMdx> {
+export async function renderMdx(source: string, opts: { sources: Source[]; file: string; lineOffset?: number; figures: FigureContext }): Promise<RenderedMdx> {
   const toc: TocItem[] = [];
   try {
     const { content } = await compileMDX({
       source,
-      components: mdxComponents(opts.sources),
+      components: mdxComponents(opts.sources, opts.figures),
       options: {
         mdxOptions: {
           remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents],

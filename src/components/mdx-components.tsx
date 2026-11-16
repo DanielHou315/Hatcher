@@ -1,7 +1,9 @@
 import Link from 'next/link';
 import type { ComponentPropsWithoutRef, ReactNode } from 'react';
 import { InlineMath } from '@/lib/inline-math';
+import { isFigurePath } from '@/lib/sandbox';
 import type { Source } from '@/lib/schema';
+import { SandboxFrame } from './SandboxFrame';
 
 interface EnvProps {
   name?: string;
@@ -153,8 +155,49 @@ function Pre(props: ComponentPropsWithoutRef<'pre'>) {
   );
 }
 
-export function mdxComponents(sources: Source[]) {
+/** Where a page's figures are served from; absent for flat files, which cannot hold figures. */
+export interface FigureContext {
+  base?: string;
+  version: string;
+  sandbox: string;
+}
+
+function makeFigure(ctx: FigureContext) {
+  function Figure({ src, caption, height }: { src?: string; caption?: string; height?: number }) {
+    const problem = !ctx.base
+      ? 'Figures need a page folder: move this page to <slug>/index.mdx and put the figure beside it.'
+      : !src || !isFigurePath(src)
+        ? `<Figure src="${src ?? ''}">: src must be a relative path to an .html file in the page folder.`
+        : null;
+    if (problem) {
+      return (
+        <div className="error-panel" role="alert">
+          <pre className="mono">{problem}</pre>
+        </div>
+      );
+    }
+    return (
+      <figure className="sandbox-figure">
+        <SandboxFrame
+          src={`${ctx.base}${src}?v=${ctx.version}`}
+          title={caption ?? src!}
+          sandbox={ctx.sandbox}
+          initialHeight={typeof height === 'number' && height > 0 ? height : 360}
+        />
+        {caption && (
+          <figcaption>
+            <InlineMath text={caption} />
+          </figcaption>
+        )}
+      </figure>
+    );
+  }
+  return Figure;
+}
+
+export function mdxComponents(sources: Source[], figures: FigureContext) {
   return {
+    Figure: makeFigure(figures),
     Definition,
     Theorem,
     Lemma,

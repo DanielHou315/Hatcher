@@ -291,6 +291,12 @@ a:hover { text-decoration-thickness: 2px; }
 .prose hr { border: 0; border-top: 1px solid var(--line); }
 .prose img { max-width: 100%; height: auto; }
 
+/* Sandboxed HTML: whole pages and figures (src/components/SandboxFrame.tsx) */
+.sandbox-frame { display: block; width: 100%; border: 0; background: var(--bg); color-scheme: normal; }
+.html-page { min-width: 0; }
+.sandbox-figure { display: flex; flex-direction: column; gap: 0.5rem; }
+.sandbox-figure figcaption { color: var(--muted); font-size: 0.88rem; }
+
 /* Math environments: hairlines, no cards */
 .env-eyebrow {
   font-family: var(--font-mono-stack);

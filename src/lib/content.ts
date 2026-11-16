@@ -5,10 +5,16 @@ import matter from 'gray-matter';
 import { formatZodError, frontmatterSchema, type PaperMeta, type Source, type Stage } from './schema';
 import { KIND_DIRS, KINDS, TRACKS, type Kind, type ProgressStatus, type TrackId } from './tracks';
 
+/** How the body is written: MDX rendered by the site, or HTML rendered in a sandboxed frame. */
+export type Format = 'mdx' | 'html';
+
 export interface Entry {
   slug: string;
   kind: Kind;
-  /** Absolute path of the MDX file. */
+  format: Format;
+  /** True for a page folder (`<kind>/<slug>/index.{mdx,html}`), which can hold figures and assets. */
+  bundle: boolean;
+  /** Absolute path of the source file. */
   file: string;
   /** Path relative to the content directory, e.g. concepts/ito-lemma.mdx. */
   relPath: string;
@@ -26,7 +32,7 @@ export interface Entry {
   paper?: PaperMeta;
   stages?: Stage[];
   primary: boolean;
-  /** MDX body without frontmatter. */
+  /** Body (MDX or HTML) without frontmatter. */
   body: string;
   /** Lines before the body in the file, to map body line numbers back to the file. */
   bodyLineOffset: number;
@@ -48,14 +54,24 @@ function rawFrontmatterOf(source: string): string {
   return m ? m[1] : '';
 }
 
+const ENTRY_EXTS: Record<string, Format> = { '.mdx': 'mdx', '.html': 'html' };
+
+/** Slug, format and layout of an entry file: `<slug>.<ext>` or `<slug>/index.<ext>`. */
+export function entryShape(file: string): { slug: string; format: Format; bundle: boolean } {
+  const ext = path.extname(file);
+  const name = path.basename(file, ext);
+  const bundle = name === 'index';
+  return { slug: bundle ? path.basename(path.dirname(file)) : name, format: ENTRY_EXTS[ext] ?? 'mdx', bundle };
+}
+
 export function parseEntry(file: string, relPath: string, kind: Kind, source: string): Entry {
-  const slug = path.basename(file, '.mdx');
+  const shape = entryShape(file);
   const base: Entry = {
-    slug,
+    ...shape,
     kind,
     file,
     relPath,
-    title: slug,
+    title: shape.slug,
     summary: '',
     tags: [],
     prerequisites: [],
@@ -115,43 +131,77 @@ interface CacheSlot {
 const globalCache = globalThis as unknown as { __hatcherContentCache?: Map<string, CacheSlot> };
 const cache: Map<string, CacheSlot> = (globalCache.__hatcherContentCache ??= new Map());
 
+/**
+ * Entry files in one kind directory, grouped by slug. A slug is either a flat file
+ * (`<slug>.mdx`, `<slug>.html`) or a page folder holding `index.mdx` or `index.html`.
+ */
+function entryFiles(kindDir: string): Map<string, string[]> {
+  const bySlug = new Map<string, string[]>();
+  let names: string[];
+  try {
+    names = fs.readdirSync(kindDir);
+  } catch {
+    return bySlug;
+  }
+  for (const name of names.sort()) {
+    if (name.startsWith('.')) continue;
+    const full = path.join(kindDir, name);
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(full);
+    } catch {
+      continue; // removed between readdir and stat
+    }
+    const candidates: string[] = [];
+    if (stat.isFile() && ENTRY_EXTS[path.extname(name)]) candidates.push(full);
+    if (stat.isDirectory()) {
+      for (const index of ['index.mdx', 'index.html']) {
+        if (fs.existsSync(path.join(full, index))) candidates.push(path.join(full, index));
+      }
+    }
+    for (const file of candidates) {
+      const { slug } = entryShape(file);
+      bySlug.set(slug, [...(bySlug.get(slug) ?? []), file]);
+    }
+  }
+  return bySlug;
+}
+
+function readEntry(file: string, dir: string, kind: Kind): Entry | undefined {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(file);
+  } catch {
+    return undefined;
+  }
+  const slot = cache.get(file);
+  if (slot && slot.mtimeMs === stat.mtimeMs && slot.size === stat.size) return slot.entry;
+  let source: string;
+  try {
+    source = fs.readFileSync(file, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const entry = parseEntry(file, path.relative(dir, file), kind, source);
+  cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
+  return entry;
+}
+
 /** List and parse every entry. The directory is re-listed on every call; unchanged files come from cache. */
 export function loadEntries(dir: string = contentDir()): Entry[] {
   const entries: Entry[] = [];
   const seen = new Set<string>();
   for (const kind of KINDS) {
-    const kindDir = path.join(dir, KIND_DIRS[kind]);
-    let names: string[];
-    try {
-      names = fs.readdirSync(kindDir);
-    } catch {
-      continue;
-    }
-    for (const name of names.sort()) {
-      if (!name.endsWith('.mdx') || name.startsWith('.')) continue;
-      const file = path.join(kindDir, name);
-      let stat: fs.Stats;
-      try {
-        stat = fs.statSync(file);
-      } catch {
-        continue; // removed between readdir and stat
+    for (const files of entryFiles(path.join(dir, KIND_DIRS[kind])).values()) {
+      for (const file of files) seen.add(file);
+      const entry = readEntry(files[0], dir, kind);
+      if (!entry) continue;
+      if (files.length > 1) {
+        const others = files.slice(1).map((f) => path.relative(dir, f));
+        entries.push({ ...entry, error: `${entry.relPath}: slug "${entry.slug}" is also used by ${others.join(', ')}; keep one` });
+      } else {
+        entries.push(entry);
       }
-      if (!stat.isFile()) continue;
-      seen.add(file);
-      const slot = cache.get(file);
-      if (slot && slot.mtimeMs === stat.mtimeMs && slot.size === stat.size) {
-        entries.push(slot.entry);
-        continue;
-      }
-      let source: string;
-      try {
-        source = fs.readFileSync(file, 'utf8');
-      } catch {
-        continue;
-      }
-      const entry = parseEntry(file, path.relative(dir, file), kind, source);
-      cache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
-      entries.push(entry);
     }
   }
   for (const key of cache.keys()) {

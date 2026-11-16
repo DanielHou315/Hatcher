@@ -8,6 +8,10 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     '*': ['./content/**/*'],
   },
+  // Shared libraries for sandboxed pages, whose opaque origin makes module scripts CORS requests.
+  async headers() {
+    return [{ source: '/_lib/:path*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] }];
+  },
 };
 
 export default nextConfig;

@@ -12,6 +12,7 @@ export const MDX_COMPONENT_NAMES = [
   'Warning',
   'Exercise',
   'Cite',
+  'Figure',
 ] as const;
 
 interface Node {

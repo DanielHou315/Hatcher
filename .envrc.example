@@ -15,6 +15,13 @@ export AGENT_DIR="$HATCHER_HOME/agent"
 # Checkout of the paper-to-guided-learning plugin, mounted read-only into the agent.
 export PLUGIN_DIR="$HOME/Code/paper-to-guided-learning-plugin"
 
+# Optional: origin that serves sandboxed HTML pages and figures, proxied to this same app.
+# Empty serves them from the site's own origin (still sandboxed). See docs/architecture.md.
+export CONTENT_ORIGIN=""
+
+# Optional: the site's public origin, allowed to frame content served from CONTENT_ORIGIN.
+export SITE_ORIGIN=""
+
 # Port the site listens on.
 export PORT=3000
 

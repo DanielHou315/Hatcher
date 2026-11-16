@@ -1,3 +1,4 @@
+import { foreignOrigin } from '@/lib/origin';
 import { badRequest, progressBody, readJson } from '@/lib/api';
 import { getAllProgress, setProgress } from '@/lib/db';
 
@@ -8,6 +9,8 @@ export function GET() {
 }
 
 export async function POST(request: Request) {
+  const rejected = foreignOrigin(request);
+  if (rejected) return rejected;
   const parsed = progressBody.safeParse(await readJson(request));
   if (!parsed.success) return badRequest(parsed.error);
   const { slug, status, notes } = parsed.data;
