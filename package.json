@@ -15,11 +15,9 @@
     "test": "vitest run",
     "lint": "eslint . --max-warnings 0 && tsc --noEmit",
     "validate:content": "tsx --conditions=react-server scripts/validate-content.ts",
-    "docker:up": "bash scripts/seed-content.sh && docker compose up -d --build",
+    "docker:up": "bash scripts/init-dirs.sh && docker compose up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f site",
-    "content:seed": "bash scripts/seed-content.sh",
-    "content:import": "bash scripts/import-content.sh",
     "agent:run-now": "docker compose run --rm --no-deps agent /app/agent/run-job.sh",
     "agent:dry-run": "docker compose run --rm --no-deps agent /app/agent/run-job.sh --dry-run",
     "agent:logs": "docker compose logs -f agent"

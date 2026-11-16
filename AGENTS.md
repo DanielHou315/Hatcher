@@ -17,13 +17,14 @@ Where things live. Update when a top-level directory is added, moved, or removed
 | --- | --- |
 | `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, content loading and the database in `src/lib/` |
 | `tests/` | Vitest suites and fixtures |
-| `scripts/` | Content validation, seeding and import scripts |
-| `content/` | Committed seed content; the live content directory is `CONTENT_DIR` |
+| `scripts/` | Content validation, library vendoring, data-dir setup |
 | `agent/` | Scheduled Claude Code service that writes draft pages |
 | `docs/` | Concise, human-facing governance: conventions, architecture, decisions. Start at `docs/README.md`. |
 | `docs/specs/`, `docs/plans/` | Agent working documents. Gitignored; do not link them as canonical. |
 | `.envrc.example` | Every environment variable, with a comment. |
 | `.worktrees/` | One git worktree per branch. Gitignored. |
+
+**Content is never committed:** pages are service data in `CONTENT_DIR` (default `./content`, gitignored). Tests use the synthetic pages in `tests/fixtures/`.
 
 **Ephemeral outputs are never committed:** caches, local DBs, uploads, agent scratch. Keep them gitignored.
 

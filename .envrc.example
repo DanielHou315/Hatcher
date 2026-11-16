@@ -1,6 +1,6 @@
 # Copy to .envrc (gitignored), fill in, then `direnv allow`. See docs/deployment.md.
 
-# Root of the live data, outside the repo. The repo's content/ is only the committed seed.
+# Root of the live data, outside the repo. Content is service data and is never committed.
 export HATCHER_HOME="$HOME/Databases/hatcher"
 
 # Live MDX content the site serves and the agent writes. Default (compose): ./content

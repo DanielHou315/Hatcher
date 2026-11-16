@@ -15,8 +15,7 @@ Live data lives outside the repo:
   agent/       queue.md, logs/, claude/ (Claude Code config), uv-cache/, p2gl-cache/, workspace/
 ```
 
-The repo's `content/` stays the committed seed and curriculum. The live directory is seeded from
-it once, and agent pages are imported back into it for review and commit.
+Content is service data only; the repo holds no pages. Back up `~/Databases/hatcher/` as a whole.
 
 ## Environment
 
@@ -34,11 +33,10 @@ prints resolved values, so do not paste its output anywhere.
 ## First start
 
 ```sh
-npm run docker:up        # bash scripts/seed-content.sh && docker compose up -d --build
+npm run docker:up        # bash scripts/init-dirs.sh && docker compose up -d --build
 ```
 
-`scripts/seed-content.sh` creates the three directories (so Docker does not create them as root)
-and copies `content/` into `CONTENT_DIR` only if it is empty; `--force` copies over it. The agent
+`scripts/init-dirs.sh` creates the three directories so Docker does not create them as root. The agent
 refuses to start without a token.
 
 ## Queue
@@ -77,14 +75,8 @@ Setting `AGENT_RUN_NOW=1` when starting the service runs one job before the sche
 
 ## Promoting pages
 
-Agent pages always have `status: draft`. To keep one:
-
-```sh
-npm run content:import   # copy CONTENT_DIR into content/ and list what changed
-```
-
-Review the pages on a branch, fix them, set `status: ready`, run `npm run validate:content`, and
-merge through a PR. Import never deletes files from `content/`.
+Agent pages always have `status: draft`. Editors see drafts in the studio; to publish one, review
+it, set `status: ready` in `CONTENT_DIR`, and run `npm run validate:content`.
 
 ## Updating
 
