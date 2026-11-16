@@ -2,7 +2,12 @@
 
 ## Repo Introduction
 
-<fill in on setup>
+Hatcher, a personal reading site for the mathematics behind ML and robotics papers, named after
+the Hatcher Graduate Library at the University of Michigan. Pages are MDX or HTML files in
+`CONTENT_DIR` (format: `docs/content-format.md`), rendered by a Next.js 15 app in `src/` that reads
+content at request time and live-reloads on change. HTML pages and figures run sandboxed (see
+`docs/architecture.md`). Reading progress lives in SQLite under `DATA_DIR`. After writing content,
+run `npm run validate:content`.
 
 ## Repo Map
 
@@ -10,9 +15,11 @@ Where things live. Update when a top-level directory is added, moved, or removed
 
 | Path | Contents |
 | --- | --- |
-| `src/` | <fill in: application code> |
-| `tests/` | <fill in: test suites, mirroring `src/`> |
-| `scripts/` | <fill in: dev and maintenance scripts> |
+| `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, content loading and the database in `src/lib/` |
+| `tests/` | Vitest suites and fixtures |
+| `scripts/` | Content validation, seeding and import scripts |
+| `content/` | Committed seed content; the live content directory is `CONTENT_DIR` |
+| `agent/` | Scheduled Claude Code service that writes draft pages |
 | `docs/` | Concise, human-facing governance: conventions, architecture, decisions. Start at `docs/README.md`. |
 | `docs/specs/`, `docs/plans/` | Agent working documents. Gitignored; do not link them as canonical. |
 | `.envrc.example` | Every environment variable, with a comment. |
@@ -25,12 +32,13 @@ Where things live. Update when a top-level directory is added, moved, or removed
 Only the commands needed to verify work. Everything else belongs in `docs/`.
 
 ```sh
-<fill in>   # install / set up
-<fill in>   # build
-<fill in>   # run all tests
-<fill in>   # run a single test
-<fill in>   # lint + format
-<fill in>   # run the app locally
+npm install                     # install / set up
+npm run build                   # build
+npm test                        # run all tests
+npx vitest run tests/<file>     # run a single test
+npm run lint                    # lint + typecheck
+npm run dev                     # run the app locally (http://localhost:3000)
+npm run validate:content        # check every content file
 ```
 
 ## Environment
