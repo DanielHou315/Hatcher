@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { Eyebrow } from '@/components/EntryCard';
 import { ProgressBar, StatusDot } from '@/components/StatusDot';
-import { getSite, recentEntries, roadmapOrder, type Entry } from '@/lib/content';
-import { getRecent, getStats, getStreak, progressLookup } from '@/lib/db';
+import { recentEntries, roadmapOrder, type Entry } from '@/lib/content';
+import { progressLookup, userProgress } from '@/lib/db';
+import { viewerSite } from '@/lib/viewer';
 import { entryHref, trackName } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
@@ -32,15 +33,16 @@ function TodayItem({ heading, entry, action }: { heading: string; entry: Entry; 
   );
 }
 
-export default function Home() {
-  const site = getSite();
-  const statusOf = progressLookup();
+export default async function Home() {
+  const { viewer, site } = await viewerSite();
+  const statusOf = progressLookup(viewer?.id);
+  const progress = viewer ? userProgress(viewer.id) : null;
   const primary = site.primaryRoadmap;
   const nextUp = site.primaryOrder.map((s) => site.bySlug.get(s)!).find((e) => statusOf(e.slug) !== 'done');
-  const continueSlug = getRecent(20).find((s) => statusOf(s) === 'in-progress' && site.bySlug.has(s) && s !== nextUp?.slug);
+  const continueSlug = (progress?.getRecent(20) ?? []).find((s: string) => statusOf(s) === 'in-progress' && site.bySlug.has(s) && s !== nextUp?.slug);
   const continuing = continueSlug ? site.bySlug.get(continueSlug) : undefined;
-  const stats = getStats(site.pages);
-  const streak = getStreak();
+  const stats = progress?.getStats(site.pages) ?? { done: 0, inProgress: 0, total: site.pages.length, doneMinutes: 0 };
+  const streak = progress?.getStreak() ?? 0;
   const recent = recentEntries(site.entries, 6);
   const fallback = !nextUp && !continuing ? site.pages.find((p) => statusOf(p.slug) !== 'done') : undefined;
 

@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { buildSite, contentDir, loadEntries, type Entry } from '../src/lib/content';
 import { externalResources, extractHtmlToc, isFigurePath } from '../src/lib/sandbox';
-import { remarkKnownComponents } from '../src/lib/mdx-plugins';
+import { remarkKnownComponents, remarkSafeMdx } from '../src/lib/mdx-plugins';
 
 const dir = process.argv[2] ?? contentDir();
 const entries = loadEntries(dir);
@@ -70,7 +70,7 @@ for (const entry of entries) {
     const file = await compile(
       { value: entry.body, path: entry.file },
       {
-        remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents],
+        remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents, remarkSafeMdx],
         rehypePlugins: [rehypeSlug, rehypeKatex],
       },
     );

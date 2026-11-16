@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { findEntry, getSite, type Entry, type Site } from '@/lib/content';
+import { findEntry, type Entry, type Site } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
+import { contentTokenFor, viewerSite } from '@/lib/viewer';
 import { renderMdx, type RenderedMdx, type TocItem } from '@/lib/mdx';
 import { entryContentBase, entryVersion, extractHtmlToc, FRAME_SANDBOX } from '@/lib/sandbox';
 import type { Source } from '@/lib/schema';
@@ -14,21 +15,22 @@ import { ProgressBar, StatusDot } from './StatusDot';
 
 type StatusOf = (slug: string) => ProgressStatus;
 
-export function entryMetadata(kind: Kind, slug: string): Metadata {
-  const entry = findEntry(getSite(), kind, slug);
+export async function entryMetadata(kind: Kind, slug: string): Promise<Metadata> {
+  const { site } = await viewerSite();
+  const entry = findEntry(site, kind, slug);
   return entry ? { title: entry.title, description: entry.summary || undefined } : { title: 'Not found' };
 }
 
 export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
-  const site = getSite();
+  const { viewer, site } = await viewerSite();
   const entry = findEntry(site, kind, slug);
   if (!entry) notFound();
-  const statusOf = progressLookup();
+  const statusOf = progressLookup(viewer?.id);
 
   if (entry.error) return <InvalidEntry entry={entry} />;
 
   const rendered = await renderBody(entry);
-  const trackable = entry.kind !== 'roadmap';
+  const trackable = entry.kind !== 'roadmap' && viewer !== null;
 
   return (
     <div className="article-grid">
@@ -78,7 +80,7 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
 
 /** MDX renders in the page; HTML renders in a sandboxed frame, with its headings in the table of contents. */
 async function renderBody(entry: Entry): Promise<RenderedMdx> {
-  const base = entryContentBase(entry);
+  const base = entryContentBase(entry, contentTokenFor(entry));
   const version = entryVersion(entry);
   if (entry.format === 'html') {
     return {

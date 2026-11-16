@@ -128,6 +128,14 @@ Paper pages:
 5. **Worked example by hand** (a toy instance of the paper's core object).
 6. **Reading order** (the prerequisite pages to read first, in order).
 
+### No JavaScript in MDX
+
+MDX pages render in the site itself, so they cannot run code. Compilation fails on `import` /
+`export`, `{expressions}` outside math and code, `on*` attributes, `javascript:`/`data:` URLs, and
+HTML elements other than inert prose ones (`div`, `span`, `details`, `summary`, `sub`, `sup`,
+`kbd`, `mark`, `img`, `a`, tables, lists and headings). Write literal braces in math (`$\{x\}$`)
+or code. For anything interactive, use a `<Figure>` or an HTML page; both run sandboxed.
+
 ## Components
 
 These are available in every MDX file without importing.

@@ -7,7 +7,7 @@ import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { mdxComponents, type FigureContext } from '@/components/mdx-components';
-import { rehypeCollectToc, remarkKnownComponents, type TocItem } from './mdx-plugins';
+import { rehypeCollectToc, remarkKnownComponents, remarkSafeMdx, type TocItem } from './mdx-plugins';
 import type { Source } from './schema';
 
 export type { TocItem };
@@ -26,7 +26,7 @@ export async function renderMdx(source: string, opts: { sources: Source[]; file:
       components: mdxComponents(opts.sources, opts.figures),
       options: {
         mdxOptions: {
-          remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents],
+          remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents, remarkSafeMdx],
           rehypePlugins: [rehypeSlug, rehypeCollectToc(toc), rehypeKatex],
         },
       },
@@ -41,7 +41,7 @@ export async function renderMdx(source: string, opts: { sources: Source[]; file:
 /** Recompile with the bare MDX compiler to recover a line:column for the failure. */
 async function locateError(source: string, lineOffset: number): Promise<string> {
   try {
-    await compile(source, { remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents] });
+    await compile(source, { remarkPlugins: [remarkGfm, remarkMath, remarkKnownComponents, remarkSafeMdx] });
   } catch (err) {
     const e = err as { line?: number; column?: number };
     if (e.line) return `:${e.line + lineOffset}${e.column ? `:${e.column}` : ''}`;

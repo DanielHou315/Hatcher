@@ -23,3 +23,11 @@ export function badRequest(error: z.ZodError | string) {
   const message = typeof error === 'string' ? error : error.issues.map((i) => `${i.path.join('.') || 'body'}: ${i.message}`).join('; ');
   return Response.json({ error: message }, { status: 400 });
 }
+
+export function unauthorized(message = 'sign in required') {
+  return Response.json({ error: message }, { status: 401 });
+}
+
+export function forbidden(message = 'not allowed') {
+  return Response.json({ error: message }, { status: 403 });
+}

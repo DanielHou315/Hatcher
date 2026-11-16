@@ -1,15 +1,16 @@
 import Link from 'next/link';
 import { ProgressBar } from '@/components/StatusDot';
-import { getSite, roadmapOrder } from '@/lib/content';
+import { roadmapOrder } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
+import { viewerSite } from '@/lib/viewer';
 import { entryHref } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Roadmaps' };
 
-export default function RoadmapsPage() {
-  const site = getSite();
-  const statusOf = progressLookup();
+export default async function RoadmapsPage() {
+  const { viewer, site } = await viewerSite();
+  const statusOf = progressLookup(viewer?.id);
   const invalid = site.entries.filter((e) => e.kind === 'roadmap' && e.error);
   return (
     <div className="measure flex flex-col gap-6">
