@@ -7,7 +7,9 @@
     "node": ">=24"
   },
   "scripts": {
+    "predev": "node scripts/vendor-libs.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/vendor-libs.mjs",
     "build": "next build",
     "start": "next start",
     "test": "vitest run",

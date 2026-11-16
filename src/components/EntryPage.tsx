@@ -3,11 +3,13 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { findEntry, getSite, type Entry, type Site } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
-import { renderMdx, type TocItem } from '@/lib/mdx';
+import { renderMdx, type RenderedMdx, type TocItem } from '@/lib/mdx';
+import { entryContentBase, entryVersion, extractHtmlToc, FRAME_SANDBOX } from '@/lib/sandbox';
 import type { Source } from '@/lib/schema';
 import { entryHref, trackName, type Kind, type ProgressStatus } from '@/lib/tracks';
 import { Eyebrow } from './EntryCard';
 import { ProgressControl, ViewLogger } from './ProgressControl';
+import { SandboxFrame } from './SandboxFrame';
 import { ProgressBar, StatusDot } from './StatusDot';
 
 type StatusOf = (slug: string) => ProgressStatus;
@@ -25,7 +27,7 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
 
   if (entry.error) return <InvalidEntry entry={entry} />;
 
-  const rendered = await renderMdx(entry.body, { sources: entry.sources, file: entry.relPath, lineOffset: entry.bodyLineOffset });
+  const rendered = await renderBody(entry);
   const trackable = entry.kind !== 'roadmap';
 
   return (
@@ -63,7 +65,7 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
             <pre className="mono">{rendered.error}</pre>
           </div>
         ) : (
-          <div className="prose">{rendered.content}</div>
+          <div className={entry.format === 'html' ? 'html-page' : 'prose'}>{rendered.content}</div>
         )}
         {entry.stages && <Stages entry={entry} site={site} statusOf={statusOf} />}
         <LeadsTo entry={entry} site={site} statusOf={statusOf} />
@@ -72,6 +74,26 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
       {trackable && <ViewLogger slug={entry.slug} />}
     </div>
   );
+}
+
+/** MDX renders in the page; HTML renders in a sandboxed frame, with its headings in the table of contents. */
+async function renderBody(entry: Entry): Promise<RenderedMdx> {
+  const base = entryContentBase(entry);
+  const version = entryVersion(entry);
+  if (entry.format === 'html') {
+    return {
+      content: (
+        <SandboxFrame src={`${base}index.html?v=${version}`} title={entry.title} sandbox={FRAME_SANDBOX} initialHeight={800} page />
+      ),
+      toc: extractHtmlToc(entry.body),
+    };
+  }
+  return renderMdx(entry.body, {
+    sources: entry.sources,
+    file: entry.relPath,
+    lineOffset: entry.bodyLineOffset,
+    figures: { base: entry.bundle ? base : undefined, version, sandbox: FRAME_SANDBOX },
+  });
 }
 
 function InvalidEntry({ entry }: { entry: Entry }) {

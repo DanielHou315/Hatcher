@@ -1,0 +1,99 @@
+/* Hatcher base styles for sandboxed pages and figures. Loaded before the page's own styles,
+   so anything here can be overridden. Tokens mirror src/app/globals.css. */
+
+:root {
+  color-scheme: light;
+  --bg: #F4F5F7;
+  --surface: #FFFFFF;
+  --ink: #171A21;
+  --muted: #5B6170;
+  --line: #D9DCE3;
+  --accent: #2748C8;
+  --accent-soft: #E4E9FA;
+  --done: #1E7F4F;
+  --active: #B9741C;
+  --danger: #B3261E;
+  --font-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-sans: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1117;
+    --surface: #161A22;
+    --ink: #E7E9EF;
+    --muted: #9AA1B1;
+    --line: #2A2F3A;
+    --accent: #7C96F0;
+    --accent-soft: #1B2440;
+    --done: #5CC489;
+    --active: #E0A458;
+    --danger: #F28B82;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1117;
+  --surface: #161A22;
+  --ink: #E7E9EF;
+  --muted: #9AA1B1;
+  --line: #2A2F3A;
+  --accent: #7C96F0;
+  --accent-soft: #1B2440;
+  --done: #5CC489;
+  --active: #E0A458;
+  --danger: #F28B82;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { background: var(--bg); }
+
+body {
+  margin: 0;
+  /* Room for focus rings and shadows at the frame's edge. */
+  padding: 2px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+h1, h2, h3, h4 { font-family: var(--font-serif); font-weight: 500; line-height: 1.15; text-wrap: balance; }
+h2 { font-size: 1.65rem; margin: 2rem 0 0.75rem; }
+h3 { font-size: 1.12rem; font-family: var(--font-sans); font-weight: 600; margin: 1.5rem 0 0.5rem; }
+p, ul, ol, figure, blockquote, pre, table { margin: 0 0 1rem; }
+body > :first-child { margin-top: 0; }
+body > :last-child { margin-bottom: 0; }
+
+a { color: var(--accent); text-underline-offset: 0.18em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+
+code, kbd, pre { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code { background: var(--accent-soft); padding: 0.05em 0.3em; }
+pre { background: var(--surface); border: 1px solid var(--line); padding: 0.9rem 1rem; overflow-x: auto; }
+
+blockquote { border-left: 1px solid var(--line); padding-left: 1rem; color: var(--muted); font-style: italic; }
+hr { border: 0; border-top: 1px solid var(--line); }
+img, svg, canvas, video { max-width: 100%; }
+table { border-collapse: collapse; font-size: 0.92rem; }
+th, td { border-bottom: 1px solid var(--line); padding: 0.4rem 0.75rem 0.4rem 0; text-align: left; vertical-align: top; }
+th { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button {
+  background: var(--surface); border: 1px solid var(--line); padding: 0.25rem 0.75rem; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); }
+
+figcaption, .caption { color: var(--muted); font-size: 0.88rem; }
+.label { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}

@@ -26,6 +26,7 @@ docs/specs
 .vscode/
 
 # Dependencies and build output
+public/_lib/katex/
 node_modules/
 .next/
 out/
