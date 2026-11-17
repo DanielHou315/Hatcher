@@ -93,6 +93,12 @@ in `$DATA_DIR/auth.db` and are migrated at startup (`src/instrumentation.ts`).
   exceeds the owner's role, and each use re-checks the owner's current role. Keys are hashed at
   rest, shown once, rate-limited to 600 requests a minute, and expire after 30/90/365 days or never.
 
+## MCP endpoint (studio)
+
+`/api/mcp` lets agents read, validate, write and publish pages with API keys. Writes are staged
+in `CONTENT_DIR/.staging/`, validated with the content checks, and renamed into place only when
+valid; every change is audited. Protocol, tools and rules: [mcp.md](mcp.md).
+
 ## Live reload
 
 `GET /api/watch` is a Server-Sent Events stream backed by one chokidar watcher on `CONTENT_DIR`
