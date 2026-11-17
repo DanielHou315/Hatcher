@@ -56,6 +56,7 @@ Reading progress, notes, and a reading log are stored in SQLite at `$DATA_DIR/pr
 ## Agents
 
 The studio serves an MCP endpoint at `/api/mcp` for agents with API keys from `/account`: read,
-validate, write and publish pages. See [docs/mcp.md](docs/mcp.md).
+validate, write and publish pages. [docs/mcp.md](docs/mcp.md) has the config for Claude Code,
+Codex and Cursor; [skills/hatcher](skills/hatcher/SKILL.md) is an optional workflow skill.
 
 See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.

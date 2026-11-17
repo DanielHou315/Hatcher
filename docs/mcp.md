@@ -1,7 +1,55 @@
 # MCP endpoint
 
-The studio (`HATCHER_MODE=studio`) serves an MCP server at `POST /api/mcp`, for agents and for the
-`hatcher-mcp` client package. The public site does not have it (404).
+The studio (`HATCHER_MODE=studio`) serves an MCP server at `POST /api/mcp` for agents. The public
+site does not have it (404). Agents connect to it directly over HTTPS; there is no client package
+to install.
+
+## Connecting an agent
+
+1. Sign in to the studio, open **Account** (`/account`) and create a key with the least access
+   that does the job: *read*, *read and write drafts*, or (admins only) *read, write and publish*.
+   The key is shown once.
+2. Export it where your agent starts (shell profile or a secrets manager), and never commit it:
+
+   ```sh
+   export HATCHER_API_KEY=hk_...
+   ```
+
+3. Add the server to your agent. Replace the URL with your studio's.
+
+   Claude Code (`.mcp.json` in a project, or `~/.claude.json`):
+
+   ```json
+   { "mcpServers": { "hatcher": {
+       "type": "http",
+       "url": "https://hatcher-studio.example/api/mcp",
+       "headers": { "Authorization": "Bearer ${HATCHER_API_KEY}" } } } }
+   ```
+
+   Codex (`~/.codex/config.toml`):
+
+   ```toml
+   [mcp_servers.hatcher]
+   url = "https://hatcher-studio.example/api/mcp"
+   bearer_token_env_var = "HATCHER_API_KEY"
+   ```
+
+   Cursor (`.cursor/mcp.json` or `~/.cursor/mcp.json`):
+
+   ```json
+   { "mcpServers": { "hatcher": {
+       "url": "https://hatcher-studio.example/api/mcp",
+       "headers": { "Authorization": "Bearer ${env:HATCHER_API_KEY}" } } } }
+   ```
+
+   If an environment variable is not an option, put the key itself in place of the variable in
+   your local, private copy of the config.
+
+4. Optionally give the agent the workflow skill: copy [`skills/hatcher/`](../skills/hatcher) into
+   its skills folder (Claude Code: `~/.claude/skills/hatcher/`). The `guide` tool returns the same
+   rules and the full page format, so agents without skills still work.
+
+Revoke a key at `/account` if it leaks; it stops working on the next request.
 
 ## Transport and authentication
 
@@ -66,7 +114,7 @@ sqlite3 "$DATA_DIR/progress.db" "select at, user_id, action, target, ok from aud
 ## Trying it
 
 ```sh
-curl -s https://studio.example/api/mcp \
+curl -s https://hatcher-studio.example/api/mcp \
   -H "Authorization: Bearer $HATCHER_API_KEY" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"guide","arguments":{}}}'
