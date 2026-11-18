@@ -3,7 +3,7 @@ import { ProgressBar } from '@/components/StatusDot';
 import { roadmapOrder } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
 import { viewerSite } from '@/lib/viewer';
-import { entryHref } from '@/lib/tracks';
+import { entryHref } from '@/lib/kinds';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Roadmaps' };

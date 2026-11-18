@@ -15,8 +15,8 @@ content is baked into the build.
   "invalid" badge and its page shows the error and raw frontmatter.
 - Parsed entries are cached in a process-wide map keyed by absolute path, checked against
   `mtimeMs` and `size` on each listing. Deleted files drop out of the cache.
-- Derived data (`buildSite`): `leadsTo` (inverse prerequisites), missing prerequisites, tracks
-  sorted by level then title, tag counts, and the primary roadmap order.
+- Derived data (`buildSite`): `leadsTo` (inverse prerequisites), missing prerequisites, tag
+  counts, and the primary roadmap order.
 - `src/lib/mdx.tsx` compiles the body with `next-mdx-remote/rsc` (remark-gfm, remark-math,
   rehype-slug, rehype-katex) and collects the h2/h3 table of contents. Unknown components and
   syntax errors are reported in an error panel instead of failing the page.

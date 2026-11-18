@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition } from 'react';
-import type { ProgressStatus } from '@/lib/tracks';
+import type { ProgressStatus } from '@/lib/kinds';
 import { StatusDot } from './StatusDot';
 
 const OPTIONS: { value: ProgressStatus; label: string }[] = [

@@ -18,7 +18,7 @@ import {
   type WriteRequest,
 } from '../page-store';
 import type { PageAction } from '../roles';
-import { KIND_DIRS, KINDS, type Kind } from '../tracks';
+import { KIND_DIRS, KINDS, type Kind } from '../kinds';
 import { validateEntry } from '../validate';
 
 export interface McpContext {
@@ -167,7 +167,6 @@ export function createMcpServer(ctx: McpContext): McpServer {
             title: e.title,
             status: e.status,
             format: e.format,
-            track: e.track,
             level: e.level,
             summary: e.summary,
             ...(e.error ? { error: e.error } : {}),

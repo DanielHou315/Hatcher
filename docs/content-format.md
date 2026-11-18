@@ -37,9 +37,8 @@ removed before the page is served.
 ---
 title: "Itô's lemma"
 kind: concept                 # concept | paper | roadmap
-summary: "The chain rule for functions of a Brownian path, and why the second-order term appears."
-tags: [stochastic-calculus, sde, diffusion-models]
-track: stochastic-analysis    # one of the track ids listed below
+summary: "Apply the ordinary chain rule to a random path and you get the wrong answer, consistently and measurably. Itô's lemma is the correction."
+tags: [stochastic-calculus, sde, diffusion-models]   # one to three
 level: 2                      # 1..5, see "Levels"
 prerequisites: [brownian-motion, quadratic-variation]   # slugs of concept pages
 estimated_minutes: 45
@@ -56,6 +55,14 @@ sources:
     title: "Score-Based Generative Modeling through SDEs"
 ---
 ```
+
+**`summary`** is the page's introduction on cards and at the top of the page, not an abstract.
+Write one or two plain sentences (about 25 to 45 words) that make a curious reader want to open the
+page: a question, a tension or a surprising payoff, concrete and accurate. No phrase lists, no
+hype, no math markup (it is shown as plain text).
+
+**`tags`**: one to three, preferring tags other pages share so the tag filter stays useful. Pages
+show at most three, and the validator warns about more.
 
 Paper pages add a `paper` block:
 
@@ -80,19 +87,6 @@ stages:
     items: [measure-theoretic-probability, conditional-expectation]
 ```
 
-### Tracks
-
-| id | name |
-|---|---|
-| `foundations` | Analysis, linear algebra, and probability refreshers |
-| `stochastic-analysis` | Brownian motion, Itô calculus, SDEs, Fokker–Planck |
-| `optimal-transport` | Wasserstein geometry, entropic OT, Schrödinger bridges |
-| `generative-modeling` | Score matching, diffusion, flow matching |
-| `reinforcement-learning` | MDPs, Bellman operators, policy gradients, regularized RL |
-| `statistical-learning` | Concentration, generalization, estimation |
-| `geometry-and-robotics` | Lie groups, manifolds, kinematics |
-| `papers` | Paper decompositions (set automatically for `kind: paper`) |
-
 ### Levels
 
 | level | meaning |
@@ -100,7 +94,7 @@ stages:
 | 1 | Uses only undergraduate engineering calculus, linear algebra, and probability. |
 | 2 | Uses a first graduate course in probability or stochastic processes. |
 | 3 | Needs one or more level-2 concept pages from this site. |
-| 4 | Research-paper level; expects fluency with the track. |
+| 4 | Research-paper level; expects fluency with the area. |
 | 5 | Frontier; the page exists to make one recent result readable. |
 
 ## Body
@@ -153,7 +147,7 @@ These are available in every MDX file without importing.
 <Proposition name="...">...</Proposition>
 <Corollary name="...">...</Corollary>
 
-<Proof>            {/* collapsible; open by default */}
+<Proof>
   ...
 </Proof>
 
@@ -161,14 +155,18 @@ These are available in every MDX file without importing.
   ...
 </Example>
 
-<Intuition>...</Intuition>     {/* a short plain-language aside */}
-<Warning>...</Warning>         {/* a common mistake */}
+<Intuition>...</Intuition>
+<Warning>...</Warning>
 <Exercise hint="Expand to second order.">
   ...
 </Exercise>
 
-<Cite id="2011.13456" />       {/* renders a link to the source listed in frontmatter */}
+<Cite id="2011.13456" />
 ```
+
+`<Proof>` is collapsible and open by default; `<Intuition>` is a short plain-language aside;
+`<Warning>` flags a common mistake; `<Cite>` links to a source listed in the frontmatter. Attribute
+values are always quoted strings: MDX pages allow no `{...}` expressions or comments.
 
 Math is written with `$...$` inline and `$$...$$` display, rendered by KaTeX. Prefer
 `\mathbb{E}`, `\mathrm{d}t`, `\langle \cdot,\cdot \rangle`. Number only what you refer to.
@@ -185,7 +183,7 @@ Links between pages are relative to the site root: `[Brownian motion](/concepts/
 A page folder can embed interactive HTML figures:
 
 ```mdx
-<Figure src="figures/vector-field.html" caption="The field $v_t(x)$ at time $t$" height={360} />
+<Figure src="figures/vector-field.html" caption="The field $v_t(x)$ at time $t$" height="360" />
 ```
 
 `src` is a path inside the page folder ending in `.html`. `caption` may contain inline math.
@@ -228,7 +226,6 @@ A minimal HTML page:
 title: "Random walks"
 kind: concept
 summary: "The discrete ancestor of Brownian motion, animated."
-track: foundations
 level: 1
 ---
 <h2 id="why">Why you need this</h2>

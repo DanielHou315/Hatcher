@@ -9,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadEntries, parseEntry, type Entry } from './content';
 import { CONTENT_TYPES } from './sandbox';
-import { KIND_DIRS, type Kind } from './tracks';
+import { KIND_DIRS, type Kind } from './kinds';
 import { validateEntry, type Problems } from './validate';
 
 const MB = 1024 * 1024;

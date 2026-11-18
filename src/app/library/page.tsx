@@ -4,7 +4,6 @@ import { LibraryFilters, type FilterOptions } from '@/components/LibraryFilters'
 import { filterEntries, type Filters } from '@/lib/content';
 import { progressLookup } from '@/lib/db';
 import { viewerSite } from '@/lib/viewer';
-import { TRACKS } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
 export const metadata = { title: 'Library' };
@@ -21,7 +20,6 @@ export default async function LibraryPage({ searchParams }: Props) {
   const filters: Filters = {
     q: first(sp.q),
     kind: first(sp.kind),
-    track: first(sp.track),
     level: first(sp.level),
     status: first(sp.status),
     tag: first(sp.tag),
@@ -37,7 +35,6 @@ export default async function LibraryPage({ searchParams }: Props) {
       { value: 'paper', label: 'Papers' },
       { value: 'roadmap', label: 'Roadmaps' },
     ],
-    tracks: TRACKS.map((t) => ({ value: t.id, label: t.name })),
     levels: [1, 2, 3, 4, 5].map((l) => ({ value: String(l), label: `Level ${l}` })),
     statuses: [
       { value: 'not-started', label: 'Not started' },

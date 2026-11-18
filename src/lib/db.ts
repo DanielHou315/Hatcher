@@ -2,7 +2,7 @@ import 'server-only';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { ProgressStatus } from './tracks';
+import type { ProgressStatus } from './kinds';
 
 // Loaded at runtime so the bundler never sees a static import of node:sqlite.
 function sqlite(): typeof import('node:sqlite') {

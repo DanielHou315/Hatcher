@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { KINDS, TRACK_IDS } from './tracks';
+import { KINDS } from './kinds';
 
 /** Normalize a YAML date or a date string to an ISO string (date-only stays date-only). */
 function toIsoDate(value: Date | string, ctx: z.RefinementCtx): string {
@@ -56,7 +56,6 @@ export const frontmatterSchema = z
     kind: z.enum(KINDS),
     summary: z.string().min(1),
     tags: stringList,
-    track: z.enum(TRACK_IDS).optional(),
     level: z.number().int().min(1).max(5).optional(),
     prerequisites: stringList,
     estimated_minutes: z.number().int().positive().optional(),
@@ -75,17 +74,10 @@ export const frontmatterSchema = z
     if (fm.kind === 'roadmap' && !fm.stages) {
       ctx.addIssue({ code: 'custom', path: ['stages'], message: 'required when kind is roadmap' });
     }
-    if (fm.kind === 'concept' && !fm.track) {
-      ctx.addIssue({ code: 'custom', path: ['track'], message: 'required when kind is concept' });
-    }
     if (fm.kind !== 'roadmap' && fm.level === undefined) {
       ctx.addIssue({ code: 'custom', path: ['level'], message: 'required for concept and paper pages' });
     }
-  })
-  .transform((fm) => ({
-    ...fm,
-    track: fm.track ?? (fm.kind === 'paper' ? ('papers' as const) : undefined),
-  }));
+  });
 
 export type Frontmatter = z.output<typeof frontmatterSchema>;
 export type Source = z.output<typeof sourceSchema>;

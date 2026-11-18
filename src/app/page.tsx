@@ -1,10 +1,10 @@
 import Link from 'next/link';
-import { Eyebrow } from '@/components/EntryCard';
-import { ProgressBar, StatusDot } from '@/components/StatusDot';
+import { EntryMeta } from '@/components/EntryCard';
+import { ProgressBar } from '@/components/StatusDot';
 import { recentEntries, roadmapOrder, type Entry } from '@/lib/content';
 import { progressLookup, userProgress } from '@/lib/db';
 import { viewerSite } from '@/lib/viewer';
-import { entryHref, trackName } from '@/lib/tracks';
+import { entryHref } from '@/lib/kinds';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,8 +24,8 @@ function TodayItem({ heading, entry, action }: { heading: string; entry: Entry; 
       <Link href={entryHref(entry.kind, entry.slug)} className="font-display text-[1.5rem] text-ink no-underline hover:text-accent">
         {entry.title}
       </Link>
-      <Eyebrow entry={entry} />
-      {entry.summary && <p className="text-[0.95rem] text-muted">{entry.summary}</p>}
+      {entry.summary && <p className="entry-intro">{entry.summary}</p>}
+      <EntryMeta entry={entry} />
       <Link href={entryHref(entry.kind, entry.slug)} className="label w-fit text-accent">
         {action} →
       </Link>
@@ -89,51 +89,6 @@ export default async function Home() {
         </div>
       </section>
 
-      {/* Tracks */}
-      <section aria-labelledby="tracks" className="flex flex-col gap-4">
-        <h2 id="tracks" className="font-display text-[1.5rem]">
-          Tracks
-        </h2>
-        <div className="grid gap-x-8 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
-          {site.tracks.map((t) => {
-            const done = t.pages.filter((p) => statusOf(p.slug) === 'done').length;
-            return (
-              <article key={t.id} className="flex flex-col gap-2 border-t border-line py-4">
-                <div className="flex items-baseline justify-between gap-3">
-                  <Link href={`/library?track=${t.id}`} className="font-semibold text-ink no-underline hover:text-accent">
-                    {t.name}
-                  </Link>
-                  <span className="num text-xs text-muted">
-                    {done}/{t.pages.length}
-                  </span>
-                </div>
-                <ProgressBar done={done} total={t.pages.length} label={`${t.name}: ${done} of ${t.pages.length} done`} />
-                <p className="text-sm text-muted">{t.description}</p>
-                {t.pages.length > 0 ? (
-                  <ul className="flex flex-col gap-1 text-[0.92rem]">
-                    {t.pages.slice(0, 3).map((p) => (
-                      <li key={p.slug} className="flex items-center gap-2">
-                        <StatusDot status={statusOf(p.slug)} />
-                        <Link href={entryHref(p.kind, p.slug)} className="text-ink no-underline hover:text-accent">
-                          {p.title}
-                        </Link>
-                      </li>
-                    ))}
-                    {t.pages.length > 3 && (
-                      <li className="label">
-                        <Link href={`/library?track=${t.id}`}>+{t.pages.length - 3} more</Link>
-                      </li>
-                    )}
-                  </ul>
-                ) : (
-                  <p className="label">No pages yet</p>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      </section>
-
       {/* Roadmaps */}
       <section aria-labelledby="roadmaps" className="flex flex-col gap-4">
         <h2 id="roadmaps" className="font-display text-[1.5rem]">
@@ -184,7 +139,6 @@ export default async function Home() {
               <li key={`${e.kind}/${e.slug}`} className="flex flex-col gap-0.5 border-t border-line py-3">
                 <span className="eyebrow">
                   {e.updated ?? e.created ?? ''} · {e.kind}
-                  {e.track ? ` · ${trackName(e.track)}` : ''}
                 </span>
                 <Link href={entryHref(e.kind, e.slug)} className="text-ink no-underline hover:text-accent">
                   {e.title}

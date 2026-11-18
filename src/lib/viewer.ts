@@ -6,7 +6,7 @@ import { getSite, type Site } from './content';
 import { signContentToken } from './content-token';
 import { canSeeDrafts, asRole, type Role } from './roles';
 import { authSettings, isStudio } from './settings';
-import { KIND_DIRS, type Kind } from './tracks';
+import { KIND_DIRS, type Kind } from './kinds';
 
 export interface Viewer {
   id: string;

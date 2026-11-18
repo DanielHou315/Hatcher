@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROGRESS_STATUSES } from './tracks';
+import { PROGRESS_STATUSES } from './kinds';
 
 export const slugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,199}$/, 'slug must be lowercase letters, digits, hyphens');
 

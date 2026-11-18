@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import matter from 'gray-matter';
 import { formatZodError, frontmatterSchema, type PaperMeta, type Source, type Stage } from './schema';
-import { KIND_DIRS, KINDS, TRACKS, type Kind, type ProgressStatus, type TrackId } from './tracks';
+import { KIND_DIRS, KINDS, type Kind, type ProgressStatus } from './kinds';
 
 /** How the body is written: MDX rendered by the site, or HTML rendered in a sandboxed frame. */
 export type Format = 'mdx' | 'html';
@@ -21,7 +21,6 @@ export interface Entry {
   title: string;
   summary: string;
   tags: string[];
-  track?: TrackId;
   level?: number;
   prerequisites: string[];
   minutes?: number;
@@ -105,7 +104,6 @@ export function parseEntry(file: string, relPath: string, kind: Kind, source: st
     title: fm.title,
     summary: fm.summary,
     tags: fm.tags,
-    track: fm.track,
     level: fm.level,
     prerequisites: fm.prerequisites,
     minutes: fm.estimated_minutes,
@@ -213,13 +211,6 @@ export function loadEntries(dir: string = contentDir()): Entry[] {
 // ---------------------------------------------------------------------------
 // Derived data (pure)
 
-export interface TrackGroup {
-  id: TrackId;
-  name: string;
-  description: string;
-  pages: Entry[];
-}
-
 export interface Site {
   entries: Entry[];
   /** Valid concept and paper pages. */
@@ -228,7 +219,6 @@ export interface Site {
   bySlug: Map<string, Entry>;
   leadsTo: Map<string, string[]>;
   missingPrerequisites: Map<string, string[]>;
-  tracks: TrackGroup[];
   tagCounts: Map<string, number>;
   primaryRoadmap?: Entry;
   /** Slugs of the primary roadmap in reading order (only slugs that exist). */
@@ -268,20 +258,13 @@ export function buildSite(entries: Entry[]): Site {
     if (missing.length) missingPrerequisites.set(page.slug, missing);
   }
 
-  const tracks: TrackGroup[] = TRACKS.map((t) => ({
-    id: t.id,
-    name: t.name,
-    description: t.description,
-    pages: pages.filter((p) => p.track === t.id).sort(byLevelThenTitle),
-  }));
-
   const tagCounts = new Map<string, number>();
   for (const e of valid) for (const tag of e.tags) tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
 
   const primaryRoadmap = roadmaps.find((r) => r.primary) ?? roadmaps[0];
   const primaryOrder = primaryRoadmap ? roadmapOrder(primaryRoadmap).filter((s) => bySlug.has(s)) : [];
 
-  return { entries, pages, roadmaps, bySlug, leadsTo, missingPrerequisites, tracks, tagCounts, primaryRoadmap, primaryOrder };
+  return { entries, pages, roadmaps, bySlug, leadsTo, missingPrerequisites, tagCounts, primaryRoadmap, primaryOrder };
 }
 
 /** Entries a viewer may see: published, valid pages, plus drafts and invalid pages for writers. */
@@ -311,7 +294,6 @@ export function neighbors(order: string[], slug: string): { prev?: string; next?
 export interface Filters {
   q?: string;
   kind?: string;
-  track?: string;
   level?: string;
   status?: string;
   tag?: string;
@@ -325,7 +307,6 @@ export function filterEntries(entries: Entry[], filters: Filters, progressOf: Pr
   const level = filters.level ? Number(filters.level) : undefined;
   const out = entries.filter((e) => {
     if (filters.kind && e.kind !== filters.kind) return false;
-    if (filters.track && e.track !== filters.track) return false;
     if (level !== undefined && e.level !== level) return false;
     if (filters.tag && !e.tags.includes(filters.tag)) return false;
     if (filters.status && progressOf(e.slug) !== filters.status) return false;

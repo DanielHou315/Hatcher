@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { Entry } from './content';
 import type { TocItem } from './mdx-plugins';
-import { KIND_DIRS } from './tracks';
+import { KIND_DIRS } from './kinds';
 
 /** URL prefix of the content route (`src/app/c/[...path]/route.ts`). */
 export const CONTENT_PREFIX = '/c';

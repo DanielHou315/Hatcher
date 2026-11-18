@@ -8,6 +8,7 @@ import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import type { Entry, Site } from './content';
+import { MAX_TAGS } from './kinds';
 import { remarkKnownComponents, remarkSafeMdx } from './mdx-plugins';
 import { externalResources, extractHtmlToc, isFigurePath } from './sandbox';
 
@@ -71,6 +72,9 @@ export async function validateEntry(entry: Entry): Promise<Problems> {
   if (entry.error) {
     out.errors.push(entry.error);
     return out;
+  }
+  if (entry.tags.length > MAX_TAGS) {
+    out.warnings.push(`${entry.relPath}: ${entry.tags.length} tags; pages show only the first ${MAX_TAGS}`);
   }
   checkBundleFiles(entry, out);
   if (entry.format === 'html') {
