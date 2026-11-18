@@ -2,7 +2,7 @@ import 'server-only';
 import { headers } from 'next/headers';
 import { z } from 'zod';
 import { getAuth } from './auth';
-import { roleCan, type PageAction, type Role } from './roles';
+import { pageActionsOf, roleCan, type PageAction, type Role } from './roles';
 
 // API keys for agents and the MCP server. A key's access is fixed at creation and never exceeds
 // the owner's role; use-time checks (src/lib/agent-auth.ts) also re-check the owner's current role.
@@ -38,20 +38,6 @@ export interface KeySummary {
   lastUsedAt: string | null;
 }
 
-function actionsOf(permissions: unknown): PageAction[] {
-  const parsed = typeof permissions === 'string' ? safeJson(permissions) : permissions;
-  const pages = (parsed as { pages?: unknown } | null)?.pages;
-  return Array.isArray(pages) ? (pages.filter((p) => typeof p === 'string') as PageAction[]) : [];
-}
-
-function safeJson(s: string): unknown {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
-
 const iso = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString() : null);
 
 export async function listKeys(): Promise<KeySummary[]> {
@@ -60,7 +46,7 @@ export async function listKeys(): Promise<KeySummary[]> {
     id: k.id,
     name: k.name ?? null,
     start: k.start ?? null,
-    access: actionsOf(k.permissions),
+    access: pageActionsOf(k.permissions),
     createdAt: iso(k.createdAt)!,
     expiresAt: iso(k.expiresAt),
     lastUsedAt: iso(k.lastRequest),

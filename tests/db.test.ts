@@ -85,14 +85,14 @@ describe('single-user database migration', () => {
 
   it('replaces empty single-user tables', () => {
     const d = openProgressStore(legacy(0));
-    expect(tables(d)).toEqual(['progress', 'reading_log']);
+    expect(tables(d)).toEqual(['audit_log', 'progress', 'reading_log']);
     d.user('u').setProgress('a', 'done');
     d.close();
   });
 
   it('keeps non-empty single-user tables aside', () => {
     const d = openProgressStore(legacy(2));
-    expect(tables(d)).toEqual(['progress', 'progress_single_user', 'reading_log']);
+    expect(tables(d)).toEqual(['audit_log', 'progress', 'progress_single_user', 'reading_log']);
     expect(d.user('u').getAllProgress()).toEqual([]);
     d.close();
   });

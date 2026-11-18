@@ -18,6 +18,7 @@ Where things live. Update when a top-level directory is added, moved, or removed
 | `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, content loading and the database in `src/lib/` |
 | `tests/` | Vitest suites and fixtures |
 | `scripts/` | Content validation, library vendoring, data-dir setup |
+| `skills/hatcher/` | Optional agent skill for the MCP endpoint (setup in `docs/mcp.md`) |
 | `docs/` | Concise, human-facing governance: conventions, architecture, decisions. Start at `docs/README.md`. |
 | `docs/specs/`, `docs/plans/` | Agent working documents. Gitignored; do not link them as canonical. |
 | `.envrc.example` | Every environment variable, with a comment. |
