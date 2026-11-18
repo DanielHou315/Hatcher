@@ -3,16 +3,12 @@ import './globals.css';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { DrawerProvider, DrawerScrim, MenuButton } from '@/components/Drawer';
 import { KeyboardShortcuts } from '@/components/KeyboardShortcuts';
 import { UserMenu } from '@/components/auth/UserMenu';
 import { isStudio } from '@/lib/settings';
 import { LiveReload } from '@/components/LiveReload';
-import { Sidebar, type SidebarTrack } from '@/components/Sidebar';
 import { THEME_SCRIPT, ThemeToggle } from '@/components/ThemeToggle';
-import { progressLookup } from '@/lib/db';
 import { viewerSite } from '@/lib/viewer';
-import { entryHref } from '@/lib/tracks';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,20 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const { viewer, site } = await viewerSite();
-  const statusOf = progressLookup(viewer?.id);
-  const tracks: SidebarTrack[] = site.tracks.map((t) => ({
-    id: t.id,
-    name: t.name,
-    done: t.pages.filter((p) => statusOf(p.slug) === 'done').length,
-    pages: t.pages.map((p) => ({
-      href: entryHref(p.kind, p.slug),
-      title: p.title,
-      status: statusOf(p.slug),
-      draft: p.status === 'draft',
-    })),
-  }));
-  const roadmaps = site.roadmaps.map((r) => ({ href: entryHref('roadmap', r.slug), title: r.title }));
+  const { viewer } = await viewerSite();
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -46,40 +29,36 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <link rel="stylesheet" href="/_lib/fonts/fonts.css" />
       </head>
       <body>
-        <DrawerProvider>
-          <a href="#main" className="sr-only-focusable label absolute left-4 top-2 z-50 bg-surface px-2 py-1">
-            Skip to content
-          </a>
-          <header className="site-header">
-            <div className="shell flex h-full items-center gap-3 sm:gap-5">
-              <MenuButton />
-              <Link href="/" className="font-display text-[1.2rem] text-ink no-underline sm:text-[1.35rem]">
-                Hatcher
+        <a href="#main" className="sr-only-focusable label absolute left-4 top-2 z-50 bg-surface px-2 py-1">
+          Skip to content
+        </a>
+        <header className="site-header">
+          <div className="shell flex h-full items-center gap-3 sm:gap-5">
+            <Link href="/" className="font-display text-[1.2rem] text-ink no-underline sm:text-[1.35rem]">
+              Hatcher
+            </Link>
+            <nav className="flex items-center gap-3 text-[0.92rem] sm:gap-4">
+              <Link href="/library" className="text-muted no-underline hover:text-ink">
+                Library
               </Link>
-              <nav className="flex items-center gap-3 text-[0.92rem] sm:gap-4">
-                <Link href="/library" className="text-muted no-underline hover:text-ink">
-                  Library
-                </Link>
-                <Link href="/roadmaps" className="text-muted no-underline hover:text-ink">
-                  Roadmaps
-                </Link>
-              </nav>
-              <div className="ml-auto flex items-center gap-3 sm:gap-4">
-                <LiveReload />
-                <ThemeToggle />
-                {isStudio() && <UserMenu viewer={viewer} />}
-              </div>
+              <Link href="/roadmaps" className="text-muted no-underline hover:text-ink">
+                Roadmaps
+              </Link>
+            </nav>
+            <div className="ml-auto flex items-center gap-3 sm:gap-4">
+              <LiveReload />
+              <ThemeToggle />
+              {isStudio() && <UserMenu viewer={viewer} />}
             </div>
-          </header>
-          <div className="shell shell-grid">
-            <Sidebar tracks={tracks} roadmaps={roadmaps} />
-            <DrawerScrim />
-            <main id="main" className="min-w-0">
-              {children}
-            </main>
           </div>
-          <KeyboardShortcuts />
-        </DrawerProvider>
+        </header>
+        {/* Wide screens keep an empty left gutter; article pages put their contents there. */}
+        <div className="shell shell-grid">
+          <main id="main" className="shell-main min-w-0">
+            {children}
+          </main>
+        </div>
+        <KeyboardShortcuts />
       </body>
     </html>
   );

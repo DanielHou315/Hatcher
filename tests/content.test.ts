@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSite, filterEntries, loadEntries, neighbors, parseEntry } from '@/lib/content';
-import type { ProgressStatus } from '@/lib/tracks';
+import type { ProgressStatus } from '@/lib/kinds';
 
 const dir = path.join(__dirname, 'fixtures/content');
 const entries = loadEntries(dir);
@@ -12,20 +12,19 @@ describe('parsing', () => {
   it('parses a valid file and normalizes dates', () => {
     const alpha = get('alpha');
     expect(alpha.error).toBeUndefined();
-    expect(alpha).toMatchObject({ kind: 'concept', title: 'Alpha', track: 'foundations', level: 1, minutes: 20 });
+    expect(alpha).toMatchObject({ kind: 'concept', title: 'Alpha', level: 1, minutes: 20 });
     expect(alpha.created).toBe('2026-09-01');
     expect(get('beta').updated).toBe('2026-09-10');
   });
 
-  it('defaults the track to papers for paper pages', () => {
-    expect(get('gamma-paper').track).toBe('papers');
+  it('ignores the retired track field', () => {
+    expect(get('alpha')).not.toHaveProperty('track');
   });
 
   it('turns invalid frontmatter into an error entry', () => {
     const broken = get('broken');
     expect(broken.error).toMatch(/concepts\/broken\.mdx/);
     expect(broken.error).toMatch(/level/);
-    expect(broken.error).toMatch(/track/);
     expect(broken.title).toBe('broken');
     expect(broken.rawFrontmatter).toContain('level: 9');
   });
@@ -49,11 +48,10 @@ describe('graph', () => {
     expect(site.missingPrerequisites.has('alpha')).toBe(false);
   });
 
-  it('orders the primary roadmap and track pages', () => {
+  it('orders the primary roadmap and counts tags', () => {
     expect(site.primaryRoadmap?.slug).toBe('main-path');
     expect(site.primaryOrder).toEqual(['alpha', 'beta', 'gamma-paper']);
     expect(neighbors(site.primaryOrder, 'beta')).toEqual({ prev: 'alpha', next: 'gamma-paper' });
-    expect(site.tracks.find((t) => t.id === 'papers')?.pages.map((p) => p.slug)).toEqual(['gamma-paper']);
     expect(site.tagCounts.get('probability')).toBe(2);
   });
 });
@@ -63,9 +61,8 @@ describe('filters', () => {
   const statusOf = (slug: string) => progress[slug] ?? 'not-started';
   const slugs = (f: Parameters<typeof filterEntries>[1]) => filterEntries(entries, f, statusOf).map((e) => e.slug);
 
-  it('filters by kind, track, level, tag, query, and status', () => {
+  it('filters by kind, level, tag, query, and status', () => {
     expect(slugs({ kind: 'paper' })).toEqual(['gamma-paper']);
-    expect(slugs({ track: 'stochastic-analysis' })).toEqual(['beta']);
     expect(slugs({ level: '1' })).toEqual(['alpha']);
     expect(slugs({ tag: 'sde' })).toEqual(['beta', 'gamma-paper']);
     expect(slugs({ q: 'needs BETA' })).toEqual(['gamma-paper']);

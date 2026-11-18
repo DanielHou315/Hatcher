@@ -163,7 +163,9 @@ export interface FigureContext {
 }
 
 function makeFigure(ctx: FigureContext) {
-  function Figure({ src, caption, height }: { src?: string; caption?: string; height?: number }) {
+  function Figure({ src, caption, height }: { src?: string; caption?: string; height?: string | number }) {
+    // MDX allows no expressions, so the height arrives as a string: height="420".
+    const start = Number(height);
     const problem = !ctx.base
       ? 'Figures need a page folder: move this page to <slug>/index.mdx and put the figure beside it.'
       : !src || !isFigurePath(src)
@@ -182,7 +184,7 @@ function makeFigure(ctx: FigureContext) {
           src={`${ctx.base}${src}?v=${ctx.version}`}
           title={caption ?? src!}
           sandbox={ctx.sandbox}
-          initialHeight={typeof height === 'number' && height > 0 ? height : 360}
+          initialHeight={Number.isFinite(start) && start > 0 ? start : 360}
         />
         {caption && (
           <figcaption>

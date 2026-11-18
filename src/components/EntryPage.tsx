@@ -7,8 +7,8 @@ import { contentTokenFor, viewerSite } from '@/lib/viewer';
 import { renderMdx, type RenderedMdx, type TocItem } from '@/lib/mdx';
 import { entryContentBase, entryVersion, extractHtmlToc, FRAME_SANDBOX } from '@/lib/sandbox';
 import type { Source } from '@/lib/schema';
-import { entryHref, trackName, type Kind, type ProgressStatus } from '@/lib/tracks';
-import { Eyebrow } from './EntryCard';
+import { entryHref, type Kind, type ProgressStatus } from '@/lib/kinds';
+import { EntryMeta } from './EntryCard';
 import { ProgressControl, ViewLogger } from './ProgressControl';
 import { SandboxFrame } from './SandboxFrame';
 import { ProgressBar, StatusDot } from './StatusDot';
@@ -35,29 +35,21 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
   return (
     <div className="article-grid">
       <header className="article-head flex flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <Eyebrow entry={entry} />
-          {entry.status === 'draft' && <span className="pill" data-tone="draft">draft</span>}
-        </div>
-        <h1 className="title text-[2.1rem] sm:text-[2.6rem]">{entry.title}</h1>
-        {entry.summary && <p className="measure text-[1.08rem] text-muted">{entry.summary}</p>}
-        {entry.tags.length > 0 && (
-          <div className="flex flex-wrap gap-x-3">
-            {entry.tags.map((t) => (
-              <Link key={t} href={`/library?tag=${encodeURIComponent(t)}`} className="tag">
-                #{t}
-              </Link>
-            ))}
-          </div>
+        {entry.status === 'draft' && (
+          <span className="pill w-fit" data-tone="draft">
+            draft
+          </span>
         )}
+        <h1 className="title text-[2.1rem] sm:text-[2.6rem]">{entry.title}</h1>
+        {entry.summary && <p className="entry-intro measure text-[1.12rem]">{entry.summary}</p>}
+        <EntryMeta entry={entry} />
         {entry.prerequisites.length > 0 && <Prerequisites entry={entry} site={site} statusOf={statusOf} />}
         {entry.paper && <PaperMeta entry={entry} />}
       </header>
 
-      <aside className="rail flex flex-col gap-6" aria-label="Page tools">
-        {trackable && <ProgressControl slug={entry.slug} initial={statusOf(entry.slug)} />}
+      <aside className="rail flex flex-col gap-6" aria-label="Contents">
         {rendered.toc.length > 0 && <Toc items={rendered.toc} />}
-        {entry.sources.length > 0 && <Sources sources={entry.sources} />}
+        {trackable && <ProgressControl slug={entry.slug} initial={statusOf(entry.slug)} />}
       </aside>
 
       <div className="article-body flex flex-col gap-10">
@@ -70,6 +62,7 @@ export async function EntryPage({ kind, slug }: { kind: Kind; slug: string }) {
           <div className={entry.format === 'html' ? 'html-page' : 'prose'}>{rendered.content}</div>
         )}
         {entry.stages && <Stages entry={entry} site={site} statusOf={statusOf} />}
+        {entry.sources.length > 0 && <Sources sources={entry.sources} />}
         <LeadsTo entry={entry} site={site} statusOf={statusOf} />
         <PrevNext entry={entry} site={site} />
       </div>
@@ -205,9 +198,11 @@ function Toc({ items }: { items: TocItem[] }) {
 
 function Sources({ sources }: { sources: Source[] }) {
   return (
-    <section className="flex flex-col gap-1.5" aria-label="Sources">
-      <div className="label">Sources</div>
-      <ul className="flex flex-col gap-2 text-[0.88rem] leading-snug">
+    <section className="measure flex flex-col gap-3 border-t border-line pt-4" aria-labelledby="sources">
+      <h2 id="sources" className="font-display text-[1.4rem]">
+        Sources
+      </h2>
+      <ol className="flex flex-col gap-2.5 text-[0.95rem] leading-snug">
         {sources.map((s, i) => {
           const href = s.type === 'arxiv' && s.id ? `https://arxiv.org/abs/${s.id}` : s.url;
           return (
@@ -227,7 +222,7 @@ function Sources({ sources }: { sources: Source[] }) {
             </li>
           );
         })}
-      </ul>
+      </ol>
     </section>
   );
 }
@@ -326,7 +321,6 @@ function PrevNext({ entry, site }: { entry: Entry; site: Site }) {
       <div className="label col-span-2">
         {i + 1} of {order.length} in{' '}
         <Link href={entryHref('roadmap', site.primaryRoadmap.slug)}>{site.primaryRoadmap.title}</Link>
-        {site.primaryRoadmap.track ? ` · ${trackName(site.primaryRoadmap.track)}` : ''}
       </div>
     </nav>
   );

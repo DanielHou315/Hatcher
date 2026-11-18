@@ -1,4 +1,4 @@
-import type { ProgressStatus } from '@/lib/tracks';
+import type { ProgressStatus } from '@/lib/kinds';
 
 const LABELS: Record<ProgressStatus | 'missing', string> = {
   'not-started': 'Not started',

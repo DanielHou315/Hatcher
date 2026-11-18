@@ -12,7 +12,7 @@ write and refuses pages that break its rules, so rely on its answers rather than
 ## Before anything else
 
 Call `guide` once per task. It returns what your API key may do (read, write, publish) and the
-full page format reference, which is the source of truth for frontmatter, tracks, levels, section
+full page format reference, which is the source of truth for frontmatter, summaries, tags, levels, section
 structure and components. Do not write from memory of an older format.
 
 ## Workflow

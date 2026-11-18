@@ -3,7 +3,7 @@ import { contentDir, loadEntries } from '@/lib/content';
 import { verifyContentToken } from '@/lib/content-token';
 import { contentHeaders, prepareHtml, resolveContentPath } from '@/lib/sandbox';
 import { authSettings, isStudio } from '@/lib/settings';
-import { KIND_DIRS } from '@/lib/tracks';
+import { KIND_DIRS } from '@/lib/kinds';
 import { isPublicContent } from '@/lib/viewer';
 
 export const dynamic = 'force-dynamic';

@@ -11,14 +11,13 @@ interface Option {
 
 export interface FilterOptions {
   kinds: Option[];
-  tracks: Option[];
   levels: Option[];
   statuses: Option[];
   tags: Option[];
   sorts: Option[];
 }
 
-const KEYS = ['kind', 'track', 'level', 'status', 'tag', 'sort'] as const;
+const KEYS = ['kind', 'level', 'status', 'tag', 'sort'] as const;
 
 export function LibraryFilters({ options }: { options: FilterOptions }) {
   const router = useRouter();
@@ -50,7 +49,6 @@ export function LibraryFilters({ options }: { options: FilterOptions }) {
 
   const selects: { key: (typeof KEYS)[number]; label: string; opts: Option[]; all: string }[] = [
     { key: 'kind', label: 'Kind', opts: options.kinds, all: 'All kinds' },
-    { key: 'track', label: 'Track', opts: options.tracks, all: 'All tracks' },
     { key: 'level', label: 'Level', opts: options.levels, all: 'Any level' },
     { key: 'status', label: 'Status', opts: options.statuses, all: 'Any status' },
     { key: 'tag', label: 'Tag', opts: options.tags, all: 'Any tag' },
@@ -74,7 +72,7 @@ export function LibraryFilters({ options }: { options: FilterOptions }) {
         />
         <kbd className="label rounded-none border border-line px-1.5">/</kbd>
       </label>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 xl:grid-cols-5">
         {selects.map((s) => (
           <label key={s.key} className="flex min-w-0 flex-col gap-0.5">
             <span className="label">{s.label}</span>
