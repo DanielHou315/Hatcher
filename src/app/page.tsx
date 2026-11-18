@@ -56,7 +56,10 @@ export default async function Home() {
           </h1>
           <p className="text-sm text-muted">The mathematics behind the papers, one page a day.</p>
         </div>
-        <div className="grid gap-6 border-y border-line py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+        {/* Progress (continue, streak, stats) exists only for signed-in readers of the studio. */}
+        <div
+          className={`grid gap-6 border-y border-line py-5 ${viewer ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]' : ''}`}
+        >
           {nextUp ? (
             <TodayItem heading={`Next up · ${primary?.title ?? ''}`} entry={nextUp} action="Read" />
           ) : fallback ? (
@@ -73,58 +76,63 @@ export default async function Home() {
               </p>
             </div>
           )}
-          {continuing ? (
-            <TodayItem heading="Continue" entry={continuing} action="Resume" />
-          ) : (
-            <div className="flex flex-col gap-1.5">
-              <div className="label">Continue</div>
-              <p className="text-[0.95rem] text-muted">Nothing in progress. Mark a page “In progress” to pick it up here.</p>
+          {viewer &&
+            (continuing ? (
+              <TodayItem heading="Continue" entry={continuing} action="Resume" />
+            ) : (
+              <div className="flex flex-col gap-1.5">
+                <div className="label">Continue</div>
+                <p className="text-[0.95rem] text-muted">Nothing in progress. Mark a page “In progress” to pick it up here.</p>
+              </div>
+            ))}
+          {viewer && (
+            <div className="flex gap-7 lg:flex-col lg:gap-3 lg:border-l lg:border-line lg:pl-6">
+              <Stat value={streak} label="day streak" />
+              <Stat value={`${stats.done}/${stats.total}`} label="pages done" />
+              <Stat value={stats.doneMinutes} label="minutes read" />
             </div>
           )}
-          <div className="flex gap-7 lg:flex-col lg:gap-3 lg:border-l lg:border-line lg:pl-6">
-            <Stat value={streak} label={streak === 1 ? 'day streak' : 'day streak'} />
-            <Stat value={`${stats.done}/${stats.total}`} label="pages done" />
-            <Stat value={stats.doneMinutes} label="minutes read" />
-          </div>
         </div>
       </section>
 
       {/* Roadmaps */}
-      <section aria-labelledby="roadmaps" className="flex flex-col gap-4">
-        <h2 id="roadmaps" className="font-display text-[1.5rem]">
-          Roadmaps
-        </h2>
-        {site.roadmaps.length === 0 ? (
-          <p className="text-muted">No roadmaps yet. A roadmap orders concept and paper pages into stages.</p>
-        ) : (
-          <ul className="flex flex-col">
-            {site.roadmaps.map((r) => {
-              const items = roadmapOrder(r).filter((s) => site.bySlug.has(s));
-              const done = items.filter((s) => statusOf(s) === 'done').length;
-              return (
-                <li key={r.slug} className="grid gap-2 border-t border-line py-4 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-6">
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-3">
-                      <Link href={entryHref('roadmap', r.slug)} className="font-semibold text-ink no-underline hover:text-accent">
-                        {r.title}
-                      </Link>
-                      {r === primary && <span className="pill">primary</span>}
-                      {r.status === 'draft' && <span className="pill" data-tone="draft">draft</span>}
+      {site.roadmaps.length > 0 && (
+        <section aria-labelledby="roadmaps" className="flex flex-col gap-4">
+          <h2 id="roadmaps" className="font-display text-[1.5rem]">
+            Roadmaps
+          </h2>
+          {site.roadmaps.length === 0 ? (
+            <p className="text-muted">No roadmaps yet. A roadmap orders concept and paper pages into stages.</p>
+          ) : (
+            <ul className="flex flex-col">
+              {site.roadmaps.map((r) => {
+                const items = roadmapOrder(r).filter((s) => site.bySlug.has(s));
+                const done = items.filter((s) => statusOf(s) === 'done').length;
+                return (
+                  <li key={r.slug} className="grid gap-2 border-t border-line py-4 sm:grid-cols-[minmax(0,1fr)_12rem] sm:gap-6">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-3">
+                        <Link href={entryHref('roadmap', r.slug)} className="font-semibold text-ink no-underline hover:text-accent">
+                          {r.title}
+                        </Link>
+                        {r === primary && <span className="pill">primary</span>}
+                        {r.status === 'draft' && <span className="pill" data-tone="draft">draft</span>}
+                      </div>
+                      <p className="text-sm text-muted">{r.summary}</p>
                     </div>
-                    <p className="text-sm text-muted">{r.summary}</p>
-                  </div>
-                  <div className="flex flex-col justify-center gap-1.5">
-                    <ProgressBar done={done} total={items.length} />
-                    <span className="label">
-                      {r.stages?.length ?? 0} stages · {done}/{items.length} done
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                    <div className="flex flex-col justify-center gap-1.5">
+                      <ProgressBar done={done} total={items.length} />
+                      <span className="label">
+                        {r.stages?.length ?? 0} stages · {done}/{items.length} done
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       {/* Recent */}
       <section aria-labelledby="recent" className="flex flex-col gap-4">

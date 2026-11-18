@@ -54,6 +54,7 @@ export function LibraryFilters({ options }: { options: FilterOptions }) {
     { key: 'tag', label: 'Tag', opts: options.tags, all: 'Any tag' },
     { key: 'sort', label: 'Sort', opts: options.sorts, all: '' },
   ];
+  const shown = selects.filter((s) => s.key === 'sort' || s.opts.length > 0);
   const active = KEYS.some((k) => k !== 'sort' && params.get(k)) || Boolean(params.get('q'));
 
   return (
@@ -73,7 +74,7 @@ export function LibraryFilters({ options }: { options: FilterOptions }) {
         <kbd className="label rounded-none border border-line px-1.5">/</kbd>
       </label>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3 xl:grid-cols-5">
-        {selects.map((s) => (
+        {shown.map((s) => (
           <label key={s.key} className="flex min-w-0 flex-col gap-0.5">
             <span className="label">{s.label}</span>
             <select
