@@ -36,11 +36,14 @@ export default async function LibraryPage({ searchParams }: Props) {
       { value: 'roadmap', label: 'Roadmaps' },
     ],
     levels: [1, 2, 3, 4, 5].map((l) => ({ value: String(l), label: `Level ${l}` })),
-    statuses: [
-      { value: 'not-started', label: 'Not started' },
-      { value: 'in-progress', label: 'In progress' },
-      { value: 'done', label: 'Done' },
-    ],
+    // Reading progress belongs to a signed-in reader; the public site has none.
+    statuses: viewer
+      ? [
+          { value: 'not-started', label: 'Not started' },
+          { value: 'in-progress', label: 'In progress' },
+          { value: 'done', label: 'Done' },
+        ]
+      : [],
     tags: [...site.tagCounts.entries()]
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
       .map(([tag, n]) => ({ value: tag, label: `${tag} (${n})` })),

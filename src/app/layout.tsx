@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const { viewer } = await viewerSite();
+  const { viewer, site } = await viewerSite();
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -28,7 +28,8 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         {/* eslint-disable-next-line @next/next/no-css-tags */}
         <link rel="stylesheet" href="/_lib/fonts/fonts.css" />
       </head>
-      <body>
+      {/* Progress marks (status dots, bars) are only meaningful for a signed-in reader. */}
+      <body data-progress={viewer ? 'on' : 'off'}>
         <a href="#main" className="sr-only-focusable label absolute left-4 top-2 z-50 bg-surface px-2 py-1">
           Skip to content
         </a>
@@ -41,9 +42,11 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               <Link href="/library" className="text-muted no-underline hover:text-ink">
                 Library
               </Link>
-              <Link href="/roadmaps" className="text-muted no-underline hover:text-ink">
-                Roadmaps
-              </Link>
+              {site.roadmaps.length > 0 && (
+                <Link href="/roadmaps" className="text-muted no-underline hover:text-ink">
+                  Roadmaps
+                </Link>
+              )}
             </nav>
             <div className="ml-auto flex items-center gap-3 sm:gap-4">
               <LiveReload />
