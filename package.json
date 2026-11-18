@@ -17,10 +17,7 @@
     "validate:content": "tsx --conditions=react-server scripts/validate-content.ts",
     "docker:up": "bash scripts/init-dirs.sh && docker compose up -d --build",
     "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f site",
-    "agent:run-now": "docker compose run --rm --no-deps agent /app/agent/run-job.sh",
-    "agent:dry-run": "docker compose run --rm --no-deps agent /app/agent/run-job.sh --dry-run",
-    "agent:logs": "docker compose logs -f agent"
+    "docker:logs": "docker compose logs -f site"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.25",

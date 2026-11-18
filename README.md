@@ -25,16 +25,15 @@ error (run it after writing content).
 
 ```sh
 npm run docker:up     # create the data dirs, then docker compose up -d --build
-npm run docker:logs   # site; npm run agent:logs for the agent
+npm run docker:logs
 npm run docker:down
 ```
 
-Compose runs the site and an `agent` service: Claude Code with the paper-to-guided-learning
-plugin, which writes draft pages on a schedule from a queue. Live data lives outside the repo,
-under `~/Databases/hatcher/` (`content/`, `database/`, `agent/`), set by the variables in
-`.envrc.example`. Content is service data and is not part of this repo. Pages written into the live
-content directory show up in the open browser within about two seconds, with no rebuild. See
-[docs/deployment.md](docs/deployment.md) for setup, the queue, logs, and promoting agent pages.
+Live data lives outside the repo, under `~/Databases/hatcher/` (`content/`, `database/`), set by
+the variables in `.envrc.example`. Content is service data and is not part of this repo. Pages
+written into the live content directory show up in the open browser within about two seconds, with
+no rebuild. See
+[docs/deployment.md](docs/deployment.md) for setup and publishing drafts.
 
 ## Content
 
@@ -43,10 +42,6 @@ none are committed here. The frontmatter,
 body skeleton, and available components (`<Theorem>`, `<Proof>`, `<Example>`, `<Exercise>`, ...)
 are specified in [docs/content-format.md](docs/content-format.md). A roadmap with `primary: true`
 drives the "Next up" suggestion and the prev/next links; otherwise the first roadmap by title does.
-
-The companion plugin at `../paper-to-guided-learning-plugin` generates these files: its agents
-decompose a paper into concept and paper pages that follow the content format and write them into
-`CONTENT_DIR`. The running site picks them up live.
 
 ## Progress
 

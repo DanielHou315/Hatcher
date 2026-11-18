@@ -123,14 +123,3 @@ Multi-stage build on `node:24-bookworm-slim`; the runner stage runs `node server
 standalone output as the non-root `node` user. `docker-compose.yml` mounts `CONTENT_DIR` at
 `/app/content` (read-only) and `DATA_DIR` at `/app/data` (defaults `./content` and `./data`), and
 health-checks `/api/health`. Content is excluded from the image; it always comes from the volume.
-
-## Agent service
-
-`agent/Dockerfile` builds a second image (Node 24, pinned Claude Code, uv, supercronic, tini) that
-runs as uid 1000. `agent/entrypoint.sh` checks for a token, syncs the plugin's `p2gl` environment
-from the read-only `/plugin` mount, refreshes the agent's `CLAUDE.md`, and starts supercronic on
-`AGENT_SCHEDULE`. Each run (`agent/run-job.sh`) takes the first open line of
-`AGENT_DIR/queue.md` (or the first missing prerequisite), renders a prompt from `agent/prompts/`,
-runs `claude -p` with the plugin, validates with `p2gl catalog --check`, and marks the queue line.
-It writes only to `CONTENT_DIR` (as `status: draft` pages) and `AGENT_DIR`; the site sees new files
-through its watcher. Operations are in [deployment.md](deployment.md).
