@@ -1,19 +1,32 @@
 version: 2
+
+# At most one Dependabot PR a week: every minor and patch update across npm, GitHub Actions and the
+# Docker base image, together. Major upgrades (Next, Node, TypeScript, actions) are deliberate
+# decisions made by hand, so Dependabot ignores them.
+multi-ecosystem-groups:
+  dependencies:
+    schedule:
+      interval: weekly
+
 updates:
   - package-ecosystem: npm
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      # One PR for routine minor and patch updates; majors arrive one at a time.
-      minor-and-patch:
-        update-types: [minor, patch]
-    open-pull-requests-limit: 5
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: monthly
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /
-    schedule:
-      interval: monthly
+    patterns: ["*"]
+    multi-ecosystem-group: dependencies
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
