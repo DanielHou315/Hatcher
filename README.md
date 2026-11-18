@@ -53,4 +53,10 @@ decompose a paper into concept and paper pages that follow the content format an
 Reading progress, notes, and a reading log are stored in SQLite at `$DATA_DIR/progress.db`
 (default `./data`, gitignored; `~/Databases/hatcher/database` with the example `.envrc`), using Node's built-in `node:sqlite`. Delete the file to start over.
 
+## Agents
+
+The studio serves an MCP endpoint at `/api/mcp` for agents with API keys from `/account`: read,
+validate, write and publish pages. [docs/mcp.md](docs/mcp.md) has the config for Claude Code,
+Codex and Cursor; [skills/hatcher](skills/hatcher/SKILL.md) is an optional workflow skill.
+
 See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.

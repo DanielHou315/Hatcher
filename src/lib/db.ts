@@ -41,6 +41,17 @@ CREATE TABLE IF NOT EXISTS reading_log (
 );
 CREATE INDEX IF NOT EXISTS reading_log_user_at ON reading_log (user_id, at);
 CREATE INDEX IF NOT EXISTS reading_log_user_slug_at ON reading_log (user_id, slug, at);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY,
+  at TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  key_id TEXT,
+  action TEXT NOT NULL,
+  target TEXT,
+  ok INTEGER NOT NULL,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_log_at ON audit_log (at);
 `;
 
 /** Move single-user tables aside (dropping them when empty) so the per-user schema can be created. */
@@ -189,4 +200,20 @@ export function progressLookup(userId: string | null | undefined): (slug: string
   if (!userId) return () => 'not-started';
   const map = new Map(userProgress(userId).getAllProgress().map((r) => [r.slug, r.status]));
   return (slug) => map.get(slug) ?? 'not-started';
+}
+
+export interface AuditRecord {
+  userId: string;
+  keyId?: string;
+  action: string;
+  target?: string;
+  ok: boolean;
+  detail?: string;
+}
+
+/** Append to the audit log of agent changes (DATA_DIR/progress.db, table audit_log). */
+export function recordAudit(r: AuditRecord) {
+  store()
+    .db.prepare('INSERT INTO audit_log (at, user_id, key_id, action, target, ok, detail) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(new Date().toISOString(), r.userId, r.keyId ?? null, r.action, r.target ?? null, r.ok ? 1 : 0, r.detail?.slice(0, 2000) ?? null);
 }

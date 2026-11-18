@@ -25,6 +25,8 @@ function hub(): Hub {
   const listeners = new Set<Listener>();
   const watcher = watch(dir, {
     ignoreInitial: true,
+    // Agent writes are staged here and only become pages when renamed into place.
+    ignored: (file: string) => file.split(path.sep).includes('.staging'),
     usePolling: process.env.CHOKIDAR_USEPOLLING === '1',
     interval: 1000,
     awaitWriteFinish: { stabilityThreshold: 300 },
