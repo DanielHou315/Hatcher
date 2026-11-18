@@ -34,6 +34,25 @@ npm run docker:up        # bash scripts/init-dirs.sh && docker compose up -d --b
 Pages with `status: draft` are hidden from the public site; editors see them in the studio. To
 publish one, review it, set `status: ready` in `CONTENT_DIR`, and run `npm run validate:content`.
 
+## Releases
+
+Merges to `main` run CI (lint, tests, build, and a Docker build). To release:
+
+1. Bump `version` in `package.json` (and `package-lock.json`) and add a `## [X.Y.Z] - date` section to
+   `CHANGELOG.md`, in a PR.
+2. After it merges, tag main and push the tag:
+
+   ```sh
+   git tag vX.Y.Z && git push origin vX.Y.Z
+   ```
+
+The release workflow checks the tag against `package.json` and the changelog, runs the tests,
+pushes `ghcr.io/danielhou315/hatcher:X.Y.Z`, `:X.Y` and `:latest`, and creates a GitHub release
+with the changelog section as notes. Deployments pin `X.Y.Z` and move to a new release
+deliberately. While the repository is private, the server needs `docker login ghcr.io` with a
+token that has `read:packages`.
+
 ## Updating
 
-`npm run docker:up` rebuilds the image.
+From source: `npm run docker:up` rebuilds the image. From a release: change the pinned tag and
+`docker compose pull && docker compose up -d`.
