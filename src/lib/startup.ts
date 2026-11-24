@@ -2,7 +2,6 @@ import { getMigrations } from 'better-auth/db/migration';
 import { adminExists, getAuth } from './auth';
 import { dataDir, getDb } from './db';
 import { cleanStaging } from './pages';
-import { contentOrigin } from './sandbox';
 import { authSettings } from './settings';
 
 /** Create or update the databases and clear leftovers of interrupted writes. Runs once at server start. */
@@ -26,8 +25,5 @@ export async function startup() {
 export function warnAboutSettings() {
   if (authSettings().adminEmails.length && adminExists()) {
     console.warn('[hatcher] an admin exists, so HATCHER_ADMIN_EMAILS is ignored; you can remove it.');
-  }
-  if (!contentOrigin() && process.env.NODE_ENV === 'production') {
-    console.warn('[hatcher] CONTENT_ORIGIN is not set: pages are shown only inside the viewer, never in their own tab. For a public site, serve content from a separate domain.');
   }
 }

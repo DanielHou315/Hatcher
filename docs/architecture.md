@@ -72,9 +72,9 @@ the reader opens and clicks on could still carry what it shows them out in a URL
 to the people they are shared with, and readers should trust their authors.
 
 Set `CONTENT_ORIGIN` to serve page files from a separate hostname (proxied to the same app); that
-hostname then serves page content and nothing else, and `SITE_ORIGIN` is allowed to frame it. A
-public site should do this, with a separate registrable domain (not a subdomain of the site), and
-only then is "Open" (a page in its own tab) offered. Without it, content requested as a top-level
+hostname then serves page content and nothing else, and `SITE_ORIGIN` is allowed to frame it, and
+only then is "Open" (a page in its own tab) offered. A separate registrable domain isolates pages
+best, but is optional. Without it, content requested as a top-level
 document is refused, so a page can never pose as the site in its own tab.
 
 ## Quotas and limits

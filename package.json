@@ -2,6 +2,7 @@
   "name": "hatcher",
   "version": "0.3.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -14,10 +15,7 @@
     "start": "next start",
     "test": "vitest run",
     "lint": "eslint . --max-warnings 0 && tsc --noEmit",
-    "import-page": "tsx scripts/import-page.ts",
-    "docker:up": "docker compose up -d --build",
-    "docker:down": "docker compose down",
-    "docker:logs": "docker compose logs -f site"
+    "import-page": "tsx scripts/import-page.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.25",
