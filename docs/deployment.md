@@ -30,7 +30,7 @@ anywhere.
 2. At `/account`, turn on two-factor sign-in.
 3. At `/admin`, set up email (SMTP) if you want password resets, then choose who may register.
    Registration starts closed.
-4. Create an API key at `/account` for your agents (`docs/mcp.md`).
+4. Create an API key at `/account` for your agents (`docs/api.md`).
 
 ## Upgrading from 0.1
 

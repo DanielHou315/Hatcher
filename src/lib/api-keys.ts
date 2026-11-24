@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { getAuth } from './auth';
 import { keyActions, type KeyAction } from './agent-auth';
 
-// API keys for agents and the MCP server. A key acts as its owner, limited to reading (read) or
+// API keys for agents and scripts using the REST API. A key acts as its owner, limited to reading (read) or
 // reading and writing (write) the pages its owner can reach.
 
 export const KEY_ACCESS = ['read', 'write'] as const;

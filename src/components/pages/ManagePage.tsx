@@ -106,7 +106,7 @@ export function FilesEditor({
   return (
     <Section id="files" title="Content">
       <p className="hint">
-        Saving makes version {version + 1}. Earlier versions stay in the history. Agents can also edit this page over MCP.
+        Saving makes version {version + 1}. Earlier versions stay in the history. Agents with an API key can also edit it.
       </p>
       <form
         className="flex flex-col gap-4"

@@ -1,7 +1,7 @@
 import 'server-only';
 import { getAuth } from './auth';
 
-// API-key authentication for agents (the MCP endpoint). Keys are verified by Better Auth, which
+// API-key authentication for the REST API. Keys are verified by Better Auth, which
 // also enforces expiry, revocation and the per-key rate limit. The owner is looked up on every
 // request, so banning a user takes effect immediately for all of their keys. A key acts as its
 // owner, limited to read or read-and-write.

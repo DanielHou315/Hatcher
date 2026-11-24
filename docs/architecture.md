@@ -1,7 +1,7 @@
 # Architecture
 
 Hatcher is a self-hosted, shareable alternative to Claude artifacts: private HTML pages that agents
-publish over MCP and people share with each other, on your own server, with your data in two
+publish through the REST API and people share with each other, on your own server, with your data in two
 SQLite files and a folder.
 
 ## Pieces
@@ -13,7 +13,7 @@ SQLite files and a folder.
 | Database | `src/lib/db.ts` | Pages, versions, shares, site settings, audit log (`DATA_DIR/hatcher.db`) |
 | Accounts | `src/lib/auth.ts` | Better Auth: accounts, sessions, 2FA, API keys, roles (`DATA_DIR/auth.db`) |
 | Sandbox | `src/lib/sandbox.ts`, `src/app/c/` | Serves page files under a strict CSP |
-| MCP | `src/lib/mcp/server.ts`, `src/app/api/mcp/` | Tools for agents |
+| REST API | `src/lib/page-api.ts`, `src/lib/requester.ts`, `src/app/api/` | Pages for the browser and API keys (`docs/api.md`) |
 | Email | `src/lib/mail.ts` | SMTP from admin settings |
 
 ## Data
@@ -31,7 +31,7 @@ versions count up from 1, and the row in `pages` points at the current one.
 **Writes.** A new version is built in `pages/.staging/`, checked (index.html present, paths, size
 limits), renamed to `pages/<id>/<n+1>/`, and only then does the page row move to it, in a
 transaction that also checks nobody else moved it first. A writer names the version it started
-from (`expected_version`), so nobody overwrites changes they have not seen. Restoring a version
+from (`expectedVersion`), so nobody overwrites changes they have not seen. Restoring a version
 copies it forward as a new one; history is never rewritten.
 
 ## Access
@@ -40,7 +40,7 @@ copies it forward as a new one; history is never rewritten.
   each page and API checks the session itself.
 - A page's owner may view, edit, share, rename and delete it. A share grants one other account
   `read` (view) or `write` (view and edit content). `src/lib/page-access.ts` decides; the same rules
-  apply in the UI, the APIs and MCP.
+  apply in the UI and the API (`src/lib/page-api.ts`).
 - Admins manage accounts and site settings. They have no access to pages that are not theirs or
   shared with them: the admin plugin is configured without impersonation or email changes
   (`src/lib/access.ts`). Anyone with shell access to the server can read `DATA_DIR`, of course.

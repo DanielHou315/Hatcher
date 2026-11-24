@@ -12,7 +12,7 @@ const ACCESS_LABEL: Record<KeyAccess, string> = {
 
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
-export function ApiKeys({ mcpUrl }: { mcpUrl: string }) {
+export function ApiKeys({ apiUrl }: { apiUrl: string }) {
   const allowed = ALLOWED;
   const [keys, setKeys] = useState<KeySummary[] | null>(null);
   const [created, setCreated] = useState<string | null>(null);
@@ -60,8 +60,8 @@ export function ApiKeys({ mcpUrl }: { mcpUrl: string }) {
           API keys
         </h2>
         <p className="text-muted">
-          For agents and MCP clients. Send the key as <code>Authorization: Bearer &lt;key&gt;</code> to{' '}
-          <code>{mcpUrl}</code>.
+          For agents and scripts, through the REST API at <code>{apiUrl}</code> or the Hatcher MCP client. Send the
+          key as <code>Authorization: Bearer &lt;key&gt;</code>. A key acts as you: read-only, or read and write.
         </p>
       </div>
 
