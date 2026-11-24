@@ -37,6 +37,10 @@ Forms cannot submit anywhere; handle them in JavaScript. `alert`, `confirm` and 
 and so are downloads: show messages and inputs in the page itself, and offer data to copy instead of
 a file to save.
 
+Links to other sites or other Hatcher pages need `target="_blank"`: they open in a new tab. A link
+without it cannot leave the page (the browser blocks it). Link to another page as `/p/<id>`; links
+to the page's own files (`figures/chart.html`) and `#anchors` work as usual.
+
 ## Example
 
 ```html

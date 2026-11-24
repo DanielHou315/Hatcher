@@ -78,10 +78,12 @@ export function contentOrigin(): string {
 
 /**
  * The `sandbox` attribute for frames. No allow-same-origin: page code always gets an opaque origin.
- * Popups (links opening a new tab) stay sandboxed. No modals (a prompt() could pose as the site)
- * and no downloads (a page could hand out any file under the site's name).
+ * Links may open new tabs, which are ordinary tabs showing their real address (sandboxed ones break
+ * most sites, Hatcher included); the frame itself cannot be navigated away (the app's frame-src).
+ * No modals (a prompt() could pose as the site) and no downloads (a page could hand out any file
+ * under the site's name).
  */
-export const FRAME_SANDBOX = 'allow-scripts allow-popups allow-forms';
+export const FRAME_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms';
 
 /**
  * Policy for everything under the content route. `sandbox` applies even when a URL is opened
