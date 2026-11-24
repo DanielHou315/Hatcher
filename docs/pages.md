@@ -1,7 +1,7 @@
 # Writing pages
 
 A Hatcher page is a web page: an `index.html` plus any files it uses (scripts, styles, images, fonts,
-data). Agents publish them over MCP; people paste or upload them at `/new`. Every page is private to
+data). Agents publish them through the API; people paste or upload them at `/new`. Every page is private to
 its owner until shared, and every change is a new version.
 
 ## The page
@@ -28,7 +28,7 @@ A page may load scripts, styles, fonts, images and data from:
   over HTTPS.
 
 Everything else is blocked by the browser: other hosts, APIs, analytics, and sending data anywhere.
-The `guide` tool and the `/new` page list the hosts currently allowed, and MCP write results warn
+`GET /api/guide` and the `/new` page list the hosts currently allowed, and API write results warn
 about references to blocked hosts. Pin library versions in URLs (`d3@7.9.0`, not `d3`).
 
 Inline scripts and styles, `eval`, WebAssembly, workers, `blob:` and `data:` URLs work. Cookies,

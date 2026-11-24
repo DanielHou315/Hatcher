@@ -3,6 +3,16 @@
 All notable changes to Hatcher. Versions follow [semantic versioning](https://semver.org/);
 releases are published as `ghcr.io/danielhou315/hatcher:<version>` (see docs/deployment.md).
 
+## [0.3.0] - 2026-11-23
+
+- **REST API for agents and scripts** replaces the MCP endpoint: list, read, create, version,
+  restore, rename and delete pages with an API key (`docs/api.md`). The same endpoints serve the
+  browser, and now also take JSON bodies.
+- The MCP server and the agent skill move to the
+  [hatcher-client-plugin](https://github.com/DanielHou315/hatcher-client-plugin) repo, as a local
+  (stdio) MCP server that calls this API. Point existing MCP clients at it instead of `/api/mcp`.
+- Removed: `/api/mcp`, `skills/`, the `@modelcontextprotocol/sdk` dependency.
+
 ## [0.2.0] - 2026-11-23
 
 Hatcher becomes a self-hosted, shareable alternative to Claude artifacts. This replaces the reading

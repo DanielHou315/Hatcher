@@ -53,7 +53,7 @@ export default async function PagesHome({ searchParams }: Props) {
         <div className="panel measure">
           <h2>No pages yet</h2>
           <p>
-            Paste or upload HTML on the <Link href="/new">new page</Link> form, or let an agent publish over MCP with an API key from your{' '}
+            Paste or upload HTML on the <Link href="/new">new page</Link> form, or let an agent publish through the API with a key from your{' '}
             <Link href="/account">account</Link>. Pages are private until you share them.
           </p>
         </div>

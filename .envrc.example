@@ -8,7 +8,7 @@ export DATA_DIR="$HOME/Databases/hatcher/database"
 export BETTER_AUTH_SECRET=""
 
 # The URL people open, e.g. https://hatcher.example.com. Sign-in only works from this origin, and
-# email links and MCP results point at it. Defaults to SITE_ORIGIN.
+# email links and API results point at it. Defaults to SITE_ORIGIN.
 export BETTER_AUTH_URL=""
 
 # Comma-separated emails that may always register, and become admins when they do. Use it to create

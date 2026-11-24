@@ -1,7 +1,7 @@
 # Hatcher
 
-A self-hosted, shareable alternative to Claude artifacts. Agents publish HTML pages to it over MCP,
-or you paste and upload them; each page is private until you share it with other accounts, to view
+A self-hosted, shareable alternative to Claude artifacts. Agents publish HTML pages to it through
+its API, or you paste and upload them; each page is private until you share it with other accounts, to view
 or to edit, and every change is kept as a version. Everything lives on your server: two SQLite
 files and a folder.
 
@@ -15,8 +15,9 @@ Named after the Hatcher Graduate Library at the University of Michigan.
 - **Accounts**: registration open, limited to email domains, or closed; authenticator-app two-factor
   sign-in; password reset, confirmation and share emails through your SMTP server; an admin page
   for users and settings. Admins cannot open pages that are not shared with them.
-- **Agents**: an MCP endpoint with per-user API keys ([docs/mcp.md](docs/mcp.md)), and an optional
-  [skill](skills/hatcher/SKILL.md).
+- **Agents**: a REST API with per-user keys ([docs/api.md](docs/api.md)). For Claude Code and other
+  MCP clients, the [hatcher-client-plugin](https://github.com/DanielHou315/hatcher-client-plugin)
+  repo has a local (stdio) MCP server and a skill that use it.
 
 ## Quick start
 

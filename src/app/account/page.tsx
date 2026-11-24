@@ -27,7 +27,7 @@ export default async function AccountPage() {
         </header>
         <TwoFactorSettings enabled={viewer.twoFactorEnabled} />
         <ChangePassword />
-        <ApiKeys mcpUrl={`${siteURL()}/api/mcp`} />
+        <ApiKeys apiUrl={`${siteURL()}/api`} />
       </div>
     </div>
   );

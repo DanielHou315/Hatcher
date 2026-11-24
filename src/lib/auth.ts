@@ -35,7 +35,7 @@ export function authDb(): DatabaseSync {
   return g.__hatcherAuthDb;
 }
 
-/** The site's public URL, for links in emails and MCP results. */
+/** The site's public URL, for links in emails and API results. */
 export function siteURL(request?: Request): string {
   return (authSettings().baseURL ?? (request ? new URL(request.url).origin : 'http://localhost:3000')).replace(/\/+$/, '');
 }

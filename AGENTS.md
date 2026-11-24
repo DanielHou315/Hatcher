@@ -4,7 +4,7 @@
 
 Hatcher, a self-hosted, shareable alternative to Claude artifacts, named after the Hatcher Graduate
 Library at the University of Michigan. Private, versioned HTML pages (format: `docs/pages.md`) that
-agents publish over MCP and users share with each other, served sandboxed by a Next.js 15 app in
+agents publish through the REST API and users share with each other, served sandboxed by a Next.js 15 app in
 `src/` (see `docs/architecture.md`). Accounts, pages and settings live under `DATA_DIR`.
 
 ## Repo Map
@@ -16,7 +16,6 @@ Where things live. Update when a top-level directory is added, moved, or removed
 | `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, pages, auth and the database in `src/lib/` |
 | `tests/` | Vitest suites |
 | `scripts/` | Font vendoring, page import |
-| `skills/hatcher/` | Optional agent skill for the MCP endpoint (setup in `docs/mcp.md`) |
 | `docs/` | Concise, human-facing governance: conventions, architecture, decisions. Start at `docs/README.md`. |
 | `docs/specs/`, `docs/plans/` | Agent working documents. Gitignored; do not link them as canonical. |
 | `.envrc.example` | Every environment variable, with a comment. |
