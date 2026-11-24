@@ -34,8 +34,17 @@ export interface VersionRow {
   key_id: string | null;
   note: string | null;
   files: number;
+  /** Size of the whole version. */
   bytes: number;
+  /** Bytes this version added on disk: files unchanged from the previous version are shared, not copied. */
+  stored_bytes: number;
   created_at: string;
+}
+
+/** What a user's pages take up, counted against their quota. */
+export interface Usage {
+  pages: number;
+  bytes: number;
 }
 
 export interface ShareRow {
@@ -70,6 +79,7 @@ CREATE TABLE IF NOT EXISTS page_versions (
   note TEXT,
   files INTEGER NOT NULL,
   bytes INTEGER NOT NULL,
+  stored_bytes INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   PRIMARY KEY (page_id, version)
 );
@@ -113,6 +123,11 @@ export function openDb(dir: string) {
   const db: DatabaseSync = new (sqlite().DatabaseSync)(path.join(dir, 'hatcher.db'));
   db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000; PRAGMA foreign_keys = ON;');
   db.exec(SCHEMA);
+  // 0.3: versions record the bytes they added. Older versions were full copies.
+  const versionCols = (db.prepare('PRAGMA table_info(page_versions)').all() as { name: string }[]).map((c) => c.name);
+  if (!versionCols.includes('stored_bytes')) {
+    db.exec('ALTER TABLE page_versions ADD COLUMN stored_bytes INTEGER NOT NULL DEFAULT 0; UPDATE page_versions SET stored_bytes = bytes;');
+  }
 
   const q = {
     page: db.prepare('SELECT * FROM pages WHERE id = ?'),
@@ -124,7 +139,15 @@ export function openDb(dir: string) {
     deletePage: db.prepare('DELETE FROM pages WHERE id = ?'),
     pagesOf: db.prepare('SELECT id FROM pages WHERE owner_id = ?'),
     insertVersion: db.prepare(
-      'INSERT INTO page_versions (page_id, version, author_id, key_id, note, files, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO page_versions (page_id, version, author_id, key_id, note, files, bytes, stored_bytes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    ),
+    usage: db.prepare(
+      `SELECT COUNT(DISTINCT p.id) AS pages, COALESCE(SUM(v.stored_bytes), 0) AS bytes
+       FROM pages p LEFT JOIN page_versions v ON v.page_id = p.id WHERE p.owner_id = ?`,
+    ),
+    usageAll: db.prepare(
+      `SELECT p.owner_id AS user_id, COUNT(DISTINCT p.id) AS pages, COALESCE(SUM(v.stored_bytes), 0) AS bytes
+       FROM pages p LEFT JOIN page_versions v ON v.page_id = p.id GROUP BY p.owner_id`,
     ),
     versions: db.prepare('SELECT * FROM page_versions WHERE page_id = ? ORDER BY version DESC'),
     share: db.prepare('SELECT * FROM shares WHERE page_id = ? AND user_id = ?'),
@@ -169,7 +192,16 @@ export function openDb(dir: string) {
     deletePage: (id: string) => q.deletePage.run(id),
     pageIdsOwnedBy: (userId: string) => (q.pagesOf.all(userId) as { id: string }[]).map((r) => r.id),
     insertVersion: (v: VersionRow) =>
-      q.insertVersion.run(v.page_id, v.version, v.author_id, v.key_id, v.note, v.files, v.bytes, v.created_at),
+      q.insertVersion.run(v.page_id, v.version, v.author_id, v.key_id, v.note, v.files, v.bytes, v.stored_bytes, v.created_at),
+    usage: (userId: string): Usage => {
+      const r = q.usage.get(userId) as { pages: number; bytes: number };
+      return { pages: Number(r.pages), bytes: Number(r.bytes) };
+    },
+    /** Usage of every user who owns a page, by user id. */
+    usageByUser: (): Map<string, Usage> =>
+      new Map(
+        (q.usageAll.all() as { user_id: string; pages: number; bytes: number }[]).map((r) => [r.user_id, { pages: Number(r.pages), bytes: Number(r.bytes) }]),
+      ),
     versions: (id: string) => q.versions.all(id) as unknown as VersionRow[],
     share: (pageId: string, userId: string) => q.share.get(pageId, userId) as unknown as ShareRow | undefined,
     shares: (pageId: string) => q.shares.all(pageId) as unknown as ShareRow[],

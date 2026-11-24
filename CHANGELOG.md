@@ -14,6 +14,31 @@ releases are published as `ghcr.io/danielhou315/hatcher:<version>` (see docs/dep
 - `HATCHER_TRUSTED_ORIGINS` lets people sign in from more than one address (say, a LAN address and
   the public URL). The server now warns at startup when `BETTER_AUTH_URL` is unset, which makes
   every sign-in fail with "Invalid origin".
+- **Quotas**: storage and page count per user, with a default and per-user limits at `/admin`.
+  Usage shows at `/account` and in `GET /api/me`. A version now hard-links the files it does not
+  change, so it costs only what it changes; existing versions are counted at full size.
+- **Security hardening** before going public:
+  - Request bodies are capped while read, chunked ones too; middleware no longer runs on `/api` and
+    `/c`, which also fixes uploads over 10 MB being cut short.
+  - Page frames lose `allow-popups-to-escape-sandbox`, `allow-modals` and `allow-downloads`; the
+    site sends `frame-src`, `frame-ancestors` and `X-Frame-Options`, so a page cannot navigate its
+    frame elsewhere or be framed by other sites.
+  - Without `CONTENT_ORIGIN`, page content is never served as a top-level document and "Open" is
+    hidden. With it, the content host serves content only.
+  - Frame tokens name the reader and the version; access and suspension are checked on every request.
+  - `HATCHER_ADMIN_EMAILS` only works until an admin exists. Registering by domain requires email
+    confirmation; unconfirmed OAuth addresses count for neither. A closed site no longer reveals
+    which emails have accounts.
+  - Admins can no longer set users' passwords. Password changes and resets revoke API keys; new keys
+    need a sign-in under a day old; keys can only be made through `/api/keys`.
+  - The sign-in redirect refuses `next` values with control characters or backslashes.
+  - Page titles are only in the tab of people who may read the page.
+  - The stored SMTP password is only sent to the server it was saved for; test errors are generic.
+  - Rate limits on page changes and shares; one share notice per page and person a day.
+  - The audit log adds sign-ins, sign-ups, 2FA, password and admin actions, renames and refused deletes.
+  - `HATCHER_CLIENT_IP_HEADER` picks the header for the visitor's address (was `cf-connecting-ip`
+    or `x-forwarded-for`, which visitors could set). `BETTER_AUTH_SECRET` must be at least 32
+    characters in production. Health checks no longer echo errors.
 - Removed: `/api/mcp`, `skills/`, the `@modelcontextprotocol/sdk` dependency.
 
 ## [0.2.0] - 2026-11-23

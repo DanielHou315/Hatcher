@@ -1,6 +1,9 @@
 import 'server-only';
 import { z } from 'zod';
 import { authenticateAgent, bearerToken } from './agent-auth';
+import { tooManyRequests } from './api';
+import { BodyTooLarge, readCapped } from './body';
+import { allow } from './rate-limit';
 import { getAuth, siteURL } from './auth';
 import { dataDir, getDb } from './db';
 import { foreignOrigin } from './origin';
@@ -15,8 +18,20 @@ import { formText, readUpload } from './uploads';
 
 const json = (status: number, error: string, headers: Record<string, string> = {}) => Response.json({ error }, { status, headers });
 
+/** Page changes (create, version, restore, rename, delete) per user, every 10 minutes. */
+const WRITES_PER_10_MIN = 120;
+
 /** The context for an API request, or the error response to send instead. */
 export async function apiContext(request: Request): Promise<ApiContext | Response> {
+  const ctx = await resolve(request);
+  if (ctx instanceof Response) return ctx;
+  if (request.method !== 'GET' && request.method !== 'HEAD' && !allow(`write:${ctx.who.userId}`, WRITES_PER_10_MIN, 600_000)) {
+    return tooManyRequests(`more than ${WRITES_PER_10_MIN} changes in 10 minutes; try again shortly`);
+  }
+  return ctx;
+}
+
+async function resolve(request: Request): Promise<ApiContext | Response> {
   const base = { db: getDb(), dataDir: dataDir(), baseURL: siteURL(request) };
   const cdnHosts = getCdnHosts(base.db);
   if (bearerToken(request)) {
@@ -40,22 +55,15 @@ const MAX_JSON = Math.ceil(LIMITS.pageBytes * 1.4) + MB;
 
 /** Read a JSON body with a hard cap, whatever Content-Length claims. */
 async function readJsonBody(request: Request): Promise<unknown> {
-  if (Number(request.headers.get('content-length') ?? 0) > MAX_JSON) throw new PageError('too_large', `request body over ${Math.round(MAX_JSON / MB)} MB`);
-  const reader = request.body?.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (reader) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > MAX_JSON) {
-      await reader.cancel();
-      throw new PageError('too_large', `request body over ${Math.round(MAX_JSON / MB)} MB`);
-    }
-    chunks.push(value);
+  let body: Buffer;
+  try {
+    body = await readCapped(request, MAX_JSON);
+  } catch (err) {
+    if (err instanceof BodyTooLarge) throw new PageError('too_large', `request body over ${Math.round(MAX_JSON / MB)} MB`);
+    throw err;
   }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return JSON.parse(body.toString('utf8'));
   } catch {
     throw new PageError('invalid', 'body is not valid JSON');
   }

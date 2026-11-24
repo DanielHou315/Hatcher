@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { signContentToken, verifyContentToken } from '@/lib/content-token';
-import { blockedResources, contentHeaders, contentSecurityPolicy, DEFAULT_CDN_HOSTS, isCdnHost, parseCdnHosts } from '@/lib/sandbox';
+import { blockedResources, FRAME_SANDBOX, contentHeaders, contentSecurityPolicy, DEFAULT_CDN_HOSTS, isCdnHost, parseCdnHosts } from '@/lib/sandbox';
 
 describe('content security policy', () => {
   it('sandboxes without same-origin and allows only this server and the listed hosts', () => {
@@ -53,22 +53,37 @@ describe('content security policy', () => {
 
 describe('content tokens', () => {
   const now = Date.UTC(2026, 10, 23, 12, 3);
-  it('verifies for the page it was signed for, until it expires', () => {
-    const t = signContentToken('s', 'AbCdEfGhIjKl', now);
-    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now)).toBe(true);
-    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now + 2 * 3600_000)).toBe(true);
-    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now + 3 * 3600_000)).toBe(false);
-    expect(verifyContentToken('s', 'OtherPage123', t, now)).toBe(false);
-    expect(verifyContentToken('other secret', 'AbCdEfGhIjKl', t, now)).toBe(false);
+  const page = 'AbCdEfGhIjKl';
+  it('names the user and is valid only for the page version it was signed for, until it expires', () => {
+    const t = signContentToken('s', page, 2, 'user1', now);
+    expect(verifyContentToken('s', page, 2, t, now)).toBe('user1');
+    expect(verifyContentToken('s', page, 2, t, now + 2 * 3600_000)).toBe('user1');
+    expect(verifyContentToken('s', page, 2, t, now + 3 * 3600_000)).toBeNull();
+    expect(verifyContentToken('s', 'OtherPage123', 2, t, now)).toBeNull();
+    expect(verifyContentToken('s', page, 3, t, now)).toBeNull();
+    expect(verifyContentToken('other secret', page, 2, t, now)).toBeNull();
+  });
+
+  it('cannot be moved to another user', () => {
+    const t = signContentToken('s', page, 1, 'user1', now);
+    const [, exp, sig] = t.split('.');
+    expect(verifyContentToken('s', page, 1, `user2.${exp}.${sig}`, now)).toBeNull();
   });
 
   it('stays the same within a 10-minute step, so frame URLs are stable', () => {
-    expect(signContentToken('s', 'p', now)).toBe(signContentToken('s', 'p', now + 60_000));
+    expect(signContentToken('s', 'p', 1, 'u', now)).toBe(signContentToken('s', 'p', 1, 'u', now + 60_000));
   });
 
   it('rejects tokens claiming an expiry beyond the lifetime', () => {
-    const far = now + 100 * 3600_000;
-    const forged = signContentToken('s', 'p', far);
-    expect(verifyContentToken('s', 'p', forged, now)).toBe(false);
+    const forged = signContentToken('s', 'p', 1, 'u', now + 100 * 3600_000);
+    expect(verifyContentToken('s', 'p', 1, forged, now)).toBeNull();
+  });
+});
+
+describe('sandbox flags', () => {
+  it('never lets pages escape the sandbox, show dialogs or start downloads', () => {
+    for (const flag of ['allow-same-origin', 'allow-popups-to-escape-sandbox', 'allow-modals', 'allow-downloads', 'allow-top-navigation']) {
+      expect(FRAME_SANDBOX).not.toContain(flag);
+    }
   });
 });

@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ROLES, type Role } from '@/lib/access';
 import { authClient } from '@/lib/auth-client';
+import { call, jsonInit } from '@/lib/client-fetch';
+import { bytes } from '@/lib/format';
+
+interface Limit {
+  storageMB: number;
+  pages: number;
+}
+interface Quota {
+  default: Limit;
+  users: Record<string, { pages: number; bytes: number; limit: Limit & { custom: boolean } }>;
+}
 
 interface Row {
   id: string;
@@ -25,10 +36,13 @@ export function UserAdmin({ selfId, canEmail, verification }: { selfId: string; 
   const [notice, setNotice] = useState<{ text: string; secret?: string } | null>(null);
   const [query, setQuery] = useState('');
 
+  const [quota, setQuota] = useState<Quota | null>(null);
+
   const load = useCallback(async () => {
     const { data, error } = await authClient.admin.listUsers({ query: { limit: 500, sortBy: 'createdAt', sortDirection: 'desc' } });
     if (error) setError(error.message ?? 'Could not load users.');
     setUsers((data?.users as Row[] | undefined) ?? []);
+    setQuota(await call<Quota>('/api/admin/quota').catch(() => null));
   }, []);
   useEffect(() => {
     void load();
@@ -56,11 +70,24 @@ export function UserAdmin({ selfId, canEmail, verification }: { selfId: string; 
     else setNotice({ text: 'Account created. Share this temporary password privately; they should change it under Account.', secret: `${email} / ${password}` });
   }
 
-  async function setPassword(u: Row) {
-    const password = randomPassword();
-    if (await run(authClient.admin.setUserPassword({ userId: u.id, newPassword: password }))) {
-      await authClient.admin.revokeUserSessions({ userId: u.id });
-      setNotice({ text: `New temporary password for ${u.email}; their other sessions were signed out.`, secret: password });
+  async function editLimit(u: Row) {
+    const now = quota?.users[u.id]?.limit;
+    const input = prompt(
+      `Limit for ${u.email}, as "MB pages" (0 = no limit), or empty to use the default (${quota?.default.storageMB} MB, ${quota?.default.pages} pages):`,
+      now?.custom ? `${now.storageMB} ${now.pages}` : '',
+    );
+    if (input === null) return;
+    const [storageMB, pages] = input.trim().split(/\s+/).map(Number);
+    const limit = input.trim() === '' ? null : { storageMB, pages: pages ?? quota?.default.pages ?? 0 };
+    if (limit && (!Number.isInteger(limit.storageMB) || !Number.isInteger(limit.pages) || limit.storageMB < 0 || limit.pages < 0)) {
+      setError('Enter two whole numbers: megabytes and pages, like "2048 1000".');
+      return;
+    }
+    setError(null);
+    try {
+      setQuota(await call<Quota>('/api/admin/quota', jsonInit('PUT', { userId: u.id, limit })));
+    } catch (err) {
+      setError((err as Error).message);
     }
   }
 
@@ -121,6 +148,11 @@ export function UserAdmin({ selfId, canEmail, verification }: { selfId: string; 
               <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find by name or email" />
             </label>
           </div>
+          {!canEmail && (
+            <p className="hint">
+              Without email, people who forget their password cannot reset it. Set up email below to send reset links.
+            </p>
+          )}
           <div className="scroll-x">
             <table className="table">
               <thead>
@@ -128,6 +160,7 @@ export function UserAdmin({ selfId, canEmail, verification }: { selfId: string; 
                   <th>User</th>
                   <th>Role</th>
                   <th>Status</th>
+                  <th>Storage</th>
                   <th>Joined</th>
                   <th />
                 </tr>
@@ -162,17 +195,32 @@ export function UserAdmin({ selfId, canEmail, verification }: { selfId: string; 
                         {u.twoFactorEnabled && <span className="pill" data-tone="ok">2FA</span>}
                       </div>
                     </td>
+                    <td className="whitespace-nowrap">
+                      {(() => {
+                        const q = quota?.users[u.id];
+                        const limit = q?.limit ?? (quota ? { ...quota.default, custom: false } : null);
+                        return (
+                          <button type="button" className="cursor-pointer text-left hover:underline" onClick={() => editLimit(u)} title="Change this person’s limit">
+                            <div>
+                              {bytes(q?.bytes ?? 0)}
+                              {limit?.storageMB ? ` / ${limit.storageMB} MB` : ''}
+                            </div>
+                            <div className="text-xs text-muted">
+                              {q?.pages ?? 0}
+                              {limit?.pages ? ` / ${limit.pages}` : ''} pages{limit?.custom ? ' · own limit' : ''}
+                            </div>
+                          </button>
+                        );
+                      })()}
+                    </td>
                     <td className="whitespace-nowrap">{new Date(u.createdAt).toLocaleDateString()}</td>
                     <td>
                       {u.id !== selfId && (
                         <div className="flex flex-wrap justify-end gap-2">
-                          {canEmail ? (
+                          {/* Admins never set someone's password: that would let them sign in as them and read their pages. */}
+                          {canEmail && (
                             <button type="button" className="btn" data-size="small" onClick={() => sendReset(u.email)}>
                               Send reset link
-                            </button>
-                          ) : (
-                            <button type="button" className="btn" data-size="small" onClick={() => setPassword(u)}>
-                              New password
                             </button>
                           )}
                           <button

@@ -22,7 +22,13 @@ essentials:
 - `HATCHER_TRUSTED_ORIGINS` (optional): other addresses the site is opened at, comma-separated, e.g.
   a LAN or VPN address. Over plain http these only work while `BETTER_AUTH_URL` is http too, because
   sign-in cookies are marked Secure for an https site.
-- `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin.
+- `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin. It only works until an
+  admin exists; remove it afterwards.
+- `CONTENT_ORIGIN` (recommended for a public site): a separate domain, such as
+  `https://hatcher-content.example.net`, proxied to the same container, that serves page content
+  only. Without it, pages are shown only inside the viewer.
+- `HATCHER_CLIENT_IP_HEADER`: the header holding the visitor's address, which must be one your proxy
+  sets and overwrites (`cf-connecting-ip` behind Cloudflare). Default `x-forwarded-for`.
 
 `docker compose config` prints resolved values, secrets included, so do not paste its output
 anywhere.
@@ -32,7 +38,7 @@ anywhere.
 1. `npm run docker:up`, then open the site and register with an email from `HATCHER_ADMIN_EMAILS`.
 2. At `/account`, turn on two-factor sign-in.
 3. At `/admin`, set up email (SMTP) if you want password resets, then choose who may register.
-   Registration starts closed.
+   Registration starts closed. Check the quotas (1 GB and 500 pages per person by default).
 4. Create an API key at `/account` for your agents (`docs/api.md`).
 
 ## Upgrading from 0.1

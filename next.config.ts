@@ -15,13 +15,9 @@ const nextConfig: NextConfig = {
   // Shared libraries for sandboxed pages, whose opaque origin makes module scripts CORS requests.
   async headers() {
     return [
-      {
-        source: '/:path*',
-        headers: [
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-        ],
-      },
+      { source: '/:path*', headers: [{ key: 'X-Content-Type-Options', value: 'nosniff' }] },
+      // Page content (/c/) sets its own Referrer-Policy (no-referrer); this one would replace it.
+      { source: '/((?!c/).*)', headers: [{ key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }] },
       { source: '/_lib/:path*', headers: [{ key: 'Access-Control-Allow-Origin', value: '*' }] },
     ];
   },

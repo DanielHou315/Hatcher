@@ -17,9 +17,14 @@ export BETTER_AUTH_URL=""
 # here only work while BETTER_AUTH_URL is http too.
 export HATCHER_TRUSTED_ORIGINS=""
 
-# Comma-separated emails that may always register, and become admins when they do. Use it to create
-# the first admin. Who else may register is set at /admin (starts closed).
+# Comma-separated emails that may register and become admins while no admin exists. Use it to create
+# the first admin, then remove it. Who else may register is set at /admin (starts closed).
 export HATCHER_ADMIN_EMAILS=""
+
+# The request header holding the visitor's address, for rate limits. It must be one your reverse
+# proxy sets and overwrites, or visitors can choose their own: "cf-connecting-ip" behind Cloudflare.
+# Default: x-forwarded-for.
+export HATCHER_CLIENT_IP_HEADER=""
 
 # Optional: origin that serves page files, proxied to this same app, for an extra layer of
 # isolation. Empty serves them from the site's own origin (still sandboxed). See docs/architecture.md.

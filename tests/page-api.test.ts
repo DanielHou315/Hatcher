@@ -145,3 +145,56 @@ describe('page API', () => {
     expect(api.guideHeader(ctx('alice', WRITE))).toContain('cdn.jsdelivr.net');
   });
 });
+
+describe('quotas and storage', () => {
+  const big = (n: number) => [{ path: 'index.html', data: Buffer.from(html('x')) }, { path: 'blob.bin.txt', data: Buffer.alloc(n, 97) }];
+  const MBy = 1024 * 1024;
+
+  it('charges a version only for the files it changes, and old versions keep their content', () => {
+    const c = ctx('alice', WRITE);
+    const page = api.create(c, { title: 'Big', files: big(2 * MBy) });
+    const after1 = env.db.usage('alice').bytes;
+    expect(after1).toBeGreaterThan(2 * MBy);
+    api.update(c, page.id, { expectedVersion: 1, files: text('index.html', html('changed')) });
+    // The 2 MB file is shared with version 1, not copied.
+    expect(env.db.usage('alice').bytes - after1).toBeLessThan(1024);
+    expect(api.readFile(c, page.id, 'index.html', 1).text).toContain('x');
+    expect(api.readFile(c, page.id, 'index.html').text).toContain('changed');
+    api.restore(c, page.id, 1, 2);
+    expect(env.db.usage('alice').bytes - after1).toBeLessThan(2048);
+  });
+
+  it('refuses changes over the storage quota, charged to the page owner', async () => {
+    const { setQuota } = await import('@/lib/site-settings');
+    setQuota(env.db, { default: { storageMB: 3, pages: 0 }, users: {} });
+    const bob = ctx('bob', WRITE);
+    const page = api.create(bob, { title: 'Bob', files: big(2 * MBy) });
+    expect(code(() => api.create(bob, { title: 'Too much', files: big(2 * MBy) }))).toBe('quota');
+    env.db.putShare(page.id, 'alice', 'write', 'bob');
+    const alice = ctx('alice', WRITE);
+    expect(code(() => api.update(alice, page.id, { expectedVersion: 1, files: [{ path: 'more.txt', data: Buffer.alloc(2 * MBy) }] }))).toBe('quota');
+    // A user's own limit replaces the default.
+    setQuota(env.db, { default: { storageMB: 3, pages: 0 }, users: { bob: { storageMB: 10, pages: 0 } } });
+    expect(api.update(alice, page.id, { expectedVersion: 1, files: [{ path: 'more.txt', data: Buffer.alloc(2 * MBy) }] }).version).toBe(2);
+    // Nothing is left behind by refused changes.
+    expect(env.db.versions(page.id)).toHaveLength(2);
+  });
+
+  it('limits how many pages a user owns', async () => {
+    const { setQuota } = await import('@/lib/site-settings');
+    setQuota(env.db, { default: { storageMB: 0, pages: 2 }, users: {} });
+    const c = ctx('alice', WRITE);
+    api.create(c, { title: 'A', files: text('index.html', 'a') });
+    api.create(c, { title: 'B', files: text('index.html', 'b') });
+    expect(code(() => api.create(c, { title: 'C', files: text('index.html', 'c') }))).toBe('quota');
+    expect(api.guideHeader(c)).toContain('2 of 2 pages');
+  });
+
+  it('reports a file and folder with the same name as invalid, not a server error', () => {
+    const c = ctx('alice', WRITE);
+    const page = api.create(c, { title: 'A', files: [...text('index.html', 'a'), ...text('a/b.txt', 'b')] });
+    expect(code(() => api.update(c, page.id, { expectedVersion: 1, files: text('a', 'x') }))).toBe('invalid');
+    expect(code(() => api.update(c, page.id, { expectedVersion: 1, files: text('index.html/x.txt', 'x') }))).toBe('invalid');
+    expect(code(() => api.update(c, page.id, { expectedVersion: 1, delete: ['a/missing.txt'] }))).toBe('not_found');
+  });
+});

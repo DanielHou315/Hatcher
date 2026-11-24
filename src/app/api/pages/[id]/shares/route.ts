@@ -1,9 +1,10 @@
 import { z } from 'zod';
-import { badRequest, forbidden, notFound, readJson, unauthorized } from '@/lib/api';
+import { badRequest, forbidden, notFound, readJson, tooManyRequests, unauthorized } from '@/lib/api';
 import { siteURL, userByEmail, usersById } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 import { emailReady, sendMailInBackground, templates } from '@/lib/mail';
 import { foreignOrigin } from '@/lib/origin';
+import { allow } from '@/lib/rate-limit';
 import { accessTo, canManage } from '@/lib/page-access';
 import { getEmailSettings } from '@/lib/site-settings';
 import { getViewer } from '@/lib/viewer';
@@ -48,6 +49,8 @@ const shareBody = z.object({ email: z.string().trim().email().max(320), access: 
 export async function POST(request: Request, context: Context) {
   const r = await ownerOnly(request, context);
   if ('error' in r) return r.error;
+  // Sharing answers whether an account uses an email, so it must not become a lookup service.
+  if (!allow(`share:${r.viewer.id}`, 30, 600_000)) return tooManyRequests('more than 30 shares in 10 minutes; try again later');
   const parsed = shareBody.safeParse(await readJson(request));
   if (!parsed.success) return badRequest(parsed.error);
   const user = userByEmail(parsed.data.email);
@@ -58,7 +61,8 @@ export async function POST(request: Request, context: Context) {
   if (!existing && r.db.shares(r.page.id).length >= MAX_SHARES) return badRequest(`a page can be shared with at most ${MAX_SHARES} people`);
   r.db.putShare(r.page.id, user.id, parsed.data.access, r.viewer.id);
   r.db.audit({ userId: r.viewer.id, action: 'share', target: r.page.id, ok: true, detail: `${user.id}:${parsed.data.access}` });
-  if (!existing && emailReady() && getEmailSettings(r.db).shareNotices) {
+  // At most one notice a day per page and person, however often it is unshared and shared again.
+  if (!existing && emailReady() && getEmailSettings(r.db).shareNotices && allow(`notice:${r.page.id}:${user.id}`, 1, 24 * 3600_000)) {
     sendMailInBackground({
       to: user.email,
       ...templates.shared(r.viewer.name || r.viewer.email, r.page.title, parsed.data.access, `${siteURL(request)}/p/${r.page.id}`),

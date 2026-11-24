@@ -6,6 +6,10 @@
 // A new version is built in DATA_DIR/pages/.staging, checked, and renamed into place, then the page
 // row moves to it in one transaction that also checks nobody else moved it first. Writers must name
 // the version they started from, so nobody overwrites changes they have not seen.
+//
+// Files a version does not change are hard links to the previous version's, so a version costs
+// only what it changes. Files are never modified in place: a changed file is unlinked and written
+// anew, which leaves every other version's copy alone.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +24,7 @@ const ID_RE = /^[A-Za-z0-9]{12}$/;
 const SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._ -]{0,119}$/;
 const STAGING = '.staging';
 
-export type PageErrorCode = 'not_found' | 'invalid' | 'conflict' | 'forbidden' | 'too_large';
+export type PageErrorCode = 'not_found' | 'invalid' | 'conflict' | 'forbidden' | 'too_large' | 'quota';
 
 export class PageError extends Error {
   constructor(
@@ -139,32 +143,92 @@ function cleanDescription(description: string | undefined): string {
   return d;
 }
 
+/** Recreate `src` in `dst` with hard links to its files (copies if linking is not possible). */
+function linkTree(src: string, dst: string) {
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      fs.mkdirSync(to);
+      linkTree(from, to);
+    } else if (entry.isFile()) {
+      try {
+        fs.linkSync(from, to);
+      } catch {
+        fs.copyFileSync(from, to);
+      }
+    }
+  }
+}
+
+/** File-system errors from clashing names ("a" both a file and a folder) as a PageError. */
+function clash(err: unknown, p: string): never {
+  const code = (err as NodeJS.ErrnoException).code;
+  if (code === 'ENOTDIR' || code === 'EISDIR' || code === 'EEXIST' || code === 'ENOTEMPTY') {
+    throw new PageError('invalid', `"${p}" clashes with a file or folder of the same name`);
+  }
+  throw err;
+}
+
+export interface Staged {
+  dir: string;
+  files: number;
+  /** Size of the whole version. */
+  bytes: number;
+  /** Bytes this version adds: files not shared with the version it was based on. */
+  storedBytes: number;
+}
+
 /** Build a version folder in staging from `base` (or nothing), apply the changes, and check limits. */
-function stage(dataDir: string, id: string, base: string | null, files: FileWrite[], remove: string[]) {
+function stage(dataDir: string, id: string, base: string | null, files: FileWrite[], remove: string[]): Staged {
   const root = path.join(pagesRoot(dataDir), STAGING);
   fs.mkdirSync(root, { recursive: true });
   const dir = fs.mkdtempSync(path.join(root, `${id}-`));
   try {
-    if (base) fs.cpSync(base, dir, { recursive: true });
+    if (files.length > LIMITS.files) throw new PageError('too_large', `a page may hold at most ${LIMITS.files} files`);
+    if (base) linkTree(base, dir);
     for (const p of remove) {
       const abs = path.join(dir, checkFilePath(p));
-      if (!fs.existsSync(abs)) throw new PageError('not_found', `cannot delete "${p}": not in the page`);
+      const st = fs.lstatSync(abs, { throwIfNoEntry: false });
+      if (!st?.isFile()) throw new PageError('not_found', `cannot delete "${p}": no such file in the page`);
       fs.rmSync(abs);
     }
     for (const f of files) {
       const rel = checkFilePath(f.path);
       if (f.data.length > LIMITS.fileBytes) throw new PageError('too_large', `file "${f.path}" is over ${LIMITS.fileBytes / MB} MB`);
-      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-      fs.writeFileSync(path.join(dir, rel), f.data);
+      const abs = path.join(dir, rel);
+      try {
+        fs.mkdirSync(path.dirname(abs), { recursive: true });
+        // Unlink first: the old file may be a hard link shared with earlier versions.
+        if (fs.lstatSync(abs, { throwIfNoEntry: false })?.isFile()) fs.rmSync(abs);
+        fs.writeFileSync(abs, f.data, { flag: 'wx' });
+      } catch (err) {
+        clash(err, f.path);
+      }
     }
     const listed = listFiles(dir);
     const bytes = listed.reduce((n, f) => n + f.size, 0);
     if (listed.length > LIMITS.files) throw new PageError('too_large', `a page may hold at most ${LIMITS.files} files`);
     if (bytes > LIMITS.pageBytes) throw new PageError('too_large', `a page may hold at most ${LIMITS.pageBytes / MB} MB`);
     if (!listed.some((f) => f.path === MAIN_FILE)) throw new PageError('invalid', `a page needs ${MAIN_FILE}`);
-    return { dir, files: listed.length, bytes };
+    // Files with one link were written for this version; the rest are shared with the base.
+    const storedBytes = listed.reduce((n, f) => n + (fs.statSync(path.join(dir, f.path)).nlink === 1 ? f.size : 0), 0);
+    return { dir, files: listed.length, bytes, storedBytes };
   } catch (err) {
     fs.rmSync(dir, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+/** Called with the staged version before it is saved; throw (a PageError) to refuse it, e.g. over quota. */
+export type BeforeCommit = (staged: Staged) => void;
+
+function checked(staged: Staged, beforeCommit: BeforeCommit | undefined): Staged {
+  try {
+    beforeCommit?.(staged);
+    return staged;
+  } catch (err) {
+    fs.rmSync(staged.dir, { recursive: true, force: true });
     throw err;
   }
 }
@@ -174,13 +238,14 @@ export interface CreatePage {
   description?: string;
   files: FileWrite[];
   note?: string;
+  beforeCommit?: BeforeCommit;
 }
 
 export function createPage(db: Db, dataDir: string, author: Author, req: CreatePage): PageRow {
   const title = cleanTitle(req.title);
   const description = cleanDescription(req.description);
   const id = newPageId();
-  const staged = stage(dataDir, id, null, req.files, []);
+  const staged = checked(stage(dataDir, id, null, req.files, []), req.beforeCommit);
   const target = versionDir(dataDir, id, 1);
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.renameSync(staged.dir, target);
@@ -198,7 +263,7 @@ export function createPage(db: Db, dataDir: string, author: Author, req: CreateP
   return row;
 }
 
-function versionRow(id: string, version: number, author: Author, note: string | undefined, s: { files: number; bytes: number }, at: string): VersionRow {
+function versionRow(id: string, version: number, author: Author, note: string | undefined, s: Staged, at: string): VersionRow {
   return {
     page_id: id,
     version,
@@ -207,6 +272,7 @@ function versionRow(id: string, version: number, author: Author, note: string | 
     note: note?.slice(0, 500) || null,
     files: s.files,
     bytes: s.bytes,
+    stored_bytes: s.storedBytes,
     created_at: at,
   };
 }
@@ -217,6 +283,7 @@ export interface UpdatePage {
   files?: FileWrite[];
   delete?: string[];
   note?: string;
+  beforeCommit?: BeforeCommit;
 }
 
 /** Make a new version from the current one plus changes. Returns the new version number. */
@@ -227,20 +294,29 @@ export function updatePage(db: Db, dataDir: string, id: string, author: Author, 
     throw new PageError('conflict', `the page changed since version ${req.expectedVersion} (now ${page.version}); read it again`);
   }
   if (!req.files?.length && !req.delete?.length) throw new PageError('invalid', 'nothing to change');
-  return commit(db, dataDir, page, author, stage(dataDir, id, versionDir(dataDir, id, page.version), req.files ?? [], req.delete ?? []), req.note);
+  const staged = checked(stage(dataDir, id, versionDir(dataDir, id, page.version), req.files ?? [], req.delete ?? []), req.beforeCommit);
+  return commit(db, dataDir, page, author, staged, req.note);
 }
 
 /** Make a new version that is a copy of an older one. */
-export function restoreVersion(db: Db, dataDir: string, id: string, author: Author, version: number, expectedVersion: number): number {
+export function restoreVersion(
+  db: Db,
+  dataDir: string,
+  id: string,
+  author: Author,
+  version: number,
+  expectedVersion: number,
+  beforeCommit?: BeforeCommit,
+): number {
   const page = db.page(id);
   if (!page) throw new PageError('not_found', 'no such page');
   if (expectedVersion !== page.version) throw new PageError('conflict', `the page changed (now version ${page.version})`);
   const source = versionDir(dataDir, id, version);
   if (version >= page.version || !fs.existsSync(source)) throw new PageError('not_found', `no earlier version ${version}`);
-  return commit(db, dataDir, page, author, stage(dataDir, id, source, [], []), `Restored version ${version}`);
+  return commit(db, dataDir, page, author, checked(stage(dataDir, id, source, [], []), beforeCommit), `Restored version ${version}`);
 }
 
-function commit(db: Db, dataDir: string, page: PageRow, author: Author, staged: { dir: string; files: number; bytes: number }, note?: string): number {
+function commit(db: Db, dataDir: string, page: PageRow, author: Author, staged: Staged, note?: string): number {
   const next = page.version + 1;
   const target = versionDir(dataDir, page.id, next);
   try {

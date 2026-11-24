@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
 import { apiKey } from '@better-auth/api-key';
 import { betterAuth } from 'better-auth';
-import { APIError } from 'better-auth/api';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { nextCookies } from 'better-auth/next-js';
 import { admin } from 'better-auth/plugins/admin';
 import { twoFactor } from 'better-auth/plugins/two-factor';
@@ -40,9 +40,40 @@ export function siteURL(request?: Request): string {
   return (authSettings().baseURL ?? (request ? new URL(request.url).origin : 'http://localhost:3000')).replace(/\/+$/, '');
 }
 
+/** Whether any admin account exists. Until one does, HATCHER_ADMIN_EMAILS may register as admins. */
+export function adminExists(): boolean {
+  return Boolean(authDb().prepare("SELECT 1 FROM user WHERE ',' || role || ',' LIKE '%,admin,%' LIMIT 1").get());
+}
+
+/** Whether this email may create its own account now: a bootstrap admin (before any admin exists), or by the registration policy. */
+export function mayRegisterNow(email: string): { allowed: boolean; admin: boolean } {
+  const e = email.trim().toLowerCase();
+  if (authSettings().adminEmails.includes(e) && !adminExists()) return { allowed: true, admin: true };
+  return { allowed: mayRegister(getRegistration(getDb()), e), admin: false };
+}
+
+const CLOSED = 'Registration is closed for this email. Ask an admin for an account.';
+
+/** Remove all of a user's API keys: after their password changes, a key minted with the old one must not live on. */
+export function revokeApiKeysOf(userId: string): number {
+  return Number(authDb().prepare('DELETE FROM apikey WHERE referenceId = ?').run(userId).changes);
+}
+
+/** Better Auth endpoints worth a line in the audit log, and the action name to record. */
+const AUDITED: [RegExp, string][] = [
+  [/^\/sign-in\//, 'sign_in'],
+  [/^\/sign-up\//, 'sign_up'],
+  [/^\/two-factor\/(verify-totp|verify-backup-code)$/, 'sign_in_2fa'],
+  [/^\/two-factor\/(enable|disable|generate-backup-codes)$/, 'two_factor'],
+  [/^\/(change-password|reset-password)$/, 'password'],
+  [/^\/admin\/(create-user|set-role|ban-user|unban-user|remove-user|revoke-user-sessions?)$/, 'admin'],
+];
+
 function createAuth() {
   const settings = authSettings();
-  const requireVerification = getRegistration(getDb()).requireVerification && emailReady();
+  // Read when Better Auth is built (resetAuth() rebuilds it when the setting changes). Not tied to
+  // whether email works right now: switching SMTP off must not switch confirmation off.
+  const requireVerification = getRegistration(getDb()).requireVerification;
   return betterAuth({
     appName: 'Hatcher',
     baseURL: settings.baseURL,
@@ -73,22 +104,68 @@ function createAuth() {
       ...(settings.google ? { google: settings.google } : {}),
     },
     rateLimit: { enabled: true, window: 60, max: 100 },
-    // Behind Cloudflare and Caddy: rate-limit by the visitor's address, not the proxy's.
-    advanced: { ipAddress: { ipAddressHeaders: ['cf-connecting-ip', 'x-forwarded-for'] } },
+    // Rate limits go by the visitor's address, read from the header the reverse proxy sets
+    // (HATCHER_CLIENT_IP_HEADER). It must be one the proxy overwrites, or visitors can pick their own.
+    advanced: { ipAddress: { ipAddressHeaders: settings.clientIpHeaders } },
+    hooks: {
+      before: createAuthMiddleware(async (ctx) => {
+        // Decide registration before Better Auth checks whether the email exists, so a closed site
+        // does not answer "already registered" for accounts it has.
+        if (ctx.path === '/sign-up/email') {
+          const email = String((ctx.body as { email?: unknown } | undefined)?.email ?? '');
+          if (!mayRegisterNow(email).allowed) {
+            getDb().audit({ userId: '-', action: 'sign_up', target: ctx.path, ok: false, detail: `${email.slice(0, 320)} registration closed` });
+            throw new APIError('FORBIDDEN', { message: CLOSED });
+          }
+        }
+        // API keys are made through /api/keys, which applies the limits; never directly.
+        if (ctx.path.startsWith('/api-key/') && ctx.request) throw new APIError('NOT_FOUND');
+      }),
+      after: createAuthMiddleware(async (ctx) => {
+        const action = AUDITED.find(([re]) => re.test(ctx.path))?.[1];
+        if (!action) return;
+        const returned = ctx.context.returned;
+        const failed = returned instanceof APIError || returned instanceof Error;
+        const userId = ctx.context.newSession?.user.id ?? ctx.context.session?.user.id ?? '-';
+        const email = (ctx.body as { email?: unknown } | undefined)?.email;
+        getDb().audit({
+          userId,
+          action,
+          target: ctx.path,
+          ok: !failed,
+          detail: [typeof email === 'string' ? email : null, failed ? (returned as Error).message : null].filter(Boolean).join(' ') || undefined,
+        });
+      }),
+    },
     session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
     telemetry: { enabled: false },
     databaseHooks: {
+      account: {
+        update: {
+          // A new password ends the user's API keys too (sessions are ended by Better Auth).
+          async after(account, ctx) {
+            if (ctx?.path === '/reset-password' || ctx?.path === '/change-password') {
+              const n = revokeApiKeysOf(account.userId);
+              if (n) getDb().audit({ userId: account.userId, action: 'api_keys_revoked', ok: true, detail: `${n} after ${ctx.path}` });
+            }
+          },
+        },
+      },
       user: {
         create: {
           // Registration policy, read at the moment someone registers. Admins may always create
           // accounts; HATCHER_ADMIN_EMAILS may always register and become admins.
           async before(user, ctx) {
-            const email = user.email.toLowerCase();
-            if (settings.adminEmails.includes(email)) return { data: { ...user, role: 'admin' } };
             if (ctx?.path === '/admin/create-user') return { data: { ...user, emailVerified: true } };
-            if (!mayRegister(getRegistration(getDb()), email)) {
-              throw new APIError('FORBIDDEN', { message: 'Registration is closed for this email. Ask an admin for an account.' });
+            // OAuth providers may report addresses their users never confirmed; those prove nothing
+            // about the domain, or about being the admin.
+            const oauth = Boolean(ctx?.path?.startsWith('/callback'));
+            const reg = getRegistration(getDb());
+            const { allowed, admin } = mayRegisterNow(user.email);
+            if (!allowed || (oauth && !user.emailVerified && (admin || reg.mode !== 'open'))) {
+              throw new APIError('FORBIDDEN', { message: CLOSED });
             }
+            if (admin) return { data: { ...user, role: 'admin' } };
           },
           async after(user) {
             if (emailReady() && getEmailSettings(getDb()).welcome) {
@@ -148,6 +225,17 @@ export function usersById(ids: string[]): Map<string, UserSummary> {
     .prepare(`SELECT id, name, email FROM user WHERE id IN (${unique.map(() => '?').join(',')})`)
     .all(...unique) as unknown as UserSummary[];
   return new Map(rows.map((r) => [r.id, r]));
+}
+
+/** Whether a user exists and is not suspended. */
+export function userIsActive(userId: string): boolean {
+  const row = authDb().prepare('SELECT banned, banExpires FROM user WHERE id = ?').get(userId) as
+    | { banned: number | null; banExpires: string | number | null }
+    | undefined;
+  if (!row) return false;
+  if (!row.banned) return true;
+  // A suspension with an end date is over once it passes.
+  return row.banExpires !== null && new Date(row.banExpires).getTime() < Date.now();
 }
 
 export function userByEmail(email: string): (UserSummary & { banned: boolean }) | null {
