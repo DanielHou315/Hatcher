@@ -64,12 +64,16 @@ suspended (so unsharing takes effect at once), and serves the file with:
   they still need the token and still run sandboxed.
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`.
 
-The frame's `sandbox` is `allow-scripts allow-popups allow-forms`: no same-origin, no dialogs (a
-`prompt()` could pose as the site), no downloads, and popups stay sandboxed. The site's own pages
-send `frame-src` limited to the site and the content origin, so a page cannot navigate its frame
-to another site. CSP cannot stop a page from opening a new tab when the reader clicks, so a page
-the reader opens and clicks on could still carry what it shows them out in a URL: pages are private
-to the people they are shared with, and readers should trust their authors.
+The frame's `sandbox` is `allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms`:
+no same-origin, no dialogs (a `prompt()` could pose as the site), no downloads. Links with
+`target="_blank"` open ordinary tabs that show their real address, as links on any site do (a
+sandboxed tab breaks most sites, Hatcher included). Page content opened that way is still
+sandboxed by its own CSP, and refused as a top-level document without `CONTENT_ORIGIN`. The site's
+own pages send `frame-src` limited to the site and the content origin, so a page cannot navigate
+its frame to another site; links without `target="_blank"` to other sites do nothing. CSP cannot
+stop a page from opening a new tab when the reader clicks, so a page the reader opens and clicks on
+could still carry what it shows them out in a URL: pages are private to the people they are shared
+with, and readers should trust their authors.
 
 Set `CONTENT_ORIGIN` to serve page files from a separate hostname (proxied to the same app); that
 hostname then serves page content and nothing else, and `SITE_ORIGIN` is allowed to frame it, and

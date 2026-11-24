@@ -81,8 +81,8 @@ describe('content tokens', () => {
 });
 
 describe('sandbox flags', () => {
-  it('never lets pages escape the sandbox, show dialogs or start downloads', () => {
-    for (const flag of ['allow-same-origin', 'allow-popups-to-escape-sandbox', 'allow-modals', 'allow-downloads', 'allow-top-navigation']) {
+  it('never lets pages reach the site, navigate the viewer, show dialogs or start downloads', () => {
+    for (const flag of ['allow-same-origin', 'allow-modals', 'allow-downloads', 'allow-top-navigation']) {
       expect(FRAME_SANDBOX).not.toContain(flag);
     }
   });

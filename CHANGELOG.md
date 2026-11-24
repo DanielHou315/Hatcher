@@ -3,6 +3,13 @@
 All notable changes to Hatcher. Versions follow [semantic versioning](https://semver.org/);
 releases are published as `ghcr.io/danielhou315/hatcher:<version>` (see docs/deployment.md).
 
+## [0.3.1] - 2026-11-24
+
+- Links in pages with `target="_blank"` open ordinary tabs again (`allow-popups-to-escape-sandbox`
+  is back). In 0.3.0 they opened sandboxed tabs, where most sites, Hatcher pages included, break.
+- The page guide explains links: `target="_blank"` for other sites and other pages (`/p/<id>`);
+  links without it cannot leave the page.
+
 ## [0.3.0] - 2026-11-23
 
 - **REST API for agents and scripts** replaces the MCP endpoint: list, read, create, version,
