@@ -11,6 +11,9 @@ releases are published as `ghcr.io/danielhou315/hatcher:<version>` (see docs/dep
 - The MCP server and the agent skill move to the
   [hatcher-client-plugin](https://github.com/DanielHou315/hatcher-client-plugin) repo, as a local
   (stdio) MCP server that calls this API. Point existing MCP clients at it instead of `/api/mcp`.
+- `HATCHER_TRUSTED_ORIGINS` lets people sign in from more than one address (say, a LAN address and
+  the public URL). The server now warns at startup when `BETTER_AUTH_URL` is unset, which makes
+  every sign-in fail with "Invalid origin".
 - Removed: `/api/mcp`, `skills/`, the `@modelcontextprotocol/sdk` dependency.
 
 ## [0.2.0] - 2026-11-23

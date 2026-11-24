@@ -47,7 +47,7 @@ function createAuth() {
     appName: 'Hatcher',
     baseURL: settings.baseURL,
     secret: settings.secret,
-    trustedOrigins: settings.baseURL ? [settings.baseURL] : undefined,
+    trustedOrigins: settings.trustedOrigins.length ? settings.trustedOrigins : undefined,
     database: authDb(),
     emailAndPassword: {
       enabled: true,

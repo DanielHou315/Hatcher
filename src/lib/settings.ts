@@ -12,14 +12,34 @@ function pair(id: string | undefined, secret: string | undefined) {
   return id && secret ? { clientId: id, clientSecret: secret } : undefined;
 }
 
+/** Origins (scheme://host[:port]) from a comma-separated list; anything that is not one is dropped. */
+export function origins(value: string | undefined): string[] {
+  const out: string[] = [];
+  for (const item of list(value)) {
+    try {
+      const u = new URL(item);
+      if (u.protocol === 'http:' || u.protocol === 'https:') out.push(u.origin);
+    } catch {
+      // not a URL
+    }
+  }
+  return [...new Set(out)];
+}
+
 export function authSettings() {
   const env = process.env;
   const secret = env.BETTER_AUTH_SECRET;
   if (!secret && env.NODE_ENV === 'production') {
     throw new Error('BETTER_AUTH_SECRET is not set. Generate one with: openssl rand -base64 32');
   }
+  const baseURL = env.BETTER_AUTH_URL || env.SITE_ORIGIN || undefined;
   return {
-    baseURL: env.BETTER_AUTH_URL || env.SITE_ORIGIN || undefined,
+    baseURL,
+    /**
+     * Where sign-in and other browser requests may come from: BETTER_AUTH_URL plus any other
+     * addresses the site is reached at (HATCHER_TRUSTED_ORIGINS), e.g. a LAN or VPN address.
+     */
+    trustedOrigins: [...new Set([...(baseURL ? origins(baseURL) : []), ...origins(env.HATCHER_TRUSTED_ORIGINS)])],
     // Development only: a fixed secret so sessions survive restarts.
     secret: secret || 'hatcher-development-secret-do-not-use-in-production',
     /** Emails that may always register, and become admins when they do. Bootstraps the first admin. */

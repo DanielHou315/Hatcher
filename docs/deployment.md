@@ -17,8 +17,11 @@ essentials:
 
 - `BETTER_AUTH_SECRET`: `openssl rand -base64 32`. It signs sessions and frame tokens and encrypts the
   SMTP password; changing it signs everyone out.
-- `BETTER_AUTH_URL`: the URL people open, e.g. `https://hatcher.example.com`. Sign-in only works from
-  this origin, and email links point at it.
+- `BETTER_AUTH_URL`: the URL people open, e.g. `https://hatcher.example.com`. Required: without it
+  every sign-in is refused as "Invalid origin". Email links point at it.
+- `HATCHER_TRUSTED_ORIGINS` (optional): other addresses the site is opened at, comma-separated, e.g.
+  a LAN or VPN address. Over plain http these only work while `BETTER_AUTH_URL` is http too, because
+  sign-in cookies are marked Secure for an https site.
 - `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin.
 
 `docker compose config` prints resolved values, secrets included, so do not paste its output

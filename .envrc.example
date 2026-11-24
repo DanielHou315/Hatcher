@@ -11,6 +11,12 @@ export BETTER_AUTH_SECRET=""
 # email links and API results point at it. Defaults to SITE_ORIGIN.
 export BETTER_AUTH_URL=""
 
+# Other addresses people open the site at (comma-separated origins), e.g. a LAN or VPN address:
+# "http://192.168.1.10:3000,http://10.0.0.5:3000". Sign-in from any other address is refused as
+# "Invalid origin". Cookies are marked Secure when BETTER_AUTH_URL is https, so plain-http addresses
+# here only work while BETTER_AUTH_URL is http too.
+export HATCHER_TRUSTED_ORIGINS=""
+
 # Comma-separated emails that may always register, and become admins when they do. Use it to create
 # the first admin. Who else may register is set at /admin (starts closed).
 export HATCHER_ADMIN_EMAILS=""
