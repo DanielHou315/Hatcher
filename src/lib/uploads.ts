@@ -1,23 +1,25 @@
 import 'server-only';
+import { BodyTooLarge, withCappedBody } from './body';
 import { LIMITS, MAIN_FILE, PageError, type FileWrite } from './pages';
 
 const MB = 1024 * 1024;
 
 /** Requests from the browser forms: files arrive as multipart parts named "files" (filename = path inside the page). */
 export async function readUpload(request: Request): Promise<{ form: FormData; files: FileWrite[]; remove: string[] }> {
-  if (Number(request.headers.get('content-length') ?? 0) > LIMITS.pageBytes + MB) {
-    throw new PageError('too_large', `uploads are limited to ${LIMITS.pageBytes / MB} MB`);
-  }
   let form: FormData;
   try {
-    form = await request.formData();
-  } catch {
+    // The cap holds for chunked bodies too, which carry no Content-Length.
+    form = await (await withCappedBody(request, LIMITS.pageBytes + MB)).formData();
+  } catch (err) {
+    if (err instanceof BodyTooLarge) throw new PageError('too_large', `uploads are limited to ${LIMITS.pageBytes / MB} MB`);
     throw new PageError('invalid', 'expected a multipart form');
   }
+  const parts = form.getAll('files');
+  if (parts.length > LIMITS.files) throw new PageError('too_large', `a page may hold at most ${LIMITS.files} files`);
   const files: FileWrite[] = [];
   const html = form.get('html');
   if (typeof html === 'string' && html.trim()) files.push({ path: MAIN_FILE, data: Buffer.from(html, 'utf8') });
-  for (const part of form.getAll('files')) {
+  for (const part of parts) {
     if (typeof part === 'string') continue;
     files.push({ path: part.name, data: Buffer.from(await part.arrayBuffer()) });
   }

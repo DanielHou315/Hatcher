@@ -62,3 +62,21 @@ describe('site settings', () => {
     expect(() => setCdnHosts(env.db, ['*'])).toThrow();
   });
 });
+
+describe('trusted origins', () => {
+  it('keeps BETTER_AUTH_URL first and adds valid extra origins only', async () => {
+    const { authSettings, origins } = await import('@/lib/settings');
+    expect(origins('http://192.168.1.10:3100/, https://H.example.com/path, nonsense, ftp://x.y')).toEqual([
+      'http://192.168.1.10:3100',
+      'https://h.example.com',
+    ]);
+    const saved = { ...process.env };
+    try {
+      process.env.BETTER_AUTH_URL = 'https://hatcher.example.com';
+      process.env.HATCHER_TRUSTED_ORIGINS = 'http://10.0.0.5:3100,https://hatcher.example.com';
+      expect(authSettings().trustedOrigins).toEqual(['https://hatcher.example.com', 'http://10.0.0.5:3100']);
+    } finally {
+      process.env = saved;
+    }
+  });
+});

@@ -1,4 +1,5 @@
 import { usersById } from '@/lib/auth';
+import { usageOf } from '@/lib/page-api';
 import { apiContext } from '@/lib/requester';
 import pkg from '../../../../package.json';
 
@@ -14,6 +15,7 @@ export async function GET(request: Request) {
     user: user ? { id: user.id, name: user.name, email: user.email } : { id: ctx.who.userId },
     via: ctx.who.keyId ? 'api-key' : 'session',
     actions: ctx.who.actions,
+    usage: usageOf(ctx),
     server: { name: 'hatcher', version: pkg.version, url: ctx.baseURL },
   });
 }

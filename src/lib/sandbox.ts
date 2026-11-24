@@ -76,8 +76,12 @@ export function contentOrigin(): string {
   return (process.env.CONTENT_ORIGIN ?? '').replace(/\/+$/, '');
 }
 
-/** The `sandbox` attribute for frames. No allow-same-origin: page code always gets an opaque origin. */
-export const FRAME_SANDBOX = 'allow-scripts allow-popups allow-popups-to-escape-sandbox allow-forms allow-modals allow-downloads';
+/**
+ * The `sandbox` attribute for frames. No allow-same-origin: page code always gets an opaque origin.
+ * Popups (links opening a new tab) stay sandboxed. No modals (a prompt() could pose as the site)
+ * and no downloads (a page could hand out any file under the site's name).
+ */
+export const FRAME_SANDBOX = 'allow-scripts allow-popups allow-forms';
 
 /**
  * Policy for everything under the content route. `sandbox` applies even when a URL is opened
@@ -121,6 +125,16 @@ export function contentHeaders(ext: string, cdnHosts: string[], entry = true): R
     'Cross-Origin-Resource-Policy': 'cross-origin',
     // Versions never change, but the URL's token does, so a private cache for a while is enough.
     'Cache-Control': 'private, max-age=3600',
+  };
+}
+
+/** Policy for the site's own pages: framed by nothing else, and framing only page content. */
+export function appSecurityHeaders(): Record<string, string> {
+  return {
+    // frame-src also covers navigations inside the viewer's frame: a page cannot swap itself for
+    // another site (to show a fake sign-in, or carry data out in the URL).
+    'Content-Security-Policy': `frame-src 'self'${contentOrigin() ? ` ${contentOrigin()}` : ''}; frame-ancestors 'self'; base-uri 'self'; form-action 'self'`,
+    'X-Frame-Options': 'SAMEORIGIN',
   };
 }
 

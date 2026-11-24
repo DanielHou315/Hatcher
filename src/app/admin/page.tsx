@@ -3,7 +3,7 @@ import { SiteSettings } from '@/components/auth/SiteSettings';
 import { UserAdmin } from '@/components/auth/UserAdmin';
 import { getDb } from '@/lib/db';
 import { emailReady } from '@/lib/mail';
-import { getCdnHosts, getEmailSettings, getRegistration } from '@/lib/site-settings';
+import { getCdnHosts, getEmailSettings, getQuota, getRegistration } from '@/lib/site-settings';
 import { getViewer } from '@/lib/viewer';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ export default async function AdminPage() {
   if (viewer.role !== 'admin') notFound();
   const db = getDb();
   const email = getEmailSettings(db);
-  const settings = { registration: getRegistration(db), email, emailReady: emailReady(email), cdnHosts: getCdnHosts(db) };
+  const settings = { registration: getRegistration(db), email, emailReady: emailReady(email), cdnHosts: getCdnHosts(db), quota: getQuota(db) };
 
   return (
     <div className="shell shell-main">
@@ -30,6 +30,7 @@ export default async function AdminPage() {
             <a href="#registration">Registration</a>
             <a href="#email">Email</a>
             <a href="#cdn">What pages may load</a>
+            <a href="#quota">Quotas</a>
           </nav>
         </header>
         <section id="users" className="panel scroll-mt-20">

@@ -12,7 +12,7 @@ export const ac = createAccessControl(defaultStatements);
 export const roles = {
   user: ac.newRole({ user: [], session: [] }),
   admin: ac.newRole({
-    user: ['create', 'list', 'set-role', 'ban', 'delete', 'set-password', 'get'],
+    user: ['create', 'list', 'set-role', 'ban', 'delete', 'get'],
     session: ['list', 'revoke', 'delete'],
   }),
 };

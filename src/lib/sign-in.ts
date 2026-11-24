@@ -22,7 +22,4 @@ export function signInMethods() {
 
 export type SignInMethods = ReturnType<typeof signInMethods>;
 
-/** Only same-site paths are followed after sign-in. */
-export function safeNext(next: string | undefined | null): string {
-  return next && /^\/(?![/\\])/.test(next) ? next : '/';
-}
+export { safeNext } from './safe-next';

@@ -38,10 +38,27 @@ export type EmailSettings = z.infer<typeof emailSchema>;
 
 export const cdnSchema = z.object({ hosts: z.array(z.string().refine(isCdnHost, 'not a host')).max(100) });
 
+const limitSchema = z.object({
+  /** Storage for all of a user's pages and their versions, in MB. 0: no limit. */
+  storageMB: z.number().int().min(0).max(10_000_000),
+  /** How many pages a user may own. 0: no limit. */
+  pages: z.number().int().min(0).max(1_000_000),
+});
+export type Limit = z.infer<typeof limitSchema>;
+
+export const quotaSchema = z.object({
+  /** The limit for everyone without their own. */
+  default: limitSchema,
+  /** Per-user limits that replace the default, by user id. */
+  users: z.record(z.string().max(64), limitSchema),
+});
+export type Quota = z.infer<typeof quotaSchema>;
+
 const DEFAULTS = {
   registration: { mode: 'closed', domains: [], requireVerification: false } as Registration,
   email: { enabled: false, host: '', port: 587, security: 'starttls', user: '', from: '', welcome: true, shareNotices: true } as EmailSettings,
   cdn: { hosts: DEFAULT_CDN_HOSTS },
+  quota: { default: { storageMB: 1024, pages: 500 }, users: {} } as Quota,
 };
 
 function read<T>(db: Db, key: string, schema: z.ZodType<T>, fallback: T): T {
@@ -86,6 +103,20 @@ export function getCdnHosts(db: Db): string[] {
 
 export function setCdnHosts(db: Db, hosts: string[]) {
   db.putSetting('cdn', JSON.stringify(cdnSchema.parse({ hosts })));
+}
+
+export function getQuota(db: Db): Quota {
+  return read(db, 'quota', quotaSchema, DEFAULTS.quota);
+}
+
+export function setQuota(db: Db, value: Quota) {
+  db.putSetting('quota', JSON.stringify(quotaSchema.parse(value)));
+}
+
+/** The limit that applies to one user: their own, or the default. */
+export function limitFor(quota: Quota, userId: string): Limit & { custom: boolean } {
+  const own = quota.users[userId];
+  return own ? { ...own, custom: true } : { ...quota.default, custom: false };
 }
 
 /** Whether a new account with this email may register on its own. */

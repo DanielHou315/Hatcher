@@ -4,7 +4,16 @@ import { requireAdmin } from '@/lib/admin-guard';
 import { getDb } from '@/lib/db';
 import { sendMail, templates } from '@/lib/mail';
 import { authSettings } from '@/lib/settings';
-import { emailSchema, getEmailPassword } from '@/lib/site-settings';
+import { emailSchema, getEmailPassword, getEmailSettings } from '@/lib/site-settings';
+
+/** A short reason that helps fix the settings without echoing what the remote server said. */
+function smtpError(err: unknown): string {
+  const e = err as { code?: string; responseCode?: number };
+  if (e.code === 'EAUTH') return 'The server refused the user name or password.';
+  if (e.code === 'ETIMEDOUT' || e.code === 'ESOCKET' || e.code === 'ECONNECTION') return 'Could not connect: check the host, port and security.';
+  if (e.code === 'EENVELOPE') return 'The server refused the sender or recipient: check the From address.';
+  return `Sending failed${e.code ? ` (${e.code})` : ''}; the audit log has details.`;
+}
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -17,11 +26,21 @@ export async function POST(request: Request) {
   if ('error' in r) return r.error;
   const parsed = body.safeParse(await readJson(request));
   if (!parsed.success) return badRequest(parsed.error);
-  const password = parsed.data.password ?? getEmailPassword(getDb(), authSettings().secret);
+  const db = getDb();
+  const form = parsed.data.settings;
+  const saved = getEmailSettings(db);
+  // The stored password goes only to the server it was saved for, never to a host typed into the form.
+  const sameServer = form.host === saved.host && form.port === saved.port && form.user === saved.user;
+  if (parsed.data.password === undefined && !sameServer && saved.hasPassword) {
+    return badRequest('Enter the password again to test a different server.');
+  }
+  const password = parsed.data.password ?? (sameServer ? getEmailPassword(db, authSettings().secret) : '');
   try {
-    await sendMail({ to: r.admin.email, ...templates.test() }, { settings: parsed.data.settings, password });
+    await sendMail({ to: r.admin.email, ...templates.test() }, { settings: form, password });
+    db.audit({ userId: r.admin.id, action: 'email_test', ok: true, detail: `${form.host}:${form.port}` });
     return Response.json({ ok: true, to: r.admin.email });
   } catch (err) {
-    return Response.json({ ok: false, error: (err as Error).message }, { status: 502 });
+    db.audit({ userId: r.admin.id, action: 'email_test', ok: false, detail: `${form.host}:${form.port} ${(err as Error).message}` });
+    return Response.json({ ok: false, error: smtpError(err) }, { status: 502 });
   }
 }

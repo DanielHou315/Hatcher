@@ -14,7 +14,8 @@ limited to its access:
 - **read and write**: also create pages, save versions, restore, and (owner only) rename and delete.
 
 Without a key, requests use the browser session; changes from other origins are refused. Keys are
-rate-limited to 600 requests a minute. Suspending a user stops their keys at once.
+rate-limited to 600 requests a minute, and every user to 120 page changes per 10 minutes.
+Suspending a user stops their keys at once; changing or resetting their password revokes them.
 
 ## Errors
 
@@ -28,12 +29,14 @@ Failures are JSON `{ "error": "...", "code"?: "..." }` with a status:
 | 404 | `not_found` | No such page, or not shared with you (the same answer, on purpose) |
 | 409 | `conflict` | The page changed since `expectedVersion`: read it again |
 | 413 | `too_large` | Over a size limit |
+| 413 | `quota` | Over the owner's storage or page quota (`GET /api/me` shows usage) |
+| 429 | `rate_limited` | Too many changes; wait a minute (`Retry-After`) |
 
 ## Endpoints
 
 | Method and path | Does |
 |---|---|
-| `GET /api/me` | Who the key belongs to, its actions, the server version |
+| `GET /api/me` | Who the key belongs to, its actions, usage and quota, the server version |
 | `GET /api/guide` | How to write pages (Markdown), with the allowed hosts and limits |
 | `GET /api/pages?q=` | Pages you own or that are shared with you, newest change first |
 | `POST /api/pages` | Create a page |

@@ -15,8 +15,10 @@ import {
   restoreVersion,
   setDetails,
   updatePage,
+  type BeforeCommit,
   type FileWrite,
 } from './pages';
+import { getQuota, limitFor } from './site-settings';
 import { blockedResources, TEXT_EXTS } from './sandbox';
 
 export type Action = 'read' | 'write';
@@ -107,6 +109,32 @@ function warnings(ctx: ApiContext, id: string, version: number): string[] {
   }
 }
 
+const mb = (bytes: number) => `${Math.round((bytes / MB) * 10) / 10} MB`;
+
+/** The owner's storage quota as a check on a staged version. Pages are charged to their owner, whoever edits them. */
+function storageCheck(ctx: ApiContext, ownerId: string): BeforeCommit {
+  return (staged) => {
+    const limit = limitFor(getQuota(ctx.db), ownerId);
+    if (!limit.storageMB) return;
+    const used = ctx.db.usage(ownerId).bytes;
+    if (used + staged.storedBytes > limit.storageMB * MB) {
+      const whose = ownerId === ctx.who.userId ? 'your' : "the page owner's";
+      throw new PageError(
+        'quota',
+        `this change needs ${mb(staged.storedBytes)} but ${whose} pages already use ${mb(used)} of ${limit.storageMB} MB; ` +
+          'delete pages or ask an admin for more space',
+      );
+    }
+  };
+}
+
+function pageCountCheck(ctx: ApiContext) {
+  const limit = limitFor(getQuota(ctx.db), ctx.who.userId);
+  if (limit.pages && ctx.db.usage(ctx.who.userId).pages >= limit.pages) {
+    throw new PageError('quota', `you have ${limit.pages} pages, the most allowed; delete one or ask an admin for more`);
+  }
+}
+
 function audit(ctx: ApiContext, action: string, target: string, ok = true, detail?: string) {
   ctx.db.audit({ userId: ctx.who.userId, keyId: ctx.who.keyId, action, target, ok, detail });
 }
@@ -179,7 +207,11 @@ export function decodeFiles(files: FileInput[]): FileWrite[] {
 export function create(ctx: ApiContext, req: { title: string; description?: string; files: FileWrite[]; note?: string }) {
   need(ctx, 'write');
   return audited(ctx, 'create_page', req.title, () => {
-    const page = createPage(ctx.db, ctx.dataDir, { userId: ctx.who.userId, keyId: ctx.who.keyId }, req);
+    pageCountCheck(ctx);
+    const page = createPage(ctx.db, ctx.dataDir, { userId: ctx.who.userId, keyId: ctx.who.keyId }, {
+      ...req,
+      beforeCommit: storageCheck(ctx, ctx.who.userId),
+    });
     audit(ctx, 'create_page', page.id);
     return { ...summary(ctx, page, 'owner'), warnings: warnings(ctx, page.id, 1) };
   });
@@ -188,8 +220,11 @@ export function create(ctx: ApiContext, req: { title: string; description?: stri
 /** A new version from changed and deleted files, based on `expectedVersion`. */
 export function update(ctx: ApiContext, id: string, req: { expectedVersion: number; files?: FileWrite[]; delete?: string[]; note?: string }) {
   return audited(ctx, 'update_page', id, () => {
-    writable(ctx, id);
-    const version = updatePage(ctx.db, ctx.dataDir, id, { userId: ctx.who.userId, keyId: ctx.who.keyId }, req);
+    const { page: before } = writable(ctx, id);
+    const version = updatePage(ctx.db, ctx.dataDir, id, { userId: ctx.who.userId, keyId: ctx.who.keyId }, {
+      ...req,
+      beforeCommit: storageCheck(ctx, before.owner_id),
+    });
     audit(ctx, 'update_page', `${id}@${version}`);
     const page = ctx.db.page(id)!;
     return { ...summary(ctx, page, accessTo(ctx.db, page, ctx.who.userId)!), warnings: warnings(ctx, id, version) };
@@ -198,8 +233,16 @@ export function update(ctx: ApiContext, id: string, req: { expectedVersion: numb
 
 export function restore(ctx: ApiContext, id: string, version: number, expectedVersion: number) {
   return audited(ctx, 'restore_version', `${id}@${version}`, () => {
-    writable(ctx, id);
-    const v = restoreVersion(ctx.db, ctx.dataDir, id, { userId: ctx.who.userId, keyId: ctx.who.keyId }, version, expectedVersion);
+    const { page } = writable(ctx, id);
+    const v = restoreVersion(
+      ctx.db,
+      ctx.dataDir,
+      id,
+      { userId: ctx.who.userId, keyId: ctx.who.keyId },
+      version,
+      expectedVersion,
+      storageCheck(ctx, page.owner_id),
+    );
     audit(ctx, 'restore_version', `${id}@${version}`);
     return { id, version: v, url: `${ctx.baseURL}/p/${id}` };
   });
@@ -207,17 +250,21 @@ export function restore(ctx: ApiContext, id: string, version: number, expectedVe
 
 /** Rename or redescribe (owner only; no new version). */
 export function rename(ctx: ApiContext, id: string, details: { title?: string; description?: string }) {
-  owned(ctx, id, 'rename a page');
-  setDetails(ctx.db, id, details);
-  const page = ctx.db.page(id)!;
-  return summary(ctx, page, 'owner');
+  return audited(ctx, 'rename_page', id, () => {
+    owned(ctx, id, 'rename a page');
+    setDetails(ctx.db, id, details);
+    audit(ctx, 'rename_page', id);
+    return summary(ctx, ctx.db.page(id)!, 'owner');
+  });
 }
 
 /** Delete with every version and share (owner only). */
 export function remove(ctx: ApiContext, id: string) {
-  owned(ctx, id, 'delete a page');
-  deletePage(ctx.db, ctx.dataDir, id);
-  audit(ctx, 'delete_page', id);
+  audited(ctx, 'delete_page', id, () => {
+    owned(ctx, id, 'delete a page');
+    deletePage(ctx.db, ctx.dataDir, id);
+    audit(ctx, 'delete_page', id);
+  });
 }
 
 /** What the requester may do, the limits, and the hosts pages may load from: for agents, before writing. */
@@ -231,5 +278,19 @@ export function guideHeader(ctx: ApiContext): string {
     '',
     `Pages may load scripts, styles, fonts and data from this server and these hosts only: ${ctx.cdnHosts.join(', ') || '(none)'}.`,
     `Limits: ${LIMITS.files} files and ${LIMITS.pageBytes / MB} MB per page, ${LIMITS.fileBytes / MB} MB per file.`,
+    quotaLine(usageOf(ctx)),
   ].join('\n');
+}
+
+/** The caller's usage against their quota. Versions share unchanged files, so a small change costs little. */
+export function usageOf(ctx: ApiContext) {
+  const used = ctx.db.usage(ctx.who.userId);
+  const { storageMB, pages } = limitFor(getQuota(ctx.db), ctx.who.userId);
+  return { pages: used.pages, bytes: used.bytes, limit: { storageMB, pages } };
+}
+
+function quotaLine(u: ReturnType<typeof usageOf>): string {
+  const storage = u.limit.storageMB ? `${mb(u.bytes)} of ${u.limit.storageMB} MB` : `${mb(u.bytes)} (no limit)`;
+  const pages = u.limit.pages ? `${u.pages} of ${u.limit.pages} pages` : `${u.pages} pages (no limit)`;
+  return `Your quota: ${storage}, ${pages}, counting every version (unchanged files are shared between versions).`;
 }

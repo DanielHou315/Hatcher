@@ -17,19 +17,27 @@ essentials:
 
 - `BETTER_AUTH_SECRET`: `openssl rand -base64 32`. It signs sessions and frame tokens and encrypts the
   SMTP password; changing it signs everyone out.
-- `BETTER_AUTH_URL`: the URL people open, e.g. `https://hatcher.example.com`. Sign-in only works from
-  this origin, and email links point at it.
-- `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin.
+- `BETTER_AUTH_URL`: the URL people open, e.g. `https://hatcher.example.com`. Required: without it
+  every sign-in is refused as "Invalid origin". Email links point at it.
+- `HATCHER_TRUSTED_ORIGINS` (optional): other addresses the site is opened at, comma-separated, e.g.
+  a LAN or VPN address. Over plain http these only work while `BETTER_AUTH_URL` is http too, because
+  sign-in cookies are marked Secure for an https site.
+- `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin. It only works until an
+  admin exists; remove it afterwards.
+- `CONTENT_ORIGIN` (optional): a second hostname, proxied to the same container, that serves page
+  content only. Without it, pages are shown only inside the viewer (never in their own tab).
+- `HATCHER_CLIENT_IP_HEADER`: the header holding the visitor's address, which must be one your proxy
+  sets and overwrites (`cf-connecting-ip` behind Cloudflare). Default `x-forwarded-for`.
 
 `docker compose config` prints resolved values, secrets included, so do not paste its output
 anywhere.
 
 ## First start
 
-1. `npm run docker:up`, then open the site and register with an email from `HATCHER_ADMIN_EMAILS`.
+1. `docker compose up -d --build` (or run a release image, see the README), then open the site and register with an email from `HATCHER_ADMIN_EMAILS`.
 2. At `/account`, turn on two-factor sign-in.
 3. At `/admin`, set up email (SMTP) if you want password resets, then choose who may register.
-   Registration starts closed.
+   Registration starts closed. Check the quotas (1 GB and 500 pages per person by default).
 4. Create an API key at `/account` for your agents (`docs/api.md`).
 
 ## Upgrading from 0.1
@@ -58,5 +66,5 @@ token that has `read:packages`.
 
 ## Updating
 
-From source: `npm run docker:up` rebuilds the image. From a release: change the pinned tag and
+From source: `git pull && docker compose up -d --build` rebuilds the image. From a release: change the pinned tag and
 `docker compose pull && docker compose up -d`.

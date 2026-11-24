@@ -33,7 +33,9 @@ about references to blocked hosts. Pin library versions in URLs (`d3@7.9.0`, not
 
 Inline scripts and styles, `eval`, WebAssembly, workers, `blob:` and `data:` URLs work. Cookies,
 `localStorage` and IndexedDB do not persist (the origin is opaque), so keep state in memory.
-Forms cannot submit anywhere; handle them in JavaScript. `alert` and `confirm` work.
+Forms cannot submit anywhere; handle them in JavaScript. `alert`, `confirm` and `prompt` are blocked,
+and so are downloads: show messages and inputs in the page itself, and offer data to copy instead of
+a file to save.
 
 ## Example
 

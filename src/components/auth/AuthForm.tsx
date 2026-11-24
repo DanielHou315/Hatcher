@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { authClient } from '@/lib/auth-client';
+import { safeNext } from '@/lib/safe-next';
 
 interface Methods {
   github: boolean;
@@ -14,9 +15,6 @@ interface Methods {
   verification: boolean;
 }
 
-function safeNext(next: string | undefined): string {
-  return next && /^\/(?![/\\])/.test(next) ? next : '/';
-}
 
 export function AuthForm({ mode, methods, next }: { mode: 'login' | 'signup'; methods: Methods; next?: string }) {
   const router = useRouter();

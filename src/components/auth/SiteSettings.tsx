@@ -21,6 +21,7 @@ export interface Settings {
   };
   emailReady: boolean;
   cdnHosts: string[];
+  quota: { default: { storageMB: number; pages: number }; users: Record<string, { storageMB: number; pages: number }> };
 }
 
 function useSave(setSettings: (s: Settings) => void) {
@@ -109,7 +110,8 @@ export function RegistrationSettings({ settings, setSettings }: { settings: Sett
             {!settings.emailReady && <span className="hint"> · needs email, below</span>}
           </span>
         </label>
-        <p className="hint">Emails in HATCHER_ADMIN_EMAILS can always register, and become admins.</p>
+        {mode === 'domains' && <p className="hint">Registration by domain requires confirming the email, so email must be set up.</p>}
+        <p className="hint">Until an admin exists, emails in HATCHER_ADMIN_EMAILS can register and become admins.</p>
         <Message m={s.message} />
         <button className="btn w-fit" data-tone="primary" disabled={s.busy}>
           Save
@@ -266,6 +268,45 @@ export function CdnSettings({ settings, setSettings }: { settings: Settings; set
   );
 }
 
+export function QuotaSettings({ settings, setSettings }: { settings: Settings; setSettings: (s: Settings) => void }) {
+  const s = useSave(setSettings);
+  const d = settings.quota.default;
+  return (
+    <Panel id="quota" title="Quotas">
+      <p className="hint">
+        What each person’s pages may take up, counting every version. Versions share files they do not change, so a small edit costs
+        little. Pages count against their owner, whoever edits them. Give someone their own limit under Users. 0 means no limit.
+      </p>
+      <form
+        className="flex flex-col gap-4"
+        action={(form) =>
+          s.save({
+            quota: {
+              ...settings.quota,
+              default: { storageMB: Number(form.get('storageMB')) || 0, pages: Number(form.get('pages')) || 0 },
+            },
+          })
+        }
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="field">
+            <span className="label">Storage per person (MB)</span>
+            <input name="storageMB" type="number" min={0} step={1} defaultValue={d.storageMB} required />
+          </label>
+          <label className="field">
+            <span className="label">Pages per person</span>
+            <input name="pages" type="number" min={0} step={1} defaultValue={d.pages} required />
+          </label>
+        </div>
+        <Message m={s.message} />
+        <button className="btn w-fit" data-tone="primary" disabled={s.busy}>
+          Save
+        </button>
+      </form>
+    </Panel>
+  );
+}
+
 export function SiteSettings({ initial }: { initial: Settings }) {
   const [settings, setSettings] = useState(initial);
   return (
@@ -273,6 +314,7 @@ export function SiteSettings({ initial }: { initial: Settings }) {
       <RegistrationSettings settings={settings} setSettings={setSettings} />
       <EmailSettings settings={settings} setSettings={setSettings} />
       <CdnSettings settings={settings} setSettings={setSettings} />
+      <QuotaSettings settings={settings} setSettings={setSettings} />
     </>
   );
 }
