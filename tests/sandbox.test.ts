@@ -1,109 +1,74 @@
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadEntries } from '@/lib/content';
-import {
-  contentSecurityPolicy,
-  externalResources,
-  extractHtmlToc,
-  isFigurePath,
-  prepareHtml,
-  resolveContentPath,
-} from '@/lib/sandbox';
+import { signContentToken, verifyContentToken } from '@/lib/content-token';
+import { blockedResources, contentHeaders, contentSecurityPolicy, DEFAULT_CDN_HOSTS, isCdnHost, parseCdnHosts } from '@/lib/sandbox';
 
-const dir = path.join(__dirname, 'fixtures/formats');
-const entries = loadEntries(dir);
-const get = (slug: string) => entries.find((e) => e.slug === slug)!;
-const rel = (hit: ReturnType<typeof resolveContentPath>) => (hit ? path.relative(dir, hit.file) : null);
-
-describe('entry layouts', () => {
-  it('loads flat HTML, page folders, and skips hidden files', () => {
-    expect(entries.map((e) => e.slug).sort()).toEqual(['bundle-html', 'bundle-paper', 'dup', 'flat-html']);
-    expect(get('flat-html')).toMatchObject({ format: 'html', bundle: false, title: 'Flat HTML', level: 1 });
-    expect(get('bundle-html')).toMatchObject({ format: 'html', bundle: true, relPath: 'concepts/bundle-html/index.html' });
-    expect(get('bundle-paper')).toMatchObject({ format: 'mdx', bundle: true, kind: 'paper' });
-    expect(get('flat-html').body.trimStart().startsWith('<h2')).toBe(true);
-  });
-
-  it('flags a slug used by both a file and a folder', () => {
-    const error = get('dup').error!;
-    expect(error).toMatch(/slug "dup" is also used by/);
-    expect(error).toContain('concepts/dup.mdx');
-    expect(error).toContain('concepts/dup/index.html');
-  });
-});
-
-describe('content route paths', () => {
-  it('serves a page document from a folder or a flat file', () => {
-    expect(rel(resolveContentPath(dir, ['concepts', 'bundle-html', 'index.html']))).toBe('concepts/bundle-html/index.html');
-    expect(rel(resolveContentPath(dir, ['concepts', 'flat-html', 'index.html']))).toBe('concepts/flat-html.html');
-    expect(resolveContentPath(dir, ['concepts', 'flat-html', 'index.html'])?.entryDoc).toBe(true);
-  });
-
-  it('serves listed file types inside a page folder', () => {
-    expect(rel(resolveContentPath(dir, ['papers', 'bundle-paper', 'figures', 'flow.html']))).toBe('papers/bundle-paper/figures/flow.html');
-    expect(resolveContentPath(dir, ['papers', 'bundle-paper', 'figures', 'data.json'])?.entryDoc).toBe(false);
-  });
-
-  it('refuses sources, hidden files, unlisted types, traversal, and unknown kinds', () => {
-    const refused = [
-      ['papers', 'bundle-paper', 'index.mdx'],
-      ['papers', 'bundle-paper', '.private.json'],
-      ['papers', 'bundle-paper', 'figures', 'run.sh'],
-      ['papers', 'bundle-paper', '..', 'bundle-paper', 'index.mdx'],
-      ['papers', '..', 'concepts', 'flat-html.html'],
-      ['concepts', 'flat-html.html'],
-      ['secrets', 'bundle-paper', 'index.html'],
-      ['papers', 'Bundle-Paper', 'index.html'],
-      ['concepts', 'missing', 'index.html'],
-    ];
-    for (const segments of refused) expect(resolveContentPath(dir, segments), segments.join('/')).toBeNull();
-  });
-});
-
-describe('html preparation', () => {
-  it('strips frontmatter from page documents and injects the helper into <head>', () => {
-    const out = prepareHtml('---\ntitle: x\n---\n<html><head><title>t</title></head><body>b</body></html>', { stripFrontmatter: true });
-    expect(out.startsWith('<html><head><link rel="stylesheet" href="/_lib/hatcher.css"><script src="/_lib/hatcher.js"></script><title>')).toBe(true);
-  });
-
-  it('wraps fragments in a full document', () => {
-    const out = prepareHtml('<p>hi</p>', { stripFrontmatter: false });
-    expect(out).toMatch(/^<!doctype html><html lang="en"><head>.*hatcher\.js.*<\/head><body><p>hi<\/p><\/body><\/html>$/);
-  });
-
-  it('keeps frontmatter-like text in figures', () => {
-    expect(prepareHtml('---\na\n---\n<p>x</p>', { stripFrontmatter: false })).toContain('---\na\n---');
-  });
-});
-
-describe('policy and checks', () => {
-  it('sandboxes every response and blocks outside hosts', () => {
-    const csp = contentSecurityPolicy('https://site.example/');
-    expect(csp).toMatch(/^sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox;/);
+describe('content security policy', () => {
+  it('sandboxes without same-origin and allows only this server and the listed hosts', () => {
+    const csp = contentSecurityPolicy(['cdn.jsdelivr.net', '*.example.com'], { siteOrigin: 'https://site.example' });
+    expect(csp).toMatch(/^sandbox allow-scripts /);
     expect(csp).not.toContain('allow-same-origin');
     expect(csp).toContain("default-src 'none'");
-    expect(csp).toContain("connect-src 'self';");
+    expect(csp).toMatch(/script-src 'self' [^;]*https:\/\/cdn\.jsdelivr\.net https:\/\/\*\.example\.com/);
+    expect(csp).toMatch(/connect-src 'self' [^;]*https:\/\/cdn\.jsdelivr\.net/);
+    expect(csp).not.toMatch(/https?:\s|\*\s|'unsafe-hashes'|http:\/\//);
     expect(csp).toContain("frame-ancestors 'self' https://site.example");
   });
 
-  it('builds a table of contents from headings with ids', () => {
-    expect(extractHtmlToc(get('flat-html').body)).toEqual([
-      { depth: 2, id: 'setup', text: 'Setup & notation' },
-      { depth: 3, id: 'detail', text: 'A detail' },
-    ]);
+  it('lets a page frame its own HTML files, but only the site frame the page', () => {
+    expect(contentSecurityPolicy([], { entry: false })).not.toContain('frame-ancestors');
+    expect(contentSecurityPolicy([], { entry: false })).toMatch(/^sandbox allow-scripts /);
   });
 
-  it('finds resources loaded from other hosts', () => {
-    expect(externalResources('<script src="https://cdn.x/d3.js"></script><img src="//a.b/c.png"><a href="https://ok.link">l</a><script src="main.js"></script>')).toEqual([
-      'https://cdn.x/d3.js',
-      '//a.b/c.png',
-    ]);
+  it('drops anything that is not a host name, so a setting cannot widen the policy', () => {
+    const csp = contentSecurityPolicy(['cdn.jsdelivr.net', "'unsafe-inline'; img-src *", '*', 'https:']);
+    expect(csp).not.toContain('img-src *');
+    expect(csp.match(/https:\/\//g)?.length).toBe(8); // one host in each of 8 directives
   });
 
-  it('accepts only relative .html figure paths', () => {
-    expect(isFigurePath('figures/flow.html')).toBe(true);
-    for (const bad of ['/figures/flow.html', '../x.html', 'figures/../x.html', 'figures/.x.html', 'flow.js', 'a//b.html']) {
-      expect(isFigurePath(bad), bad).toBe(false);
-    }
+  it('parses admin input', () => {
+    expect(parseCdnHosts('https://cdn.jsdelivr.net/\nunpkg.com, UNPKG.com  *.example.org localhost:8080 javascript:alert(1) *')).toEqual({
+      hosts: ['cdn.jsdelivr.net', 'unpkg.com', '*.example.org'],
+      invalid: ['localhost:8080', 'javascript:alert(1)', '*'],
+    });
+    for (const h of DEFAULT_CDN_HOSTS) expect(isCdnHost(h)).toBe(true);
+  });
+
+  it('sends the policy with every content response', () => {
+    const h = contentHeaders('.js', ['unpkg.com']);
+    expect(h['Content-Type']).toBe('text/javascript; charset=utf-8');
+    expect(h['X-Content-Type-Options']).toBe('nosniff');
+    expect(h['Content-Security-Policy']).toContain('https://unpkg.com');
+  });
+
+  it('reports references to hosts the policy blocks', () => {
+    const page = `
+      <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+      <script src="https://evil.example/x.js"></script>
+      <link rel="stylesheet" href="//fonts.googleapis.com/css2?family=Inter">
+      <img src="http://cdn.jsdelivr.net/insecure.png">
+      <script type="module">import * as THREE from 'https://esm.sh/three'; import x from "https://bad.example/m.js";</script>`;
+    expect(blockedResources(page, DEFAULT_CDN_HOSTS)).toEqual(['https://evil.example/x.js', 'http://cdn.jsdelivr.net/insecure.png', 'https://bad.example/m.js']);
+  });
+});
+
+describe('content tokens', () => {
+  const now = Date.UTC(2026, 10, 23, 12, 3);
+  it('verifies for the page it was signed for, until it expires', () => {
+    const t = signContentToken('s', 'AbCdEfGhIjKl', now);
+    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now)).toBe(true);
+    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now + 2 * 3600_000)).toBe(true);
+    expect(verifyContentToken('s', 'AbCdEfGhIjKl', t, now + 3 * 3600_000)).toBe(false);
+    expect(verifyContentToken('s', 'OtherPage123', t, now)).toBe(false);
+    expect(verifyContentToken('other secret', 'AbCdEfGhIjKl', t, now)).toBe(false);
+  });
+
+  it('stays the same within a 10-minute step, so frame URLs are stable', () => {
+    expect(signContentToken('s', 'p', now)).toBe(signContentToken('s', 'p', now + 60_000));
+  });
+
+  it('rejects tokens claiming an expiry beyond the lifetime', () => {
+    const far = now + 100 * 3600_000;
+    const forged = signContentToken('s', 'p', far);
+    expect(verifyContentToken('s', 'p', forged, now)).toBe(false);
   });
 });

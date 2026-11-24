@@ -1,15 +1,5 @@
 import { z } from 'zod';
-import { PROGRESS_STATUSES } from './kinds';
-
-export const slugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,199}$/, 'slug must be lowercase letters, digits, hyphens');
-
-export const progressBody = z.object({
-  slug: slugSchema,
-  status: z.enum(PROGRESS_STATUSES),
-  notes: z.string().max(10_000).optional(),
-});
-
-export const viewBody = z.object({ slug: slugSchema });
+import { PageError } from './pages';
 
 export async function readJson(request: Request): Promise<unknown> {
   try {
@@ -30,4 +20,16 @@ export function unauthorized(message = 'sign in required') {
 
 export function forbidden(message = 'not allowed') {
   return Response.json({ error: message }, { status: 403 });
+}
+
+export function notFound(message = 'not found') {
+  return Response.json({ error: message }, { status: 404 });
+}
+
+const PAGE_ERROR_STATUS = { not_found: 404, invalid: 400, conflict: 409, forbidden: 403, too_large: 413 } as const;
+
+/** Turn a PageError into a JSON response; rethrow anything else. */
+export function pageErrorResponse(err: unknown) {
+  if (err instanceof PageError) return Response.json({ error: err.message, code: err.code }, { status: PAGE_ERROR_STATUS[err.code] });
+  throw err;
 }

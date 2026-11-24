@@ -2,26 +2,26 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import fs from 'node:fs';
 import path from 'node:path';
 import { authenticateAgent } from '@/lib/agent-auth';
-import { contentDir } from '@/lib/content';
-import { recordAudit } from '@/lib/db';
+import { siteURL } from '@/lib/auth';
+import { dataDir, getDb } from '@/lib/db';
 import { createMcpServer } from '@/lib/mcp/server';
-import { authSettings, isStudio } from '@/lib/settings';
+import { getCdnHosts } from '@/lib/site-settings';
 import pkg from '../../../../package.json';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 // MCP over Streamable HTTP, stateless: every POST carries `Authorization: Bearer hk_...`, and a
-// fresh server is built for that key. No sessions, no server-sent streams. Studio only.
+// fresh server is built for that key. No sessions, no server-sent streams.
 
-const MAX_BODY = 32 * 1024 * 1024;
+const MAX_BODY = 64 * 1024 * 1024;
 
 const jsonError = (status: number, message: string, headers: Record<string, string> = {}) =>
   Response.json({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }, { status, headers });
 
 let guideCache: string | undefined;
 function guide(): string {
-  guideCache ??= fs.readFileSync(path.join(process.cwd(), 'docs/content-format.md'), 'utf8');
+  guideCache ??= fs.readFileSync(path.join(process.cwd(), 'docs/pages.md'), 'utf8');
   return guideCache;
 }
 
@@ -46,8 +46,7 @@ async function readBody(request: Request): Promise<string | null> {
 }
 
 export async function POST(request: Request) {
-  if (!isStudio()) return new Response('Not found', { status: 404 });
-  const baseURL = authSettings().baseURL ?? new URL(request.url).origin;
+  const baseURL = siteURL(request);
 
   // Browsers send Origin; MCP clients do not. Refuse other sites' pages (DNS rebinding, CSRF).
   const origin = request.headers.get('origin');
@@ -69,11 +68,13 @@ export async function POST(request: Request) {
     return Response.json({ jsonrpc: '2.0', error: { code: -32700, message: 'parse error' }, id: null }, { status: 400 });
   }
 
+  const db = getDb();
   const server = createMcpServer({
-    dir: contentDir(),
+    db,
+    dataDir: dataDir(),
     baseURL,
     agent: { userId: agent.userId, keyId: agent.keyId, name: agent.keyName ? `${agent.name} (${agent.keyName})` : agent.name, actions: agent.actions },
-    audit: recordAudit,
+    cdnHosts: getCdnHosts(db),
     guide,
     version: pkg.version,
   });
@@ -86,8 +87,7 @@ export async function POST(request: Request) {
   }
 }
 
-const notAllowed = () =>
-  isStudio() ? jsonError(405, 'this server is stateless; use POST', { Allow: 'POST' }) : new Response('Not found', { status: 404 });
+const notAllowed = () => jsonError(405, 'this server is stateless; use POST', { Allow: 'POST' });
 
 export const GET = notAllowed;
 export const DELETE = notAllowed;

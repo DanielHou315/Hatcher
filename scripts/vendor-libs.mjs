@@ -1,18 +1,10 @@
-// Copy browser libraries and fonts into public/_lib (gitignored). Runs before `dev` and `build`.
-// Sandboxed pages can only load from this server, and the site and its frames share these fonts.
+// Copy the site's fonts into public/_lib/fonts (gitignored). Runs before `dev` and `build`.
 // To update a font, bump its @fontsource package; to add one, add its stylesheets to FONTS.
 import fs from 'node:fs';
 import path from 'node:path';
 
 const root = path.resolve(import.meta.dirname, '..');
 const out = path.join(root, 'public/_lib');
-const katex = path.join(root, 'node_modules/katex/dist');
-
-fs.rmSync(path.join(out, 'katex'), { recursive: true, force: true });
-fs.mkdirSync(path.join(out, 'katex/contrib'), { recursive: true });
-for (const file of ['katex.min.js', 'katex.min.css']) fs.copyFileSync(path.join(katex, file), path.join(out, 'katex', file));
-fs.copyFileSync(path.join(katex, 'contrib/auto-render.min.js'), path.join(out, 'katex/contrib/auto-render.min.js'));
-fs.cpSync(path.join(katex, 'fonts'), path.join(out, 'katex/fonts'), { recursive: true });
 
 // Font stylesheets, concatenated into /_lib/fonts/fonts.css with their files copied alongside.
 const FONTS = [
@@ -38,4 +30,4 @@ for (const entry of FONTS) {
   });
 }
 fs.writeFileSync(path.join(fontsOut, 'fonts.css'), css);
-console.log(`vendored katex and ${FONTS.length} font stylesheets into public/_lib`);
+console.log(`vendored ${FONTS.length} font stylesheets into public/_lib/fonts`);

@@ -4,12 +4,18 @@ services:
     ports:
       - "${PORT:-3000}:3000"
     volumes:
-      - ${CONTENT_DIR:-./content}:/app/content:ro
       - ${DATA_DIR:-./data}:/app/data
     environment:
-      CONTENT_DIR: /app/content
       DATA_DIR: /app/data
-      CHOKIDAR_USEPOLLING: "1"
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET (openssl rand -base64 32)}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
+      HATCHER_ADMIN_EMAILS: ${HATCHER_ADMIN_EMAILS:-}
+      CONTENT_ORIGIN: ${CONTENT_ORIGIN:-}
+      SITE_ORIGIN: ${SITE_ORIGIN:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
@@ -17,4 +23,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
