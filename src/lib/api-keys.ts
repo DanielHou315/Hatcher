@@ -2,18 +2,17 @@ import 'server-only';
 import { headers } from 'next/headers';
 import { z } from 'zod';
 import { getAuth } from './auth';
-import { pageActionsOf, roleCan, type PageAction, type Role } from './roles';
+import { keyActions, type KeyAction } from './agent-auth';
 
-// API keys for agents and the MCP server. A key's access is fixed at creation and never exceeds
-// the owner's role; use-time checks (src/lib/agent-auth.ts) also re-check the owner's current role.
+// API keys for agents and the MCP server. A key acts as its owner, limited to reading (read) or
+// reading and writing (write) the pages its owner can reach.
 
-export const KEY_ACCESS = ['read', 'write', 'publish'] as const;
+export const KEY_ACCESS = ['read', 'write'] as const;
 export type KeyAccess = (typeof KEY_ACCESS)[number];
 
-const ACCESS_ACTIONS: Record<KeyAccess, PageAction[]> = {
+const ACCESS_ACTIONS: Record<KeyAccess, KeyAction[]> = {
   read: ['read'],
   write: ['read', 'write'],
-  publish: ['read', 'write', 'publish'],
 };
 
 export const MAX_KEYS_PER_USER = 20;
@@ -24,15 +23,11 @@ export const createKeyBody = z.object({
   expiresInDays: z.union([z.literal(30), z.literal(90), z.literal(365), z.null()]),
 });
 
-export function allowedAccess(role: Role): KeyAccess[] {
-  return KEY_ACCESS.filter((a) => ACCESS_ACTIONS[a].every((action) => roleCan(role, action)));
-}
-
 export interface KeySummary {
   id: string;
   name: string | null;
   start: string | null;
-  access: PageAction[];
+  access: KeyAction[];
   createdAt: string;
   expiresAt: string | null;
   lastUsedAt: string | null;
@@ -46,7 +41,7 @@ export async function listKeys(): Promise<KeySummary[]> {
     id: k.id,
     name: k.name ?? null,
     start: k.start ?? null,
-    access: pageActionsOf(k.permissions),
+    access: keyActions(k.permissions),
     createdAt: iso(k.createdAt)!,
     expiresAt: iso(k.expiresAt),
     lastUsedAt: iso(k.lastRequest),

@@ -1,41 +1,29 @@
 # Copy to .envrc (gitignored), fill in, then `direnv allow`. See docs/deployment.md.
 
-# Root of the live data, outside the repo. Content is service data and is never committed.
-export HATCHER_HOME="$HOME/Databases/hatcher"
+# Directory holding everything: auth.db, hatcher.db and pages/. Back it up. Default (compose): ./data
+export DATA_DIR="$HOME/Databases/hatcher/database"
 
-# Live MDX content the site serves. Default (compose): ./content
-export CONTENT_DIR="$HATCHER_HOME/content"
-
-# Directory holding the SQLite progress database. Default (compose): ./data
-export DATA_DIR="$HATCHER_HOME/database"
-
-# Optional: origin that serves sandboxed HTML pages and figures, proxied to this same app.
-# Empty serves them from the site's own origin (still sandboxed). See docs/architecture.md.
-export CONTENT_ORIGIN=""
-
-# Optional: the site's public origin, allowed to frame content served from CONTENT_ORIGIN.
-export SITE_ORIGIN=""
-
-# public (default): the anonymous, read-only site. Published pages only; no accounts, no write
-# APIs, no secrets, and DATA_DIR is never opened. studio: the sign-in-only instance for accounts,
-# drafts, API keys and MCP. Deploy them as two containers from the same image.
-export HATCHER_MODE="studio"
-
-# --- Accounts (studio only, Better Auth). Accounts, sessions and API keys live in $DATA_DIR/auth.db. ---
-
-# Signs sessions and content tokens. Required in production: `openssl rand -base64 32`. Never commit it.
+# Signs sessions and page-frame tokens, and encrypts the SMTP password. Required in production:
+# `openssl rand -base64 32`. Never commit it; changing it signs everyone out.
 export BETTER_AUTH_SECRET=""
 
-# Public URL of the site (OAuth callbacks, trusted origin). Defaults to SITE_ORIGIN.
+# The URL people open, e.g. https://hatcher.example.com. Sign-in only works from this origin, and
+# email links and MCP results point at it. Defaults to SITE_ORIGIN.
 export BETTER_AUTH_URL=""
 
-# Comma-separated emails that become admins when they sign up. Use this to create the first admin.
+# Comma-separated emails that may always register, and become admins when they do. Use it to create
+# the first admin. Who else may register is set at /admin (starts closed).
 export HATCHER_ADMIN_EMAILS=""
 
-# closed (default): only admins create accounts. open: anyone may sign up as a reader.
-export HATCHER_SIGNUP="closed"
+# Optional: origin that serves page files, proxied to this same app, for an extra layer of
+# isolation. Empty serves them from the site's own origin (still sandboxed). See docs/architecture.md.
+export CONTENT_ORIGIN=""
+
+# Optional: the site's public origin, allowed to frame page files served from CONTENT_ORIGIN.
+export SITE_ORIGIN=""
 
 # Optional OAuth sign-in. Callback URL: $BETTER_AUTH_URL/api/auth/callback/<github|google>.
+# New OAuth accounts follow the same registration rules as email sign-up.
 export GITHUB_CLIENT_ID=""
 export GITHUB_CLIENT_SECRET=""
 export GOOGLE_CLIENT_ID=""
@@ -43,7 +31,3 @@ export GOOGLE_CLIENT_SECRET=""
 
 # Port the site listens on.
 export PORT=3000
-
-# Set to 1 when the content directory is a bind mount or network share and native file events
-# do not fire. The site outside Docker uses 0; compose forces 1 inside the container.
-export CHOKIDAR_USEPOLLING=0

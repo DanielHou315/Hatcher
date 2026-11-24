@@ -1,33 +1,33 @@
-// The Hatcher MCP server: tools for agents to read and write pages in CONTENT_DIR.
+// The Hatcher MCP server: tools for agents to read and write the pages their key's owner can reach.
 // One server is built per request for the authenticated agent (src/app/api/mcp/route.ts).
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import path from 'node:path';
 import { z } from 'zod';
-import { loadEntries, type Entry } from '../content';
+import type { KeyAction } from '../agent-auth';
+import type { Db, PageRow } from '../db';
+import { accessTo, canManage, canRead, canWrite, type PageAccess } from '../page-access';
 import {
   LIMITS,
+  MAIN_FILE,
   PageError,
-  commitStaged,
-  deletePage,
-  discardStaged,
-  readPage,
+  createPage,
+  pageFiles,
   readPageFile,
-  setStatus,
-  stagePage,
-  withPageLock,
-  type WriteRequest,
-} from '../page-store';
-import type { PageAction } from '../roles';
-import { KIND_DIRS, KINDS, type Kind } from '../kinds';
-import { validateEntry } from '../validate';
+  restoreVersion,
+  setDetails,
+  updatePage,
+  type FileWrite,
+} from '../pages';
+import { blockedResources, TEXT_EXTS } from '../sandbox';
 
 export interface McpContext {
-  dir: string;
-  /** Public base URL of the studio, for page links. */
+  db: Db;
+  dataDir: string;
+  /** Public base URL of the site, for page links. */
   baseURL: string;
-  agent: { userId: string; keyId?: string; name: string; actions: PageAction[] };
-  audit: (r: { userId: string; keyId?: string; action: string; target?: string; ok: boolean; detail?: string }) => void;
-  /** The content format reference (docs/content-format.md). */
+  agent: { userId: string; keyId?: string; name: string; actions: KeyAction[] };
+  cdnHosts: string[];
+  /** The page-writing guide (docs/pages.md). */
   guide: () => string;
   version: string;
 }
@@ -40,33 +40,31 @@ const failure = (message: string, extra?: object): ToolResult => ({
   content: [{ type: 'text', text: JSON.stringify({ error: message, ...extra }, null, 2) }],
 });
 
-const TEXT_EXTS = new Set(['.mdx', '.html', '.js', '.mjs', '.css', '.json', '.csv', '.txt', '.svg', '.gltf']);
-const MAX_TEXT = 3 * 1024 * 1024;
+const MB = 1024 * 1024;
+const MAX_TEXT = 8 * MB;
 
-const kind = z.enum(KINDS).describe('Page kind: concept, paper or roadmap');
-const slug = z.string().max(80).describe('Page slug: lowercase letters, digits and hyphens');
-const version = z.string().max(64).describe('The page version from get_page');
+const pageId = z.string().max(40).describe('Page id, from list_pages or a page URL (/p/<id>)');
 const fileWrite = z.object({
-  path: z.string().max(200).describe('Path inside the page folder, e.g. index.mdx or figures/flow.html'),
+  path: z.string().max(400).describe('Path inside the page, e.g. index.html or js/app.js'),
   text: z.string().max(MAX_TEXT).optional().describe('UTF-8 content'),
   base64: z.string().max(MAX_TEXT).optional().describe('Binary content, base64'),
 });
-const writeShape = {
-  kind,
-  slug,
-  files: z.array(fileWrite).max(LIMITS.files).describe('Files to create or replace. The page itself is index.mdx or index.html.'),
-  delete: z.array(z.string().max(200)).max(LIMITS.files).optional().describe('Paths to remove from the page folder'),
-  expected_version: version.optional().describe('Required when the page exists (from get_page); omit to create a page'),
-};
+
+function decode(files: z.infer<typeof fileWrite>[]): FileWrite[] {
+  return files.map((f) => {
+    if ((f.text === undefined) === (f.base64 === undefined)) throw new PageError('invalid', `file "${f.path}": give exactly one of text or base64`);
+    return { path: f.path, data: f.text !== undefined ? Buffer.from(f.text, 'utf8') : Buffer.from(f.base64!, 'base64') };
+  });
+}
 
 export function createMcpServer(ctx: McpContext): McpServer {
-  const can = (a: PageAction) => ctx.agent.actions.includes(a);
-  const visible = (e: Pick<Entry, 'status' | 'error'>) => can('write') || (!e.error && e.status === 'ready');
-  const url = (k: Kind, s: string) => `${ctx.baseURL}/${KIND_DIRS[k]}/${s}`;
-  const target = (k: Kind, s: string) => `${KIND_DIRS[k]}/${s}`;
+  const { db } = ctx;
+  const can = (a: KeyAction) => ctx.agent.actions.includes(a);
+  const url = (id: string) => `${ctx.baseURL}/p/${id}`;
+  const author = { userId: ctx.agent.userId, keyId: ctx.agent.keyId };
 
   /** Run a tool body, turning PageErrors into tool errors and recording changes in the audit log. */
-  async function run(action: string | null, where: string | undefined, fn: () => Promise<ToolResult> | ToolResult): Promise<ToolResult> {
+  async function run(action: string | null, target: string | undefined, fn: () => Promise<ToolResult> | ToolResult): Promise<ToolResult> {
     let result: ToolResult;
     try {
       result = await fn();
@@ -76,28 +74,56 @@ export function createMcpServer(ctx: McpContext): McpServer {
     }
     if (action) {
       const detail = result.isError ? result.content[0].text : undefined;
-      ctx.audit({ userId: ctx.agent.userId, keyId: ctx.agent.keyId, action, target: where, ok: !result.isError, detail });
+      db.audit({ userId: ctx.agent.userId, keyId: ctx.agent.keyId, action, target, ok: !result.isError, detail });
     }
     return result;
   }
 
-  function requireAction(a: PageAction): ToolResult | null {
-    if (can(a)) return null;
-    return failure(`this key cannot ${a} pages (key access: ${ctx.agent.actions.join(', ') || 'none'})`, { code: 'forbidden' });
+  function requireWriteKey() {
+    if (!can('write')) throw new PageError('forbidden', 'this API key is read-only; create a write key at /account');
   }
 
-  function readable(k: Kind, s: string) {
-    const page = readPage(ctx.dir, k, s);
-    if (!visible(page.entry)) throw new PageError('not_found', `no ${k} "${s}"`);
-    return page;
+  /** The page if this agent's owner may read it; the same error whether it is missing or not shared. */
+  function readable(id: string): { page: PageRow; access: PageAccess } {
+    const page = db.page(id);
+    const access = page ? accessTo(db, page, ctx.agent.userId) : null;
+    if (!page || !canRead(access)) throw new PageError('not_found', `no page "${id}" (or it is not shared with you)`);
+    return { page, access: access! };
+  }
+
+  function writable(id: string) {
+    requireWriteKey();
+    const r = readable(id);
+    if (!canWrite(r.access)) throw new PageError('forbidden', 'the page is shared with you read-only');
+    return r;
+  }
+
+  function summary(page: PageRow, access: PageAccess) {
+    return { id: page.id, title: page.title, description: page.description, access, version: page.version, updated_at: page.updated_at, url: url(page.id) };
+  }
+
+  function warnings(id: string, version: number): string[] {
+    try {
+      const html = readPageFile(ctx.dataDir, id, version, MAIN_FILE).toString('utf8');
+      const blocked = blockedResources(html, ctx.cdnHosts);
+      return blocked.length ? [`These are on hosts pages may not load from, so they will not load: ${blocked.join(', ')}`] : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function checkVersion(page: PageRow, v: number | undefined): number {
+    const version = v ?? page.version;
+    if (version > page.version) throw new PageError('not_found', `no version ${version}`);
+    return version;
   }
 
   const server = new McpServer(
     { name: 'hatcher', version: ctx.version },
     {
       instructions:
-        'Hatcher is a reading site of concept, paper and roadmap pages. Call guide first: it gives the page format, the rules ' +
-        'pages must follow, and what this key may do. Read a page with get_page before changing it and pass its version.',
+        'Hatcher hosts private, shareable HTML pages, like artifacts. Call guide first for the page format and what pages may load. ' +
+        'Read a page with get_page before changing it and pass its version as expected_version.',
     },
   );
 
@@ -105,7 +131,7 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'guide',
     {
       title: 'Hatcher guide',
-      description: 'The page format, writing rules, limits, and what this API key may do. Read it before writing.',
+      description: 'How pages work, what they may load, limits, and what this API key may do. Read it before writing.',
       annotations: { readOnlyHint: true },
     },
     () =>
@@ -116,21 +142,13 @@ export function createMcpServer(ctx: McpContext): McpServer {
             text: [
               `# Using Hatcher as ${ctx.agent.name}`,
               '',
-              `This key may: ${ctx.agent.actions.join(', ') || 'nothing'}.`,
               can('write')
-                ? can('publish')
-                  ? 'You may create, edit and delete any page and publish with set_status.'
-                  : 'You may create and edit draft pages (status: draft). Published pages, and publishing, need an admin key.'
-                : 'You may read published pages only.',
+                ? 'This key may read and write: create pages, and change pages you own or that are shared with you for editing.'
+                : 'This key is read-only: it may read pages you own or that are shared with you.',
+              'Sharing, renaming and deleting are done by the page owner in the web UI.',
               '',
-              '## Workflow',
-              '1. list_pages to see what exists; get_page for a page and its version.',
-              '2. validate_page to check a change without saving it.',
-              '3. write_page with the files to create or replace (and paths to delete). Every write is validated; an invalid page is not saved.',
-              '   Pass expected_version from get_page when the page exists. A page is a folder: index.mdx or index.html plus any figures and assets.',
-              '',
-              `Limits: ${LIMITS.files} files and ${LIMITS.pageBytes / 1048576} MB per page, ${LIMITS.fileBytes / 1048576} MB per file, ` +
-                'folder depth 4, file names of letters, digits, ".", "_" and "-".',
+              `Pages may load scripts, styles, fonts and data from this server and these hosts only: ${ctx.cdnHosts.join(', ') || '(none)'}.`,
+              `Limits: ${LIMITS.files} files and ${LIMITS.pageBytes / MB} MB per page, ${LIMITS.fileBytes / MB} MB per file.`,
               '',
               '---',
               '',
@@ -145,59 +163,39 @@ export function createMcpServer(ctx: McpContext): McpServer {
     'list_pages',
     {
       title: 'List pages',
-      description: 'Pages with their title, status and summary. Drafts and invalid pages are listed only for keys that may write.',
-      inputSchema: {
-        kind: kind.optional(),
-        status: z.enum(['draft', 'ready']).optional(),
-        query: z.string().max(200).optional().describe('Case-insensitive match on slug, title, summary or tags'),
-      },
+      description: 'Pages you own or that are shared with you, most recently changed first.',
+      inputSchema: { query: z.string().max(200).optional().describe('Only pages whose title or description contains this text') },
       annotations: { readOnlyHint: true },
     },
-    ({ kind: k, status, query }) =>
+    ({ query }) =>
       run(null, undefined, () => {
         const q = query?.toLowerCase();
-        const pages = loadEntries(ctx.dir)
-          .filter(visible)
-          .filter((e) => (!k || e.kind === k) && (!status || e.status === status))
-          .filter((e) => !q || [e.slug, e.title, e.summary, ...e.tags].some((t) => t.toLowerCase().includes(q)))
-          .slice(0, 1000)
-          .map((e) => ({
-            kind: e.kind,
-            slug: e.slug,
-            title: e.title,
-            status: e.status,
-            format: e.format,
-            level: e.level,
-            summary: e.summary,
-            ...(e.error ? { error: e.error } : {}),
-          }));
-        return json({ count: pages.length, pages });
+        const pages = db
+          .visiblePages(ctx.agent.userId)
+          .filter((p) => !q || p.title.toLowerCase().includes(q) || p.description.toLowerCase().includes(q))
+          .map((p) => summary(p, p.access));
+        return json({ pages });
       }),
   );
 
   server.registerTool(
     'get_page',
     {
-      title: 'Get page',
-      description: 'A page’s main file source, its files, and its version (needed to change it).',
-      inputSchema: { kind, slug },
+      title: 'Read a page',
+      description: 'A page’s details, its files, and the text of index.html. Pass its version as expected_version when you change it.',
+      inputSchema: { id: pageId, version: z.number().int().min(1).optional().describe('An earlier version; default the current one') },
       annotations: { readOnlyHint: true },
     },
-    ({ kind: k, slug: s }) =>
+    ({ id, version }) =>
       run(null, undefined, () => {
-        const page = readable(k, s);
+        const { page, access } = readable(id);
+        const v = checkVersion(page, version);
         return json({
-          kind: k,
-          slug: s,
-          format: page.entry.format,
-          status: page.entry.status,
-          title: page.entry.title,
-          version: page.version,
-          url: url(k, s),
-          main: `index${path.extname(page.loc.main!)}`,
-          files: page.files,
-          ...(page.entry.error ? { error: page.entry.error } : {}),
-          source: page.source,
+          ...summary(page, access),
+          shown_version: v,
+          files: pageFiles(ctx.dataDir, id, v),
+          index_html: readPageFile(ctx.dataDir, id, v, MAIN_FILE).toString('utf8'),
+          warnings: warnings(id, v),
         });
       }),
   );
@@ -205,132 +203,105 @@ export function createMcpServer(ctx: McpContext): McpServer {
   server.registerTool(
     'read_file',
     {
-      title: 'Read page file',
-      description: 'One file from a page folder: text for text formats, base64 otherwise.',
-      inputSchema: { kind, slug, path: z.string().max(200) },
+      title: 'Read a file',
+      description: 'One file of a page: text as text, anything else as base64.',
+      inputSchema: { id: pageId, path: z.string().max(400), version: z.number().int().min(1).optional() },
       annotations: { readOnlyHint: true },
     },
-    ({ kind: k, slug: s, path: p }) =>
+    ({ id, path: p, version }) =>
       run(null, undefined, () => {
-        readable(k, s);
-        const data = readPageFile(ctx.dir, k, s, p);
+        const { page } = readable(id);
+        const v = checkVersion(page, version);
+        const data = readPageFile(ctx.dataDir, id, v, p);
         const text = TEXT_EXTS.has(path.extname(p).toLowerCase());
-        return json(text ? { path: p, text: data.toString('utf8') } : { path: p, base64: data.toString('base64') });
+        return json({ path: p, version: v, size: data.length, ...(text ? { text: data.toString('utf8') } : { base64: data.toString('base64') }) });
       }),
   );
 
-  async function stageChecked(args: z.infer<z.ZodObject<typeof writeShape>>) {
-    const req: WriteRequest = { kind: args.kind, slug: args.slug, files: args.files, delete: args.delete, expectedVersion: args.expected_version };
-    const staged = await stagePage(ctx.dir, req);
-    if (!can('publish')) {
-      if (staged.previousStatus === 'ready') {
-        discardStaged(staged);
-        throw new PageError('forbidden', `${args.kind} "${args.slug}" is published; changing it needs a key with publish access`);
-      }
-      if (staged.entry.status === 'ready' && !staged.entry.error) {
-        discardStaged(staged);
-        throw new PageError('forbidden', 'set status: draft in the frontmatter; publishing needs a key with publish access');
-      }
-    }
-    return staged;
-  }
-
   server.registerTool(
-    'validate_page',
+    'list_versions',
     {
-      title: 'Validate page',
-      description: 'Check a write_page change without saving it. Returns the errors and warnings the write would produce.',
-      inputSchema: writeShape,
+      title: 'Version history',
+      description: 'Every saved version of a page, newest first.',
+      inputSchema: { id: pageId },
       annotations: { readOnlyHint: true },
     },
-    (args) =>
-      run(null, undefined, async () => {
-        const denied = requireAction('write');
-        if (denied) return denied;
-        const staged = await stageChecked(args);
-        discardStaged(staged);
-        const { errors, warnings } = staged.problems;
-        return json({ valid: errors.length === 0, errors, warnings });
+    ({ id }) =>
+      run(null, undefined, () => {
+        readable(id);
+        return json({ versions: db.versions(id).map((v) => ({ version: v.version, at: v.created_at, note: v.note, files: v.files, bytes: v.bytes })) });
       }),
   );
 
   server.registerTool(
-    'write_page',
+    'create_page',
     {
-      title: 'Write page',
+      title: 'Create a page',
       description:
-        'Create or change a page: the given files are written into its folder and the listed paths removed, then the whole page is ' +
-        'validated. Nothing is saved unless it is valid. Returns the new version.',
-      inputSchema: writeShape,
-      annotations: { destructiveHint: true, idempotentHint: false },
+        'Create a new private page from index.html and any files beside it. Returns its id, version and URL. ' +
+        'Only you can see it until you share it in the web UI.',
+      inputSchema: {
+        title: z.string().max(LIMITS.title),
+        description: z.string().max(LIMITS.description).optional().describe('One or two sentences shown in page lists'),
+        files: z.array(fileWrite).min(1).max(LIMITS.files).describe('index.html is required'),
+        note: z.string().max(500).optional().describe('What this version is, shown in the history'),
+      },
     },
-    (args) =>
-      run('write_page', target(args.kind, args.slug), () => {
-        const denied = requireAction('write');
-        if (denied) return denied;
-        return withPageLock(args.kind, args.slug, async () => {
-          const staged = await stageChecked(args);
-          if (staged.problems.errors.length) {
-            discardStaged(staged);
-            return failure('the page is not valid; nothing was saved', { code: 'invalid', ...staged.problems });
-          }
-          commitStaged(staged);
-          return json({
-            saved: true,
-            created: staged.previousStatus === null,
-            version: staged.version,
-            status: staged.entry.status,
-            url: url(args.kind, args.slug),
-            warnings: staged.problems.warnings,
-          });
-        });
+    ({ title, description, files, note }) =>
+      run('create_page', title, () => {
+        requireWriteKey();
+        const page = createPage(db, ctx.dataDir, author, { title, description, files: decode(files), note });
+        return json({ ...summary(page, 'owner'), warnings: warnings(page.id, 1) });
       }),
   );
 
   server.registerTool(
-    'delete_page',
+    'update_page',
     {
-      title: 'Delete page',
-      description: 'Delete a page and its folder. Published pages need publish access.',
-      inputSchema: { kind, slug, expected_version: version },
-      annotations: { destructiveHint: true },
+      title: 'Change a page',
+      description:
+        'Save a new version: files to add or replace and paths to delete, based on expected_version from get_page. ' +
+        'Only the owner may change the title or description.',
+      inputSchema: {
+        id: pageId,
+        expected_version: z.number().int().min(1),
+        files: z.array(fileWrite).max(LIMITS.files).optional(),
+        delete: z.array(z.string().max(400)).max(LIMITS.files).optional(),
+        title: z.string().max(LIMITS.title).optional(),
+        description: z.string().max(LIMITS.description).optional(),
+        note: z.string().max(500).optional(),
+      },
     },
-    ({ kind: k, slug: s, expected_version }) =>
-      run('delete_page', target(k, s), () => {
-        const denied = requireAction('write');
-        if (denied) return denied;
-        return withPageLock(k, s, () => {
-          const page = readPage(ctx.dir, k, s);
-          if (page.entry.status === 'ready' && !page.entry.error && !can('publish')) {
-            throw new PageError('forbidden', `${k} "${s}" is published; deleting it needs a key with publish access`);
-          }
-          deletePage(ctx.dir, k, s, expected_version);
-          return json({ deleted: true });
-        });
+    ({ id, expected_version, files, delete: remove, title, description, note }) =>
+      run('update_page', id, () => {
+        const { page, access } = writable(id);
+        const details = title !== undefined || description !== undefined;
+        if (details && !canManage(access)) throw new PageError('forbidden', 'only the owner can change the title or description');
+        if (!files?.length && !remove?.length && !details) throw new PageError('invalid', 'nothing to change');
+        if (page.version !== expected_version) {
+          throw new PageError('conflict', `the page changed since version ${expected_version} (now ${page.version}); read it again`);
+        }
+        let version = page.version;
+        if (files?.length || remove?.length) {
+          version = updatePage(db, ctx.dataDir, id, author, { expectedVersion: expected_version, files: decode(files ?? []), delete: remove, note });
+        }
+        if (details) setDetails(db, id, { title, description });
+        return json({ ...summary(db.page(id)!, access), warnings: warnings(id, version) });
       }),
   );
 
   server.registerTool(
-    'set_status',
+    'restore_version',
     {
-      title: 'Publish or unpublish',
-      description: 'Set a page’s status: ready (published) or draft. Needs publish access. The page must be valid.',
-      inputSchema: { kind, slug, status: z.enum(['draft', 'ready']), expected_version: version },
-      annotations: { idempotentHint: true },
+      title: 'Restore a version',
+      description: 'Save a new version that is a copy of an earlier one. Nothing is lost: the history keeps every version.',
+      inputSchema: { id: pageId, version: z.number().int().min(1), expected_version: z.number().int().min(1) },
     },
-    ({ kind: k, slug: s, status, expected_version }) =>
-      run('set_status', `${target(k, s)} -> ${status}`, () => {
-        const denied = requireAction('publish');
-        if (denied) return denied;
-        return withPageLock(k, s, async () => {
-          if (status === 'ready') {
-            const page = readPage(ctx.dir, k, s);
-            const { errors } = await validateEntry(page.entry);
-            if (errors.length) return failure('the page is not valid; fix it before publishing', { code: 'invalid', errors });
-          }
-          const v = setStatus(ctx.dir, k, s, status, expected_version);
-          return json({ status, version: v, url: url(k, s) });
-        });
+    ({ id, version, expected_version }) =>
+      run('restore_version', `${id}@${version}`, () => {
+        writable(id);
+        const v = restoreVersion(db, ctx.dataDir, id, author, version, expected_version);
+        return json({ id, version: v, url: url(id) });
       }),
   );
 

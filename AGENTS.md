@@ -2,12 +2,10 @@
 
 ## Repo Introduction
 
-Hatcher, a personal reading site for the mathematics behind ML and robotics papers, named after
-the Hatcher Graduate Library at the University of Michigan. Pages are MDX or HTML files in
-`CONTENT_DIR` (format: `docs/content-format.md`), rendered by a Next.js 15 app in `src/` that reads
-content at request time and live-reloads on change. HTML pages and figures run sandboxed (see
-`docs/architecture.md`). Reading progress lives in SQLite under `DATA_DIR`. After writing content,
-run `npm run validate:content`.
+Hatcher, a self-hosted, shareable alternative to Claude artifacts, named after the Hatcher Graduate
+Library at the University of Michigan. Private, versioned HTML pages (format: `docs/pages.md`) that
+agents publish over MCP and users share with each other, served sandboxed by a Next.js 15 app in
+`src/` (see `docs/architecture.md`). Accounts, pages and settings live under `DATA_DIR`.
 
 ## Repo Map
 
@@ -15,16 +13,16 @@ Where things live. Update when a top-level directory is added, moved, or removed
 
 | Path | Contents |
 | --- | --- |
-| `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, content loading and the database in `src/lib/` |
-| `tests/` | Vitest suites and fixtures |
-| `scripts/` | Content validation, library vendoring, data-dir setup |
+| `src/` | Next.js app: routes in `src/app/`, components in `src/components/`, pages, auth and the database in `src/lib/` |
+| `tests/` | Vitest suites |
+| `scripts/` | Font vendoring, page import |
 | `skills/hatcher/` | Optional agent skill for the MCP endpoint (setup in `docs/mcp.md`) |
 | `docs/` | Concise, human-facing governance: conventions, architecture, decisions. Start at `docs/README.md`. |
 | `docs/specs/`, `docs/plans/` | Agent working documents. Gitignored; do not link them as canonical. |
 | `.envrc.example` | Every environment variable, with a comment. |
 | `.worktrees/` | One git worktree per branch. Gitignored. |
 
-**Content is never committed:** pages are service data in `CONTENT_DIR` (default `./content`, gitignored). Tests use the synthetic pages in `tests/fixtures/`.
+**User data is never committed:** pages and accounts are service data in `DATA_DIR` (default `./data`, gitignored). Tests make their own in a temporary directory.
 
 **Ephemeral outputs are never committed:** caches, local DBs, uploads, agent scratch. Keep them gitignored.
 
@@ -39,7 +37,6 @@ npm test                        # run all tests
 npx vitest run tests/<file>     # run a single test
 npm run lint                    # lint + typecheck
 npm run dev                     # run the app locally (http://localhost:3000)
-npm run validate:content        # check every content file
 ```
 
 ## Environment

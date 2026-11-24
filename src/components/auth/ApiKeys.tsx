@@ -1,17 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { KeyAccess, KeySummary } from '@/lib/api-keys';
+import type { KeySummary } from '@/lib/api-keys';
 
+type KeyAccess = 'read' | 'write';
+const ALLOWED: KeyAccess[] = ['read', 'write'];
 const ACCESS_LABEL: Record<KeyAccess, string> = {
-  read: 'Read published pages',
-  write: 'Read and write drafts',
-  publish: 'Read, write and publish',
+  read: 'Read your pages',
+  write: 'Read and write your pages',
 };
 
 const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
-export function ApiKeys({ allowed, mcpUrl }: { allowed: KeyAccess[]; mcpUrl: string }) {
+export function ApiKeys({ mcpUrl }: { mcpUrl: string }) {
+  const allowed = ALLOWED;
   const [keys, setKeys] = useState<KeySummary[] | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

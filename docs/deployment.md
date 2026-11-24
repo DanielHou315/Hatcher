@@ -1,38 +1,42 @@
 # Deployment
 
-`docker compose up -d` runs the reading site. Pages written into the live content directory show
-up without a restart.
+`docker compose up -d` runs Hatcher. It needs `BETTER_AUTH_SECRET` and one directory for data.
 
 ## Layout
 
-Live data lives outside the repo:
-
 ```
-~/Databases/hatcher/
-  content/     MDX the site serves (mounted read-only)
-  database/    progress.db (SQLite)
+~/Databases/hatcher/database/     DATA_DIR: auth.db, hatcher.db, pages/
 ```
 
-Content is service data only; the repo holds no pages. Back up `~/Databases/hatcher/` as a whole.
+Back it up as a whole. The repo holds no data.
 
 ## Environment
 
-Copy `.envrc.example` to `.envrc` and `direnv allow`; every variable is documented there. Without
-the variables, compose falls back to `./content` and `./data`. `docker compose config` prints
-resolved values, secrets included, so do not paste its output anywhere.
+Copy `.envrc.example` to `.envrc` and `direnv allow`; every variable is documented there. The
+essentials:
+
+- `BETTER_AUTH_SECRET`: `openssl rand -base64 32`. It signs sessions and frame tokens and encrypts the
+  SMTP password; changing it signs everyone out.
+- `BETTER_AUTH_URL`: the URL people open, e.g. `https://hatcher.example.com`. Sign-in only works from
+  this origin, and email links point at it.
+- `HATCHER_ADMIN_EMAILS`: your email, so you can register as the first admin.
+
+`docker compose config` prints resolved values, secrets included, so do not paste its output
+anywhere.
 
 ## First start
 
-```sh
-npm run docker:up        # bash scripts/init-dirs.sh && docker compose up -d --build
-```
+1. `npm run docker:up`, then open the site and register with an email from `HATCHER_ADMIN_EMAILS`.
+2. At `/account`, turn on two-factor sign-in.
+3. At `/admin`, set up email (SMTP) if you want password resets, then choose who may register.
+   Registration starts closed.
+4. Create an API key at `/account` for your agents (`docs/mcp.md`).
 
-`scripts/init-dirs.sh` creates the directories so Docker does not create them as root.
+## Upgrading from 0.1
 
-## Publishing drafts
-
-Pages with `status: draft` are hidden from the public site; editors see them in the studio. To
-publish one, review it, set `status: ready` in `CONTENT_DIR`, and run `npm run validate:content`.
+0.2 replaces the reading library with private pages. Accounts and API keys carry over (keys with
+"publish" access become read-and-write). `CONTENT_DIR` and `progress.db` are no longer used; import
+an old HTML page with `npm run import-page` (see `scripts/import-page.ts`), then delete them.
 
 ## Releases
 

@@ -8,7 +8,7 @@ export function SignOutButton() {
   return (
     <button
       type="button"
-      className="label cursor-pointer hover:text-ink"
+      className="label cursor-pointer whitespace-nowrap hover:text-ink"
       onClick={async () => {
         await authClient.signOut();
         router.push('/');

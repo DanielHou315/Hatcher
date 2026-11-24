@@ -3,6 +3,32 @@
 All notable changes to Hatcher. Versions follow [semantic versioning](https://semver.org/);
 releases are published as `ghcr.io/danielhou315/hatcher:<version>` (see docs/deployment.md).
 
+## [0.2.0] - 2026-11-23
+
+Hatcher becomes a self-hosted, shareable alternative to Claude artifacts. This replaces the reading
+library; see "Upgrading from 0.1" in docs/deployment.md.
+
+- **Pages** are HTML with any files they need, private to their owner, shown full-window in a
+  sandboxed frame. Create them by pasting or uploading (files or a whole folder) at `/new`, or from
+  agents over MCP. The viewer reloads when a new version arrives.
+- **Libraries from CDNs.** Pages may load scripts, styles, fonts and data from CDN hosts an admin
+  allows (jsDelivr, cdnjs, unpkg, esm.sh, Tailwind, jQuery and Google Fonts by default), and still
+  cannot send data anywhere else.
+- **Sharing** per page with other accounts, to view or to edit. Owners alone rename, share and delete.
+- **Versions.** Every change is a new, immutable version; view any of them, or restore one as a new
+  version. Changes name the version they start from, so nobody overwrites unseen work.
+- **Accounts.** Registration is open, limited to email domains, or closed, set at `/admin`.
+  Authenticator-app two-factor sign-in with backup codes. Password reset, email confirmation,
+  welcome and share emails through an SMTP server configured at `/admin` (password stored
+  encrypted). Admins manage users (add, invite by email, suspend, delete, set a password) but
+  cannot impersonate anyone or open pages not shared with them.
+- **MCP tools** for the new model: `list_pages`, `get_page`, `read_file`, `list_versions`,
+  `create_page`, `update_page`, `restore_version`. API keys are read or read-and-write and act as
+  their owner.
+- `npm run import-page` imports an HTML file or folder from disk.
+- Removed: the public site and `HATCHER_MODE`, concept/paper/roadmap pages, MDX, tags, levels,
+  reading progress, `CONTENT_DIR` and live reload from disk.
+
 ## [0.1.0] - 2026-11-18
 
 First release.

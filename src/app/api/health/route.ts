@@ -1,22 +1,12 @@
-import fs from 'node:fs';
-import { contentDir, loadEntries } from '@/lib/content';
-import { store } from '@/lib/db';
-import { hatcherMode, isStudio } from '@/lib/settings';
+import { getDb } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
+/** Liveness for Docker: the database opens and answers. Says nothing about accounts or pages. */
 export function GET() {
   try {
-    const dir = contentDir();
-    const entries = loadEntries(dir);
-    if (isStudio()) store(); // the public site has no database
-    return Response.json({
-      ok: true,
-      mode: hatcherMode(),
-      contentDirExists: fs.existsSync(dir),
-      entries: entries.length,
-      invalid: entries.filter((e) => e.error).length,
-    });
+    getDb().db.prepare('SELECT 1').get();
+    return Response.json({ ok: true });
   } catch (err) {
     return Response.json({ ok: false, error: (err as Error).message }, { status: 503 });
   }

@@ -13,11 +13,11 @@ export function UserMenu({ viewer }: { viewer: Viewer | null }) {
   return (
     <>
       {viewer.role === 'admin' && (
-        <Link href="/admin/users" className="label no-underline hover:text-ink">
-          Users
+        <Link href="/admin" className="label no-underline hover:text-ink">
+          Admin
         </Link>
       )}
-      <Link href="/account" className="label no-underline hover:text-ink" title={viewer.email}>
+      <Link href="/account" className="label max-w-[9rem] truncate no-underline hover:text-ink" title={viewer.email}>
         {viewer.name || 'Account'}
       </Link>
       <SignOutButton />

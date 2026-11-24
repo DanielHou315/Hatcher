@@ -1,57 +1,42 @@
 # Hatcher
 
-The mathematics behind the papers, one page a day. Named after the Hatcher Graduate Library at the
-University of Michigan.
+A self-hosted, shareable alternative to Claude artifacts. Agents publish HTML pages to it over MCP,
+or you paste and upload them; each page is private until you share it with other accounts, to view
+or to edit, and every change is kept as a version. Everything lives on your server: two SQLite
+files and a folder.
 
-Hatcher is a small personal reading site. Each page is one MDX or HTML file (HTML pages and
-interactive figures run sandboxed): a concept (one mathematical
-idea taught from undergraduate engineering math up), a paper (decomposed into its theorems and their
-prerequisites), or a roadmap (an ordered path through both). The site tracks reading progress, keeps
-a daily streak, and suggests the next page from the primary roadmap.
+Named after the Hatcher Graduate Library at the University of Michigan.
+
+- **Pages** are HTML with any files they need, shown full-window in a sandboxed frame. They may load
+  libraries from CDN hosts an admin allows (jsDelivr, cdnjs, unpkg, esm.sh, Google Fonts… by
+  default) and nothing else. See [docs/pages.md](docs/pages.md).
+- **Sharing**: per page, with other accounts, view or edit.
+- **Versions**: every change is a new version; view or restore any of them.
+- **Accounts**: registration open, limited to email domains, or closed; authenticator-app two-factor
+  sign-in; password reset, confirmation and share emails through your SMTP server; an admin page
+  for users and settings. Admins cannot open pages that are not shared with them.
+- **Agents**: an MCP endpoint with per-user API keys ([docs/mcp.md](docs/mcp.md)), and an optional
+  [skill](skills/hatcher/SKILL.md).
 
 ## Quick start
 
 ```sh
-cp .envrc.example .envrc && direnv allow   # CONTENT_DIR, DATA_DIR, PORT, ... (see the file)
+cp .envrc.example .envrc && direnv allow   # DATA_DIR, BETTER_AUTH_SECRET, HATCHER_ADMIN_EMAILS, ...
 npm install
-npm run dev                                # http://localhost:3000
+npm run dev                                # http://localhost:3000, then register as the admin
 ```
 
-Other scripts: `npm run build`, `npm start`, `npm test`, `npm run lint`, and
-`npm run validate:content`, which parses and compiles every content file and exits non-zero on any
-error (run it after writing content).
+Other scripts: `npm run build`, `npm start`, `npm test`, `npm run lint`, and `npm run import-page`
+to import an HTML file or folder from disk.
 
 ## Docker
 
 ```sh
-npm run docker:up     # create the data dirs, then docker compose up -d --build
+npm run docker:up     # docker compose up -d --build
 npm run docker:logs
 npm run docker:down
 ```
 
-Live data lives outside the repo, under `~/Databases/hatcher/` (`content/`, `database/`), set by
-the variables in `.envrc.example`. Content is service data and is not part of this repo. Pages
-written into the live content directory show up in the open browser within about two seconds, with
-no rebuild. See
-[docs/deployment.md](docs/deployment.md) for setup and publishing drafts.
-
-## Content
-
-Pages live in `$CONTENT_DIR/concepts/`, `papers/`, and `roadmaps/` (default `./content`, gitignored);
-none are committed here. The frontmatter,
-body skeleton, and available components (`<Theorem>`, `<Proof>`, `<Example>`, `<Exercise>`, ...)
-are specified in [docs/content-format.md](docs/content-format.md). A roadmap with `primary: true`
-drives the "Next up" suggestion and the prev/next links; otherwise the first roadmap by title does.
-
-## Progress
-
-Reading progress, notes, and a reading log are stored in SQLite at `$DATA_DIR/progress.db`
-(default `./data`, gitignored; `~/Databases/hatcher/database` with the example `.envrc`), using Node's built-in `node:sqlite`. Delete the file to start over.
-
-## Agents
-
-The studio serves an MCP endpoint at `/api/mcp` for agents with API keys from `/account`: read,
-validate, write and publish pages. [docs/mcp.md](docs/mcp.md) has the config for Claude Code,
-Codex and Cursor; [skills/hatcher](skills/hatcher/SKILL.md) is an optional workflow skill.
-
-See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+Releases are published as `ghcr.io/danielhou315/hatcher:<version>`. See
+[docs/deployment.md](docs/deployment.md) for setup and [docs/architecture.md](docs/architecture.md)
+for how it works.

@@ -1,11 +1,11 @@
-// Short-lived capability tokens for sandboxed content that is not public (drafts, or every page
-// on a private site). Sandboxed frames cannot send the session cookie, so the page that renders a
-// frame signs its URL path instead: /c/~<token>/<kind dir>/<slug>/...
+// Short-lived capability tokens for page content. Sandboxed frames cannot send the session cookie,
+// so the viewer page checks access and signs the frame's URL instead: /c/~<token>/<page id>/<version>/...
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
-const HOUR = 3600_000;
-/** Tokens last 6 to 7 hours; expiry is rounded to the hour so frame URLs stay stable across renders. */
-const LIFETIME = 6 * HOUR;
+const MINUTE = 60_000;
+const STEP = 10 * MINUTE;
+/** Tokens last 2 hours plus up to 10 minutes; expiry is rounded so frame URLs stay stable across renders. */
+const LIFETIME = 120 * MINUTE;
 
 function key(secret: string): Buffer {
   return createHash('sha256').update(`hatcher-content-token:${secret}`).digest();
@@ -15,9 +15,9 @@ function mac(secret: string, scope: string, exp: number): string {
   return createHmac('sha256', key(secret)).update(`${scope}:${exp}`).digest('base64url');
 }
 
-/** `scope` is `<kind dir>/<slug>`. */
+/** `scope` is the page id. */
 export function signContentToken(secret: string, scope: string, now = Date.now()): string {
-  const exp = Math.ceil(now / HOUR) * HOUR + LIFETIME;
+  const exp = Math.ceil(now / STEP) * STEP + LIFETIME;
   return `${exp.toString(36)}.${mac(secret, scope, exp)}`;
 }
 
@@ -25,7 +25,7 @@ export function verifyContentToken(secret: string, scope: string, token: string,
   const [expPart, sig] = token.split('.');
   if (!expPart || !sig) return false;
   const exp = parseInt(expPart, 36);
-  if (!Number.isFinite(exp) || exp < now) return false;
+  if (!Number.isFinite(exp) || exp < now || exp > now + LIFETIME + STEP) return false;
   const expected = Buffer.from(mac(secret, scope, exp));
   const given = Buffer.from(sig);
   return expected.length === given.length && timingSafeEqual(expected, given);
